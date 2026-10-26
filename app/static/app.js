@@ -298,6 +298,8 @@ async function editor(id, params = new URLSearchParams()) {
     a.classList.toggle("active", a.getAttribute("href") === KINDS[kind].hash));
   const settings = await api("GET", "/settings").catch(() => ({ values: {} }));
   const defaultSchedule = settings.values.default_schedule || "";
+  // Image files picked in the form; uploaded (or removed) when the collection is saved.
+  const images = { poster: { file: null, remove: false }, art: { file: null, remove: false } };
 
   const libOptions = libs.map((l) =>
     `<option value="${esc(l.id)}" data-title="${esc(l.title)}" data-type="${esc(l.type)}" ${l.id === cfg.section_id || (!cfg.section_id && l.title === cfg.library) ? "selected" : ""}>${esc(l.title)} (${l.type === "show" ? "TV" : "Movies"})</option>`).join("");
@@ -384,12 +386,11 @@ async function editor(id, params = new URLSearchParams()) {
 
     <div class="card">
       <h2>Artwork</h2>
-      ${id ? "" : `<p class="hint">Save the collection first to upload image files. Image URLs work right away.</p>`}
       <div class="images">
         ${imageSlot(id, cfg, "poster", "Poster (2:3)")}
         ${imageSlot(id, cfg, "art", "Background (16:9)")}
       </div>
-      <p class="hint">An uploaded file takes priority over a URL. Collections built from a TMDB collection use the TMDB poster when nothing else is set.</p>
+      <p class="hint">Chosen files are uploaded when you save. An image file takes priority over a URL. Collections built from a TMDB collection use the TMDB poster when nothing else is set.</p>
     </div>`;
 
   const sourcesEl = view.querySelector("#sources");
@@ -448,6 +449,7 @@ async function editor(id, params = new URLSearchParams()) {
     const saved = id
       ? await api("PUT", `/collections/${id}`, body)
       : await api("POST", `/collections${link ? `?plex_rating_key=${encodeURIComponent(link)}` : ""}`, body);
+    await applyImages(saved.id, images);   // before any sync, so the first sync uses them
     state.plexColls = null;
     toast("Saved");
     return saved;
@@ -493,19 +495,49 @@ async function editor(id, params = new URLSearchParams()) {
 
   for (const kind of ["poster", "art"]) {
     const input = view.querySelector(`#${kind}-file`);
-    if (input) input.onchange = () => guard(async () => {
-      if (!input.files.length) return;
-      const form = new FormData();
-      form.append("file", input.files[0]);
-      await api("POST", `/collections/${id}/image/${kind}`, form);
-      toast(`${kind === "poster" ? "Poster" : "Background"} uploaded — it is applied on the next sync`);
-      route();
-    });
     const del = view.querySelector(`#${kind}-del`);
-    if (del) del.onclick = () => guard(async () => {
-      await api("DELETE", `/collections/${id}/image/${kind}`);
-      route();
-    });
+    const urlInput = view.querySelector(`#${kind}-url`);
+    input.onchange = () => {
+      const file = input.files[0];
+      if (!file) return;
+      if (!IMAGE_TYPES.includes(file.type)) { input.value = ""; return toast("Choose a JPEG, PNG or WebP image", true); }
+      if (file.size > MAX_IMAGE_BYTES) { input.value = ""; return toast("Images must be 10 MB or smaller", true); }
+      images[kind] = { file, remove: false };
+      showImage(kind, URL.createObjectURL(file));
+      del.hidden = false;
+    };
+    del.onclick = () => {
+      input.value = "";
+      images[kind] = { file: null, remove: Boolean(cfg[`${kind}_file`]) };
+      showImage(kind, urlInput.value.trim());
+      del.hidden = true;
+    };
+    urlInput.oninput = () => {
+      if (!images[kind].file && (images[kind].remove || !cfg[`${kind}_file`])) showImage(kind, urlInput.value.trim());
+    };
+  }
+
+  function showImage(kind, src) {
+    const box = view.querySelector(`#${kind}-preview`);
+    box.innerHTML = src ? `<img src="${esc(src)}" alt="" referrerpolicy="no-referrer">` : "▦";
+  }
+}
+
+const IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp"];
+const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
+
+// Upload or remove images chosen in the editor; runs after the collection is saved.
+async function applyImages(collectionId, images) {
+  for (const kind of ["poster", "art"]) {
+    const { file, remove } = images[kind];
+    if (file) {
+      const form = new FormData();
+      form.append("file", file);
+      await api("POST", `/collections/${collectionId}/image/${kind}`, form);
+    } else if (remove) {
+      await api("DELETE", `/collections/${collectionId}/image/${kind}`);
+    }
+    images[kind] = { file: null, remove: false };
   }
 }
 
@@ -517,9 +549,9 @@ function imageSlot(id, cfg, kind, title) {
   return `
     <div class="image-slot">
       <label>${title}</label>
-      ${src ? `<img class="${cls}" src="${esc(src)}" alt="" referrerpolicy="no-referrer">` : `<div class="${cls} poster" style="width:100%;height:auto">▦</div>`}
-      ${id ? `<input type="file" id="${kind}-file" accept="image/jpeg,image/png,image/webp">` : ""}
-      ${file ? `<button type="button" class="small danger" id="${kind}-del">Remove uploaded file</button>` : ""}
+      <div id="${kind}-preview" class="${cls} image-box">${src ? `<img src="${esc(src)}" alt="" referrerpolicy="no-referrer">` : "▦"}</div>
+      <input type="file" id="${kind}-file" accept="image/jpeg,image/png,image/webp">
+      <button type="button" class="small danger" id="${kind}-del" ${file ? "" : "hidden"}>Remove image file</button>
       <input type="url" id="${kind}-url" value="${esc(url)}" placeholder="…or image URL">
     </div>`;
 }

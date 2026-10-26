@@ -351,3 +351,10 @@ def test_paging_stops_when_endpoint_ignores_offsets():
     plex = Plex("http://plex", "t", client=httpx.Client(transport=httpx.MockTransport(handler)))
     assert [m["ratingKey"] for m in plex._paged("/x")] == ["1", "2"]
     assert len(calls) == 2
+
+
+def test_index_html_versions_assets():
+    from app import config, main
+    html = main._index_html()
+    assert f"/static/app.js?v={config.VERSION}" in html
+    assert f"/static/style.css?v={config.VERSION}" in html

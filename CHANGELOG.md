@@ -3,6 +3,12 @@
 The version shown in the web UI's sidebar matches these entries. Each
 release is also published as `ghcr.io/gaterunner341/curatarr:<version>`.
 
+## 0.3.3
+
+- You can choose a poster and background image while creating a collection, not only after it's saved. Chosen images show a preview right away and upload when you save, before the first sync runs.
+- Choosing or removing an image on an existing collection no longer reloads the page and throws away unsaved edits. The change is applied when you save.
+- After an upgrade, the browser always loads the new version's interface instead of a cached old one.
+
 ## 0.3.2
 
 - Syncs log each step with timings: library size, matched and missing counts, items added and removed, reorder progress, and artwork and settings. A long-running sync now shows what it's doing.

@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, Request
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from . import api, config, db, logs, scheduler
@@ -88,11 +88,19 @@ app.include_router(api.router)
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 
+def _index_html() -> str:
+    """index.html with versioned asset URLs, so an upgrade never runs a cached old UI."""
+    html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+    for asset in ("app.js", "style.css"):
+        html = html.replace(f"/static/{asset}\"", f"/static/{asset}?v={config.VERSION}\"")
+    return html
+
+
 @app.get("/{path:path}", include_in_schema=False)
 def spa(path: str):
     if path.startswith("api/"):
         return Response(status_code=404)
-    return FileResponse(STATIC_DIR / "index.html")
+    return HTMLResponse(_index_html(), headers={"Cache-Control": "no-cache"})
 
 
 def run() -> None:
