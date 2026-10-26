@@ -70,14 +70,16 @@ const routes = [
   [/^#\/logs$/, logsPage],
   [/^#\/settings$/, settings],
   [/^#\/import$/, importExport],
-  [/^.*$/, collections],
+  [/^#\/movies$/, () => collections("movie")],
+  [/^#\/tv$/, () => collections("show")],
+  [/^.*$/, () => location.replace("#/movies")],   // old #/collections links land here
 ];
 
 let refreshTimer = null;
 
 async function route() {
   clearInterval(refreshTimer);
-  const hash = location.hash || "#/collections";
+  const hash = location.hash || "#/movies";
   document.querySelectorAll("[data-nav]").forEach((a) =>
     a.classList.toggle("active", hash.startsWith(`#/${a.dataset.nav}`)));
   document.getElementById("sidebar").classList.remove("open");
@@ -116,9 +118,26 @@ function sourceSummary(cfg) {
   return cfg.sources.map((s) => labels[s.type] || s.type).join(", ");
 }
 
-async function collections() {
+const KINDS = {
+  movie: { title: "Movie collections", hash: "#/movies", noun: "movie" },
+  show: { title: "TV show collections", hash: "#/tv", noun: "TV" },
+};
+
+// "movie" or "show" for a Curatarr collection, from its Plex library.
+function collectionKind(cfg, libs) {
+  const lib = libs.find((l) => l.id === String(cfg.section_id)) || libs.find((l) => l.title === cfg.library);
+  return lib?.type || null;
+}
+
+async function collections(kind) {
   await catalog();
-  const rows = await api("GET", "/collections");
+  const [allRows, libs] = await Promise.all([
+    api("GET", "/collections"),
+    libraries().catch(() => null),
+  ]);
+  // Without Plex the library types are unknown, so show everything rather than hide collections.
+  const rows = libs ? allRows.filter((r) => collectionKind(r.config, libs) === kind) : allRows;
+  const meta = KINDS[kind];
   const cards = rows.map((r) => {
     const cfg = r.config;
     const poster = cfg.poster_file
@@ -144,27 +163,29 @@ async function collections() {
 
   view.innerHTML = `
     <div class="page-head">
-      <h1>Collections</h1>
+      <h1>${meta.title}</h1>
       <div class="actions">
         ${rows.length ? `<button id="runAll">Sync all</button>` : ""}
-        <a class="btn primary" href="#/collections/new">+ New collection</a>
+        <a class="btn primary" href="#/collections/new?type=${kind}">+ New collection</a>
       </div>
     </div>
+    ${libs ? "" : `<p class="hint">Plex isn't reachable, so collections from every library are shown.</p>`}
     ${rows.length ? `<div class="collections">${cards}</div>` : `
       <div class="card empty">
-        <p>No collections yet.</p>
-        <p class="small">Create a collection from a TMDB, Trakt, MDBList or IMDb list, or use <strong>Sync with a list</strong> on one of your existing Plex collections below.
+        <p>No ${meta.noun} collections yet.</p>
+        <p class="small">Create one from a TMDB, Trakt, MDBList or IMDb list, or use <strong>Sync with a list</strong> on one of your existing Plex collections below.
           Plex must be connected in <a href="#/settings">Settings</a> first.</p>
-        <a class="btn primary" href="#/collections/new">Create your first collection</a>
+        <a class="btn primary" href="#/collections/new?type=${kind}">Create a ${meta.noun} collection</a>
       </div>`}
     <section id="plexExisting" style="margin-top:32px"></section>`;
 
-  existingPlexCollections(view.querySelector("#plexExisting"));
+  existingPlexCollections(view.querySelector("#plexExisting"), kind);
 
   view.querySelector("#runAll")?.addEventListener("click", () => guard(async () => {
-    const r = await api("POST", "/collections/run-all");
-    if (!r.queued) return toast("No enabled collections to sync", true);
-    toast(`Syncing ${r.queued} collection(s)`);
+    const enabled = rows.filter((r) => r.config.enabled && !r.running);
+    if (!enabled.length) return toast("No enabled collections to sync", true);
+    for (const r of enabled) await api("POST", `/collections/${r.id}/run`);
+    toast(`Syncing ${enabled.length} collection(s)`);
     setTimeout(route, 1500);
   }));
   view.querySelectorAll("[data-run]").forEach((b) => b.onclick = () => guard(async () => {
@@ -185,7 +206,7 @@ async function collections() {
 
 // Collections that exist in Plex but aren't managed by Curatarr yet. Cached
 // briefly so the auto-refresh while a sync runs doesn't hammer Plex.
-async function existingPlexCollections(el) {
+async function existingPlexCollections(el, kind) {
   const fresh = state.plexColls && Date.now() - state.plexColls.at < 60000;
   let items;
   try {
@@ -195,7 +216,7 @@ async function existingPlexCollections(el) {
     el.innerHTML = `<h2>Existing Plex collections</h2><p class="muted small">Could not load collections from Plex: ${esc(err.message)}</p>`;
     return;
   }
-  const unmanaged = items.filter((c) => !c.managed_id);
+  const unmanaged = items.filter((c) => !c.managed_id && c.section_type === kind);
   if (!unmanaged.length) { el.innerHTML = ""; return; }
   const byLibrary = {};
   unmanaged.forEach((c) => (byLibrary[c.section_title] ||= []).push(c));
@@ -264,11 +285,22 @@ async function editor(id, params = new URLSearchParams()) {
     Object.assign(cfg, { name: params.get("title") || "", section_id: params.get("section") || "",
                          sync_mode: "append" });
   }
+  // "+ New collection" on the Movies / TV page starts on a library of that type.
+  if (!id && !link && params.get("type")) {
+    cfg.section_id = libs.find((l) => l.type === params.get("type"))?.id || "";
+  }
+  const kind = collectionKind(cfg, libs) || params.get("type") || "movie";
+  const backHash = () => {
+    const opt = view.querySelector("#f-lib")?.selectedOptions[0];
+    return KINDS[opt?.dataset.type || kind].hash;
+  };
+  document.querySelectorAll("[data-nav]").forEach((a) =>
+    a.classList.toggle("active", a.getAttribute("href") === KINDS[kind].hash));
   const settings = await api("GET", "/settings").catch(() => ({ values: {} }));
   const defaultSchedule = settings.values.default_schedule || "";
 
   const libOptions = libs.map((l) =>
-    `<option value="${esc(l.id)}" data-title="${esc(l.title)}" ${l.id === cfg.section_id || (!cfg.section_id && l.title === cfg.library) ? "selected" : ""}>${esc(l.title)} (${l.type === "show" ? "TV" : "Movies"})</option>`).join("");
+    `<option value="${esc(l.id)}" data-title="${esc(l.title)}" data-type="${esc(l.type)}" ${l.id === cfg.section_id || (!cfg.section_id && l.title === cfg.library) ? "selected" : ""}>${esc(l.title)} (${l.type === "show" ? "TV" : "Movies"})</option>`).join("");
 
   view.innerHTML = `
     <div class="page-head">
@@ -429,7 +461,7 @@ async function editor(id, params = new URLSearchParams()) {
     const saved = await save();
     await api("POST", `/collections/${saved.id}/run`);
     toast("Sync started");
-    location.hash = "#/collections";
+    location.hash = backHash();
   });
   view.querySelector("#dryRun")?.addEventListener("click", () => guard(async () => {
     await save();
