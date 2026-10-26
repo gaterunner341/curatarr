@@ -64,7 +64,7 @@ async function catalog() {
 // ---------- router ----------
 
 const routes = [
-  [/^#\/collections\/new$/, () => editor(null)],
+  [/^#\/collections\/new(?:\?(.*))?$/, (m) => editor(null, new URLSearchParams(m[1] || ""))],
   [/^#\/collections\/(\d+)$/, (m) => editor(Number(m[1]))],
   [/^#\/history$/, history],
   [/^#\/logs$/, logsPage],
@@ -153,9 +153,13 @@ async function collections() {
     ${rows.length ? `<div class="collections">${cards}</div>` : `
       <div class="card empty">
         <p>No collections yet.</p>
-        <p class="small">Connect Plex in <a href="#/settings">Settings</a>, then create a collection from an IMDb, TMDB, Trakt or MDBList list.</p>
+        <p class="small">Create a collection from a TMDB, Trakt, MDBList or IMDb list, or use <strong>Sync with a list</strong> on one of your existing Plex collections below.
+          Plex must be connected in <a href="#/settings">Settings</a> first.</p>
         <a class="btn primary" href="#/collections/new">Create your first collection</a>
-      </div>`}`;
+      </div>`}
+    <section id="plexExisting" style="margin-top:32px"></section>`;
+
+  existingPlexCollections(view.querySelector("#plexExisting"));
 
   view.querySelector("#runAll")?.addEventListener("click", () => guard(async () => {
     const r = await api("POST", "/collections/run-all");
@@ -177,6 +181,43 @@ async function collections() {
     route();
   }));
   if (rows.some((r) => r.running)) refreshTimer = setInterval(route, 4000);
+}
+
+// Collections that exist in Plex but aren't managed by Curatarr yet. Cached
+// briefly so the auto-refresh while a sync runs doesn't hammer Plex.
+async function existingPlexCollections(el) {
+  const fresh = state.plexColls && Date.now() - state.plexColls.at < 60000;
+  let items;
+  try {
+    items = fresh ? state.plexColls.items : await api("GET", "/plex/collections");
+    state.plexColls = { at: fresh ? state.plexColls.at : Date.now(), items };
+  } catch (err) {
+    el.innerHTML = `<h2>Existing Plex collections</h2><p class="muted small">Could not load collections from Plex: ${esc(err.message)}</p>`;
+    return;
+  }
+  const unmanaged = items.filter((c) => !c.managed_id);
+  if (!unmanaged.length) { el.innerHTML = ""; return; }
+  const byLibrary = {};
+  unmanaged.forEach((c) => (byLibrary[c.section_title] ||= []).push(c));
+  el.innerHTML = `
+    <div class="page-head" style="margin-bottom:6px"><h2 style="margin:0">Existing Plex collections</h2></div>
+    <p class="hint" style="margin-top:0">Collections already in Plex. Link one to a list and Curatarr keeps it in sync from then on.</p>
+    ${Object.entries(byLibrary).map(([lib, colls]) => `
+      <h3 class="lib-head">${esc(lib)} <span class="muted small">${colls.length}</span></h3>
+      <div class="collections">${colls.map((c) => `
+        <div class="coll existing">
+          ${c.thumb ? `<img class="poster" loading="lazy" src="/api/plex/image?path=${encodeURIComponent(c.thumb)}" alt="">` : `<div class="poster">▦</div>`}
+          <div class="coll-body">
+            <div class="coll-title" title="${esc(c.title)}">${esc(c.title)}</div>
+            <div class="small muted">${esc(lib)} · ${c.childCount} item${c.childCount === 1 ? "" : "s"}</div>
+            ${c.smart ? `<div class="small"><span class="badge">smart</span> <span class="muted">Plex keeps this one updated itself</span></div>` : ""}
+            <div class="coll-actions">
+              ${c.smart ? "" : `<a class="btn small" style="padding:4px 10px;font-size:.8rem"
+                href="#/collections/new?${new URLSearchParams({ link: c.ratingKey, section: c.section_id, title: c.title, items: c.childCount })}">Sync with a list</a>`}
+            </div>
+          </div>
+        </div>`).join("")}
+      </div>`).join("")}`;
 }
 
 // ---------- collection editor ----------
@@ -208,7 +249,7 @@ function sourceRow(src, idx) {
     </div>`;
 }
 
-async function editor(id) {
+async function editor(id, params = new URLSearchParams()) {
   await catalog();
   const [row, libs] = await Promise.all([
     id ? api("GET", `/collections/${id}`) : null,
@@ -216,6 +257,13 @@ async function editor(id) {
   ]);
   const cfg = { ...DEFAULTS, ...(row?.config || {}) };
   cfg.sources = cfg.sources.map((s) => ({ ...s }));
+  // Linking an existing Plex collection: keep its name and library, and default
+  // to append so the titles already in it are not removed.
+  const link = !id && params.get("link");
+  if (link) {
+    Object.assign(cfg, { name: params.get("title") || "", section_id: params.get("section") || "",
+                         sync_mode: "append" });
+  }
   const settings = await api("GET", "/settings").catch(() => ({ values: {} }));
   const defaultSchedule = settings.values.default_schedule || "";
 
@@ -224,7 +272,7 @@ async function editor(id) {
 
   view.innerHTML = `
     <div class="page-head">
-      <h1>${id ? esc(cfg.name) : "New collection"}</h1>
+      <h1>${id ? esc(cfg.name) : link ? `Sync “${esc(cfg.name)}”` : "New collection"}</h1>
       <div class="actions">
         ${id ? `<button id="dryRun">Dry run</button>` : ""}
         <button id="save">Save</button>
@@ -232,12 +280,18 @@ async function editor(id) {
       </div>
     </div>
 
+    ${link ? `<div class="notice">
+      Linking to the existing Plex collection <strong>${esc(cfg.name)}</strong> (${esc(params.get("items") || "0")} items).
+      Add the lists it should follow below. <strong>Append</strong> mode is selected so the titles already in it stay;
+      switch to <strong>Sync</strong> only if you want Curatarr to remove anything that isn't on your lists.
+    </div>` : ""}
+
     <div class="card">
       <h2>Basics</h2>
       <div class="grid">
-        <div><label for="f-name">Collection name</label><input type="text" id="f-name" value="${esc(cfg.name)}" placeholder="IMDb Top 250"></div>
+        <div><label for="f-name">Collection name</label><input type="text" id="f-name" value="${esc(cfg.name)}" placeholder="IMDb Top 250" ${link ? "readonly" : ""}></div>
         <div><label for="f-lib">Plex library</label>
-          <select id="f-lib">${libOptions || `<option value="${esc(cfg.section_id)}" data-title="${esc(cfg.library)}">${esc(cfg.library || "Connect Plex first")}</option>`}</select></div>
+          <select id="f-lib" ${link ? "disabled" : ""}>${libOptions || `<option value="${esc(cfg.section_id)}" data-title="${esc(cfg.library)}">${esc(cfg.library || "Connect Plex first")}</option>`}</select></div>
         <div><label class="check"><input type="checkbox" id="f-enabled" ${cfg.enabled ? "checked" : ""}> Enabled (sync on schedule)</label></div>
       </div>
     </div>
@@ -359,7 +413,10 @@ async function editor(id) {
 
   const save = async () => {
     const body = collect();
-    const saved = id ? await api("PUT", `/collections/${id}`, body) : await api("POST", "/collections", body);
+    const saved = id
+      ? await api("PUT", `/collections/${id}`, body)
+      : await api("POST", `/collections${link ? `?plex_rating_key=${encodeURIComponent(link)}` : ""}`, body);
+    state.plexColls = null;
     toast("Saved");
     return saved;
   };

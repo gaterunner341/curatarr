@@ -172,6 +172,38 @@ def plex_collections(section_id: str):
             raise HTTPException(502, str(exc))
 
 
+@router.get("/plex/collections")
+def plex_all_collections():
+    """Every collection in Plex, marked with the Curatarr collection that manages it (if any)."""
+    rows = db.list_collections()
+    by_key = {str(r["plex_rating_key"]): r["id"] for r in rows if r.get("plex_rating_key")}
+    by_title = {(str(r["config"].get("section_id")), r["config"]["name"].strip().lower()): r["id"]
+                for r in rows}
+    result = []
+    with _plex() as plex:
+        try:
+            for section in plex.sections():
+                for coll in plex.collections(section["id"]):
+                    managed = by_key.get(coll["ratingKey"]) or by_title.get(
+                        (section["id"], (coll["title"] or "").strip().lower()))
+                    result.append({**coll, "section_id": section["id"],
+                                   "section_title": section["title"],
+                                   "section_type": section["type"], "managed_id": managed})
+        except PlexError as exc:
+            raise HTTPException(502, str(exc))
+    return result
+
+
+@router.get("/plex/image")
+def plex_image(path: str):
+    with _plex() as plex:
+        try:
+            data, content_type = plex.image(path)
+        except PlexError as exc:
+            raise HTTPException(404, str(exc))
+    return Response(data, media_type=content_type, headers={"Cache-Control": "max-age=3600"})
+
+
 @router.post("/plex/auth/pin")
 def plex_pin():
     try:
@@ -201,9 +233,12 @@ def list_collections():
 
 
 @router.post("/collections", status_code=201)
-def create_collection(cfg: dict = Body(...)):
+def create_collection(cfg: dict = Body(...), plex_rating_key: str = ""):
+    """Create a collection. ``plex_rating_key`` links it to an existing Plex collection."""
     model = _validate(cfg)
     collection_id = db.create_collection(model.model_dump())
+    if plex_rating_key:
+        db.update_collection_state(collection_id, plex_rating_key=plex_rating_key)
     scheduler.reload_jobs()
     return _collection_out(db.get_collection(collection_id))
 

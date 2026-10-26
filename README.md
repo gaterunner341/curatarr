@@ -16,6 +16,7 @@
 - **Artwork:** upload a poster or background image, or give an image URL. TMDB franchise posters are used automatically.
 - **Plex presentation:** summary, sort title, labels, collection mode (hide items or show items), and promotion to Library Recommended, your Home and Friends' Home
 - **Matching:** uses the IMDb, TMDB and TVDB IDs stored in Plex, for both new and legacy agents, with a title and year fallback
+- **Existing Plex collections:** listed below your Curatarr collections. Use **Sync with a list** on one to keep it updated from a list. Linked collections start in append mode, so nothing already in them is removed.
 - **Preview:** shows which titles are already in your library before you save
 - **Missing titles:** listed in the History page, and can be added to Radarr or Sonarr automatically
 - **Scheduling:** a global cron schedule or one per collection, plus "Sync now" and dry runs

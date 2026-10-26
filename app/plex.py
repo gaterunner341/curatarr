@@ -211,6 +211,18 @@ class Plex:
             for m in data.get("Metadata", [])
         ]
 
+    def image(self, path: str) -> tuple[bytes, str]:
+        """Fetch artwork (e.g. a collection thumb) so the browser never needs the token."""
+        if not path.startswith("/library/"):
+            raise PlexError("Only library artwork can be fetched")
+        try:
+            resp = self.http.get(self.url + path, headers={**self.headers, "Accept": "image/*"})
+        except httpx.HTTPError as exc:
+            raise PlexError(f"Could not reach Plex at {self.url}: {exc}") from exc
+        if resp.status_code >= 400:
+            raise PlexError(f"Plex returned HTTP {resp.status_code} for artwork")
+        return resp.content, resp.headers.get("content-type", "image/jpeg")
+
     def find_collection(self, section_id: str, title: str) -> str | None:
         wanted = title.strip().lower()
         for coll in self.collections(section_id):

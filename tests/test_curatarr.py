@@ -291,3 +291,15 @@ def test_tmdb_page_links_become_discover_queries():
     assert tmdb._page_query("https://www.themoviedb.org/network/213-netflix", "movie")[0] == "tv"
     with pytest.raises(SourceError, match="not a TMDB list"):
         tmdb.fetch_list("https://www.themoviedb.org/movie/603", ctx(handler, tmdb_api_key="k"), None)
+
+
+def test_linking_existing_collection_in_append_mode_keeps_its_items():
+    fake = FakePlex()
+    fake.collections["100"] = ["5", "6"]          # made in Plex, not by Curatarr
+    plex = plex_with(fake)
+    cfg = CollectionConfig(name="Best", library="Movies", sync_mode="append",
+                           sources=[Source(type="static", value="x")])
+    result = sync_collection(cfg, {"plex_rating_key": "100"}, plex, SECTION, refs_for(1, 5), {})
+    assert set(fake.collections["100"]) == {"1", "5", "6"}
+    assert (result.added, result.removed) == (1, 0)
+    assert not any(c.startswith("POST /library/collections") for c in fake.calls)
