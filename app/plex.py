@@ -21,6 +21,7 @@ COLLECTION_MODES = {"default": -1, "hide": 0, "hideItems": 1, "showItems": 2}
 COLLECTION_ORDERS = {"release": 0, "alpha": 1, "custom": 2}
 
 PAGE_SIZE = 500
+MAX_PAGES = 400        # 200,000 items; a safety stop, not a real limit
 BATCH_SIZE = 100
 
 _LEGACY_AGENTS = {
@@ -176,19 +177,26 @@ class Plex:
 
     def _paged(self, path: str, params: dict | None = None) -> list[dict]:
         items: list[dict] = []
+        seen: set[str] = set()
         start = 0
-        while True:
+        for _ in range(MAX_PAGES):
             page = self._request("GET", path, params={
                 **(params or {}),
                 "X-Plex-Container-Start": start,
                 "X-Plex-Container-Size": PAGE_SIZE,
             })
             batch = page.get("Metadata", [])
-            items.extend(batch)
+            # Some endpoints ignore paging and return everything (or the same page)
+            # every time; stop as soon as a page brings nothing new.
+            new = [m for m in batch if str(m.get("ratingKey")) not in seen]
+            seen.update(str(m.get("ratingKey")) for m in new)
+            items.extend(new)
             total = int(page.get("totalSize", len(items)))
             start += len(batch)
-            if not batch or start >= total:
+            if not new or start >= total:
                 return items
+        log.warning("Stopped paging %s after %d pages", path, MAX_PAGES)
+        return items
 
     def section_items(self, section_id: str, section_type: str) -> list[dict]:
         return self._paged(f"/library/sections/{section_id}/all", {

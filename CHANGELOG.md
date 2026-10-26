@@ -3,6 +3,13 @@
 The version shown in the web UI's sidebar matches these entries. Each
 release is also published as `ghcr.io/gaterunner341/curatarr:<version>`.
 
+## 0.3.2
+
+- Syncs log each step with timings: library size, matched and missing counts, items added and removed, reorder progress, and artwork and settings. A long-running sync now shows what it's doing.
+- Reordering moves only the items that are out of place, using far fewer Plex calls on big collections.
+- New collections are checked against Plex's actual order, then reordered if needed.
+- Plex paging stops if an endpoint keeps returning the same page, so a sync can't loop forever.
+
 ## 0.3.1
 
 - The default sync schedule is now every 6 hours (`0 */6 * * *`) instead of daily at 3 AM. Installs still on the old default switch over automatically; a custom schedule is left alone.

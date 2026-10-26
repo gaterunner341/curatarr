@@ -79,15 +79,39 @@ def reorder_moves(current: list[str], desired: list[str]) -> list[tuple[str, str
     present = set(current)
     target = [rk for rk in desired if rk in present]
     target += [rk for rk in current if rk not in set(target)]
-    working = list(current)
+    # Each move is a separate Plex call, so keep the longest run of items that are
+    # already in the right relative order and only move the rest.
+    position = {rk: i for i, rk in enumerate(target)}
+    keep = _longest_increasing([position[rk] for rk in current])
+    keep_items = {target[p] for p in keep}
     moves: list[tuple[str, str | None]] = []
     for i, rk in enumerate(target):
-        if working[i] != rk:
-            after = target[i - 1] if i else None
-            moves.append((rk, after))
-            working.remove(rk)
-            working.insert(i, rk)
+        if rk not in keep_items:
+            moves.append((rk, target[i - 1] if i else None))
     return moves
+
+
+def _longest_increasing(values: list[int]) -> set[int]:
+    """Values forming a longest strictly increasing subsequence (O(n log n))."""
+    import bisect
+    tails: list[int] = []        # smallest tail value for each length
+    tail_idx: list[int] = []     # index in ``values`` of that tail
+    prev = [-1] * len(values)
+    for i, v in enumerate(values):
+        pos = bisect.bisect_left(tails, v)
+        if pos == len(tails):
+            tails.append(v)
+            tail_idx.append(i)
+        else:
+            tails[pos] = v
+            tail_idx[pos] = i
+        prev[i] = tail_idx[pos - 1] if pos else -1
+    result: set[int] = set()
+    i = tail_idx[-1] if tail_idx else -1
+    while i >= 0:
+        result.add(values[i])
+        i = prev[i]
+    return result
 
 
 def image_stamp(cfg: CollectionConfig, kind: str) -> tuple[str, bytes | None, str | None]:
@@ -112,7 +136,11 @@ def sync_collection(cfg: CollectionConfig, state: dict, plex: Plex, section: dic
     returned result carries the updated state.
     """
     result = SyncResult(state=dict(state))
+    name = cfg.name
+    started = time.monotonic()
     index = library_index(plex, section)
+    log.info("'%s': library index has %d item(s) (%.1fs)", name, len(index),
+             time.monotonic() - started)
 
     matched: list[str] = []
     seen: set[str] = set()
@@ -131,6 +159,9 @@ def sync_collection(cfg: CollectionConfig, state: dict, plex: Plex, section: dic
     if not existing:
         existing = plex.find_collection(section["id"], cfg.name)
     result.state["plex_rating_key"] = existing
+    log.info("'%s': %d matched in Plex, %d missing; %s", name, len(matched),
+             len(result.missing),
+             f"updating Plex collection {existing}" if existing else "no Plex collection yet")
 
     if len(matched) < max(cfg.min_items, 1):
         if existing and cfg.delete_below_min and not dry_run:
@@ -176,14 +207,23 @@ def sync_collection(cfg: CollectionConfig, state: dict, plex: Plex, section: dic
             current = [rk for rk in current if rk in seen]
             result.removed = len(to_remove)
 
+    log.info("'%s': %s collection %s: +%d / -%d (%.1fs)", name,
+             "created" if created else "updated", existing, result.added, result.removed,
+             time.monotonic() - started)
+
     rk = existing
     plex.set_prefs(rk, collectionMode=COLLECTION_MODES[cfg.collection_mode],
                    collectionSort=COLLECTION_ORDERS[cfg.order])
     if cfg.order == "custom":
-        if result.added and not created:
+        if result.added:
             current = plex.collection_items(rk)
-        for item, after in reorder_moves(current, matched):
+        moves = reorder_moves(current, matched)
+        if moves:
+            log.info("'%s': reordering %d item(s) to match the list", name, len(moves))
+        for n, (item, after) in enumerate(moves, 1):
             plex.move_item(rk, item, after)
+            if n % 50 == 0:
+                log.info("'%s': reordered %d/%d", name, n, len(moves))
 
     labels = list(cfg.labels)
     managed = settings.get("managed_label", "").strip()
@@ -213,6 +253,8 @@ def sync_collection(cfg: CollectionConfig, state: dict, plex: Plex, section: dic
         except PlexError as exc:
             result.warn(f"Could not update home screen visibility: {exc}")
 
+    log.info("'%s': artwork, labels and home screen settings applied (%.1fs total)", name,
+             time.monotonic() - started)
     verb = "Created" if created else "Updated"
     result.messages.insert(0, f"{verb} with {len(matched)} item(s): "
                               f"+{result.added} / -{result.removed}, {len(result.missing)} missing")

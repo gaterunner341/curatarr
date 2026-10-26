@@ -313,3 +313,41 @@ def test_old_default_schedule_is_migrated():
     db.save_settings({"default_schedule": "30 1 * * *"})   # a user's own choice is kept
     main.migrate_default_schedule()
     assert db.get_settings()["default_schedule"] == "30 1 * * *"
+
+
+def test_reorder_moves_is_correct_and_minimal():
+    import random
+
+    def apply(current, moves):
+        current = list(current)
+        for item, after in moves:
+            current.remove(item)
+            current.insert(current.index(after) + 1 if after else 0, item)
+        return current
+
+    rng = random.Random(7)
+    for _ in range(200):
+        items = [str(i) for i in range(rng.randint(0, 40))]
+        current = items[:]
+        rng.shuffle(current)
+        desired = rng.sample(items, k=len(items) - rng.randint(0, min(5, len(items))))
+        moves = reorder_moves(current, desired)
+        result = apply(current, moves)
+        assert result[:len(desired)] == desired
+        assert sorted(result) == sorted(current)
+    # One item out of place needs exactly one move, however long the list.
+    long = [str(i) for i in range(500)]
+    assert len(reorder_moves(long[1:] + long[:1], long)) == 1
+
+
+def test_paging_stops_when_endpoint_ignores_offsets():
+    calls = []
+
+    def handler(request):
+        calls.append(1)   # always the same page, with a misleading totalSize
+        return httpx.Response(200, json={"MediaContainer": {
+            "totalSize": 9999, "Metadata": [{"ratingKey": "1"}, {"ratingKey": "2"}]}})
+
+    plex = Plex("http://plex", "t", client=httpx.Client(transport=httpx.MockTransport(handler)))
+    assert [m["ratingKey"] for m in plex._paged("/x")] == ["1", "2"]
+    assert len(calls) == 2
