@@ -1,7 +1,8 @@
 """Pydantic models shared by the API, the sync engine and YAML import/export."""
+from datetime import date
 from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 SourceType = Literal[
     "tmdb_list",
@@ -52,6 +53,12 @@ class CollectionConfig(BaseModel):
     promote_home: bool = False
     promote_shared: bool = False
     promote_recommended: bool = False
+    # Home screen calendar: when on, the promote_* spots above are only used
+    # between promote_start and promote_end (YYYY-MM-DD), optionally every year.
+    promote_window: bool = False
+    promote_start: str = ""
+    promote_end: str = ""
+    promote_yearly: bool = True
     schedule: str = ""           # cron expression; blank uses the global default
     request_missing: bool = False
     enabled: bool = True
@@ -65,6 +72,38 @@ class CollectionConfig(BaseModel):
     @classmethod
     def clean_labels(cls, v: list[str]) -> list[str]:
         return [label.strip() for label in v if label and label.strip()]
+
+    @model_validator(mode="after")
+    def check_window(self) -> "CollectionConfig":
+        if self.promote_window:
+            try:
+                start = date.fromisoformat(self.promote_start)
+                end = date.fromisoformat(self.promote_end)
+            except ValueError:
+                raise ValueError("Home screen calendar needs a start and end date")
+            if not self.promote_yearly and end < start:
+                raise ValueError("Home screen calendar ends before it starts")
+        return self
+
+    def promotion_active(self, today: date) -> bool:
+        """Whether the home screen calendar (if any) allows promotion on ``today``."""
+        if not self.promote_window:
+            return True
+        start = date.fromisoformat(self.promote_start)
+        end = date.fromisoformat(self.promote_end)
+        if not self.promote_yearly:
+            return start <= today <= end
+        day = (today.month, today.day)
+        first, last = (start.month, start.day), (end.month, end.day)
+        if first <= last:
+            return first <= day <= last
+        return day >= first or day <= last      # wraps over New Year, e.g. Dec 15 - Jan 5
+
+    def promotion_flags(self, today: date) -> tuple[bool, bool, bool]:
+        """(recommended, home, shared) to apply today."""
+        active = self.promotion_active(today)
+        return (self.promote_recommended and active, self.promote_home and active,
+                self.promote_shared and active)
 
 
 class PreviewRequest(BaseModel):

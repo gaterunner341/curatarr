@@ -25,6 +25,12 @@ def start() -> None:
                                          job_defaults={"coalesce": True, "max_instances": 1,
                                                        "misfire_grace_time": 3600})
         _scheduler.start()
+        # Home screen calendars switch on/off just after midnight, and once at startup.
+        _scheduler.add_job(sync.apply_home_calendars, CronTrigger(hour=0, minute=1),
+                           id="home-calendars", name="Home screen calendars",
+                           replace_existing=True)
+        _scheduler.add_job(sync.apply_home_calendars, id="home-calendars-startup",
+                           name="Home screen calendars (startup)", replace_existing=True)
     reload_jobs()
 
 

@@ -4,6 +4,7 @@ import logging
 import threading
 import time
 from dataclasses import dataclass, field
+from datetime import date
 
 import httpx
 
@@ -129,7 +130,8 @@ def image_stamp(cfg: CollectionConfig, kind: str) -> tuple[str, bytes | None, st
 
 
 def sync_collection(cfg: CollectionConfig, state: dict, plex: Plex, section: dict,
-                    refs: list[MediaRef], settings: dict, dry_run: bool = False) -> SyncResult:
+                    refs: list[MediaRef], settings: dict, dry_run: bool = False,
+                    today: date | None = None) -> SyncResult:
     """Apply ``refs`` to the Plex collection described by ``cfg``.
 
     ``state`` holds what earlier runs recorded (rating key, applied images). The
@@ -244,12 +246,11 @@ def sync_collection(cfg: CollectionConfig, state: dict, plex: Plex, section: dic
             except PlexError as exc:
                 result.warn(f"Could not upload {kind}: {exc}")
 
-    promoted = cfg.promote_home or cfg.promote_shared or cfg.promote_recommended
+    recommended, home, shared = cfg.promotion_flags(today or date.today())
     # Existing collections are always checked so that turning promotion off un-pins them.
-    if promoted or not created:
+    if recommended or home or shared or not created:
         try:
-            plex.set_hub_visibility(section["id"], rk, cfg.promote_recommended,
-                                    cfg.promote_home, cfg.promote_shared)
+            plex.set_hub_visibility(section["id"], rk, recommended, home, shared)
         except PlexError as exc:
             result.warn(f"Could not update home screen visibility: {exc}")
 
@@ -359,6 +360,37 @@ def _run_collection(collection_id: int, trigger: str, dry_run: bool) -> dict:
     db.update_collection_state(collection_id, last_run=run["finished"],
                                last_status=run["status"], last_message=run.get("message", ""))
     return run
+
+
+def apply_home_calendars(today: date | None = None) -> int:
+    """Show or hide collections on the home screen according to their calendars.
+
+    Runs daily (and at startup) so a date window takes effect on its first and
+    last day without waiting for the next full sync. Returns how many were updated.
+    """
+    today = today or date.today()
+    rows = [r for r in db.list_collections()
+            if r["config"].get("promote_window") and r.get("plex_rating_key")]
+    if not rows:
+        return 0
+    settings = db.get_settings()
+    updated = 0
+    try:
+        with plexmod.from_settings(settings) as plex:
+            for row in rows:
+                cfg = CollectionConfig(**row["config"])
+                try:
+                    section = resolve_section(plex, cfg.section_id, cfg.library)
+                    flags = cfg.promotion_flags(today)
+                    plex.set_hub_visibility(section["id"], row["plex_rating_key"], *flags)
+                    updated += 1
+                    log.info("Home screen calendar: '%s' %s", cfg.name,
+                             "shown" if any(flags) else "hidden")
+                except (PlexError, SyncError) as exc:
+                    log.warning("Home screen calendar: '%s' failed: %s", cfg.name, exc)
+    except PlexError as exc:
+        log.warning("Home screen calendar skipped: %s", exc)
+    return updated
 
 
 def preview(section_id: str, library: str, sources, item_limit: int = 0) -> dict:

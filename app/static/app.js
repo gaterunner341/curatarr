@@ -118,6 +118,37 @@ function sourceSummary(cfg) {
   return cfg.sources.map((s) => labels[s.type] || s.type).join(", ");
 }
 
+// ---------- home screen calendar (mirrors CollectionConfig.promotion_active) ----------
+
+function localToday() {
+  const d = new Date();
+  return [d.getFullYear(), d.getMonth() + 1, d.getDate()];
+}
+
+function promotionActive(cfg, today = localToday()) {
+  if (!cfg.promote_window) return true;
+  if (!cfg.promote_start || !cfg.promote_end) return false;
+  const [sy, sm, sd] = cfg.promote_start.split("-").map(Number);
+  const [ey, em, ed] = cfg.promote_end.split("-").map(Number);
+  const [ty, tm, td] = today;
+  if (!cfg.promote_yearly) {
+    const t = ty * 10000 + tm * 100 + td;
+    return sy * 10000 + sm * 100 + sd <= t && t <= ey * 10000 + em * 100 + ed;
+  }
+  const day = tm * 100 + td, first = sm * 100 + sd, last = em * 100 + ed;
+  return first <= last ? first <= day && day <= last : day >= first || day <= last;
+}
+
+function windowText(cfg) {
+  const fmt = (iso) => {
+    const [y, m, d] = iso.split("-").map(Number);
+    return new Date(y, m - 1, d).toLocaleDateString(undefined,
+      cfg.promote_yearly ? { month: "short", day: "numeric" } : { year: "numeric", month: "short", day: "numeric" });
+  };
+  if (!cfg.promote_start || !cfg.promote_end) return "dates not set";
+  return `${fmt(cfg.promote_start)} – ${fmt(cfg.promote_end)}${cfg.promote_yearly ? ", every year" : ""}`;
+}
+
 const KINDS = {
   movie: { title: "Movie collections", hash: "#/movies", noun: "movie" },
   show: { title: "TV show collections", hash: "#/tv", noun: "TV" },
@@ -152,6 +183,8 @@ async function collections(kind) {
           <div class="small">${r.running ? badge("running") : badge(r.last_status)} <span class="muted">${esc(when(r.last_run))}</span></div>
           ${r.last_message ? `<div class="small muted" title="${esc(r.last_message)}" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(r.last_message)}</div>` : ""}
           <div class="small muted">Next: ${cfg.enabled ? esc(when(r.next_run)) : "disabled"}</div>
+          ${cfg.promote_window ? `<div class="small muted">Home screen: ${esc(windowText(cfg))}
+            ${promotionActive(cfg) ? `<span class="badge success">showing</span>` : `<span class="badge">hidden</span>`}</div>` : ""}
           <div class="coll-actions">
             <button class="small primary" data-run="${r.id}" ${r.running ? "disabled" : ""}>Sync now</button>
             <a class="btn small" href="#/collections/${r.id}" style="padding:4px 10px;font-size:.8rem">Edit</a>
@@ -248,6 +281,7 @@ const DEFAULTS = {
   sync_mode: "sync", order: "custom", summary: "", sort_title: "", labels: [], collection_mode: "default",
   poster_url: "", art_url: "", poster_file: "", art_file: "", item_limit: 0, min_items: 1,
   delete_below_min: false, promote_home: false, promote_shared: false, promote_recommended: false,
+  promote_window: false, promote_start: "", promote_end: "", promote_yearly: true,
   schedule: "", request_missing: false, enabled: true,
 };
 
@@ -381,6 +415,15 @@ async function editor(id, params = new URLSearchParams()) {
           <label class="check"><input type="checkbox" id="f-rec" ${cfg.promote_recommended ? "checked" : ""}> Library recommended</label>
           <label class="check"><input type="checkbox" id="f-home" ${cfg.promote_home ? "checked" : ""}> My home</label>
           <label class="check"><input type="checkbox" id="f-shared" ${cfg.promote_shared ? "checked" : ""}> Friends' home</label></div>
+        <div class="full calendar">
+          <label class="check"><input type="checkbox" id="f-window" ${cfg.promote_window ? "checked" : ""}> Only show on the home screen between these dates</label>
+          <div class="row" id="window-fields">
+            <div><label for="f-wstart">From</label><input type="date" id="f-wstart" value="${esc(cfg.promote_start)}"></div>
+            <div><label for="f-wend">Until (inclusive)</label><input type="date" id="f-wend" value="${esc(cfg.promote_end)}"></div>
+            <div><label class="check"><input type="checkbox" id="f-wyearly" ${cfg.promote_yearly ? "checked" : ""}> Repeat every year</label></div>
+          </div>
+          <div class="hint" id="window-status"></div>
+        </div>
       </div>
     </div>
 
@@ -413,6 +456,33 @@ async function editor(id, params = new URLSearchParams()) {
     });
   };
   renderSources();
+  // Home screen calendar: date fields only matter when the box is ticked; ticking it
+  // with no home screen spots chosen selects all three.
+  const spots = ["#f-rec", "#f-home", "#f-shared"].map((s) => view.querySelector(s));
+  const updateWindow = () => {
+    const on = view.querySelector("#f-window").checked;
+    view.querySelectorAll("#window-fields input").forEach((el) => { el.disabled = !on; });
+    const status = view.querySelector("#window-status");
+    if (!on) { status.textContent = ""; return; }
+    const w = {
+      promote_window: true,
+      promote_start: view.querySelector("#f-wstart").value,
+      promote_end: view.querySelector("#f-wend").value,
+      promote_yearly: view.querySelector("#f-wyearly").checked,
+    };
+    const where = spots.filter((s) => s.checked).map((s) => s.parentElement.textContent.trim()).join(", ") || "no spots selected";
+    status.textContent = !w.promote_start || !w.promote_end
+      ? "Pick both dates."
+      : `${windowText(w)} on ${where}. ${promotionActive(w) ? "Showing now." : "Hidden right now."} It switches automatically just after midnight.`;
+  };
+  view.querySelector("#f-window").addEventListener("change", (e) => {
+    if (e.target.checked && !spots.some((s) => s.checked)) spots.forEach((s) => { s.checked = true; });
+    updateWindow();
+  });
+  ["#f-wstart", "#f-wend", "#f-wyearly", ...["#f-rec", "#f-home", "#f-shared"]].forEach((sel) =>
+    view.querySelector(sel).addEventListener("change", updateWindow));
+  updateWindow();
+
   view.querySelector("#addSource").onclick = () => { cfg.sources.push({ type: "tmdb_list", value: "", limit: null }); renderSources(); };
 
   const collect = () => {
@@ -438,6 +508,10 @@ async function editor(id, params = new URLSearchParams()) {
       promote_recommended: view.querySelector("#f-rec").checked,
       promote_home: view.querySelector("#f-home").checked,
       promote_shared: view.querySelector("#f-shared").checked,
+      promote_window: view.querySelector("#f-window").checked,
+      promote_start: view.querySelector("#f-wstart").value,
+      promote_end: view.querySelector("#f-wend").value,
+      promote_yearly: view.querySelector("#f-wyearly").checked,
       poster_url: view.querySelector("#poster-url").value,
       art_url: view.querySelector("#art-url").value,
       sources: cfg.sources.filter((s) => s.value),

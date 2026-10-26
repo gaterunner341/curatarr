@@ -3,6 +3,14 @@
 The version shown in the web UI's sidebar matches these entries. Each
 release is also published as `ghcr.io/gaterunner341/curatarr:<version>`.
 
+## 0.4.0
+
+- **Home screen calendar:** a collection can be shown on Library recommended, My home and Friends' home only between two dates, once or every year. Yearly windows can span New Year, such as Dec 15 – Jan 5.
+  - Ticking the calendar with no home-screen spots selected selects all three.
+  - Collections switch on and off just after midnight (local time, from the `TZ` setting) and when Curatarr starts, without waiting for a sync.
+  - Collection cards show the dates and whether the collection is showing or hidden right now.
+- Fixed: the "Remove image file" button showed even when there was no image file.
+
 ## 0.3.3
 
 - You can choose a poster and background image while creating a collection, not only after it's saved. Chosen images show a preview right away and upload when you save, before the first sync runs.

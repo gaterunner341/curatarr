@@ -358,3 +358,42 @@ def test_index_html_versions_assets():
     html = main._index_html()
     assert f"/static/app.js?v={config.VERSION}" in html
     assert f"/static/style.css?v={config.VERSION}" in html
+
+
+# --- home screen calendar ------------------------------------------------------------
+
+def _cal(**kw):
+    base = dict(name="Halloween", library="Movies", sources=[Source(type="static", value="x")],
+                promote_home=True, promote_shared=True, promote_recommended=True,
+                promote_window=True, promote_start="2026-10-01", promote_end="2026-10-31")
+    return CollectionConfig(**{**base, **kw})
+
+
+def test_calendar_window_yearly_and_one_off():
+    from datetime import date
+    cfg = _cal()
+    assert cfg.promotion_active(date(2031, 10, 15))           # yearly ignores the year
+    assert not cfg.promotion_active(date(2031, 11, 1))
+    assert cfg.promotion_flags(date(2026, 10, 31)) == (True, True, True)
+    assert cfg.promotion_flags(date(2026, 9, 30)) == (False, False, False)
+
+    xmas = _cal(promote_start="2026-12-15", promote_end="2027-01-05")   # wraps New Year
+    assert xmas.promotion_active(date(2027, 12, 20)) and xmas.promotion_active(date(2028, 1, 3))
+    assert not xmas.promotion_active(date(2028, 1, 6))
+
+    once = _cal(promote_yearly=False)
+    assert once.promotion_active(date(2026, 10, 10)) and not once.promotion_active(date(2027, 10, 10))
+
+    assert _cal(promote_window=False).promotion_active(date(2026, 1, 1))
+    with pytest.raises(ValueError, match="start and end"):
+        _cal(promote_end="")
+    with pytest.raises(ValueError, match="ends before"):
+        _cal(promote_yearly=False, promote_start="2026-10-31", promote_end="2026-10-01")
+
+
+def test_sync_applies_calendar_to_home_screen():
+    from datetime import date
+    for today, expect_hub in ((date(2026, 10, 10), True), (date(2026, 12, 1), False)):
+        fake = FakePlex()
+        sync_collection(_cal(), {}, plex_with(fake), SECTION, refs_for(1, 2), {}, today=today)
+        assert any(c == "POST /hubs/sections/1/manage" for c in fake.calls) is expect_hub
