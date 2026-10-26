@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 
 import httpx
 
-from . import arr, config, db, notify, plex as plexmod
+from . import arr, config, db, plex as plexmod
 from .models import CollectionConfig
 from .plex import COLLECTION_MODES, COLLECTION_ORDERS, LibraryIndex, Plex, PlexError
 from .sources import MediaRef, SourceContext, resolve
@@ -305,7 +305,6 @@ def _run_collection(collection_id: int, trigger: str, dry_run: bool) -> dict:
     db.record_run(run)
     db.update_collection_state(collection_id, last_run=run["finished"],
                                last_status=run["status"], last_message=run.get("message", ""))
-    notify.notify_run(settings, run)
     return run
 
 

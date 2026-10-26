@@ -19,7 +19,6 @@
 - **Preview:** shows which titles are already in your library before you save
 - **Missing titles:** listed in the History page, and can be added to Radarr or Sonarr automatically
 - **Scheduling:** a global cron schedule or one per collection, plus "Sync now" and dry runs
-- **Notifications:** Discord webhooks for changes, errors or every run
 - **YAML import and export.** A `collections.yml` dropped in `/config` is imported on startup.
 - **Sign in with Plex:** gets a token and lists your servers, or you can paste a token yourself
 - **Optional security:** a login for the UI and an API key for scripts. The REST API is documented at `/api/docs`.
@@ -50,7 +49,7 @@ Open `http://<host>:8585` and go to **Settings**:
 
 1. **Plex:** click **Sign in with Plex** and pick a server connection. You can also enter the server URL and your [X-Plex-Token](https://support.plex.tv/articles/204059436-finding-an-authentication-token-x-plex-token/) yourself.
 2. **TMDB:** add a free API key, which TMDB sources need.
-3. **Trakt / MDBList / Radarr / Sonarr / Discord:** add these only if you plan to use them.
+3. **Trakt / MDBList / Radarr / Sonarr:** add these only if you plan to use them.
 
 Then go to **Collections → New collection**.
 
@@ -65,7 +64,6 @@ See [`docker-compose.yml`](docker-compose.yml) for every supported environment v
 | `PLEX_URL`, `PLEX_TOKEN` | Plex connection (or set in UI) |
 | `TMDB_API_KEY`, `TRAKT_CLIENT_ID`, `MDBLIST_API_KEY` | List provider keys |
 | `RADARR_URL`, `RADARR_API_KEY`, `SONARR_URL`, `SONARR_API_KEY` | Missing title requests |
-| `DISCORD_WEBHOOK` | Notifications |
 | `CURATARR_SCHEDULE` | Default cron schedule (default `0 3 * * *`) |
 | `CURATARR_USERNAME`, `CURATARR_PASSWORD` | Turn on a browser login for the UI and API |
 | `CURATARR_API_KEY` | Require an `X-Api-Key` header (or `?apikey=`) for the API |

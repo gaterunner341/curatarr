@@ -9,7 +9,7 @@ from fastapi import APIRouter, Body, File, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse, PlainTextResponse
 from pydantic import ValidationError
 
-from . import arr, config, db, notify, plex as plexmod, plextv, scheduler, sources, sync
+from . import arr, config, db, plex as plexmod, plextv, scheduler, sources, sync
 from .models import CollectionConfig, PreviewRequest
 from .plex import PlexError
 from .sources import SourceContext, SourceError
@@ -135,12 +135,6 @@ def test_service(service: str):
             if service in ("radarr", "sonarr"):
                 info = arr.Arr(service, settings, http).status()
                 return {"ok": True, "message": f"Connected to {service.title()} v{info.get('version')}"}
-            if service == "discord":
-                if not settings.get("discord_webhook"):
-                    raise SourceError("No webhook URL saved")
-                notify.send(settings["discord_webhook"], "Curatarr test",
-                            "Notifications are working.")
-                return {"ok": True, "message": "Test message sent"}
     except (PlexError, SourceError, arr.ArrError, httpx.HTTPError) as exc:
         return {"ok": False, "message": str(exc)}
     raise HTTPException(404, f"Unknown service '{service}'")

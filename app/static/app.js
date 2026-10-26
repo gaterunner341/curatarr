@@ -486,10 +486,6 @@ const SETTING_GROUPS = [
     ["sonarr_quality_profile", "Quality profile id", "text", "1"],
     ["sonarr_search", "Search when added", "bool"],
   ] },
-  { title: "Notifications", test: "discord", fields: [
-    ["discord_webhook", "Discord webhook URL", "password", "https://discord.com/api/webhooks/…"],
-    ["notify_level", "Notify on", "select", { changes: "Changes and errors", errors: "Errors only", always: "Every sync", off: "Never" }],
-  ] },
   { title: "General", fields: [
     ["default_schedule", "Default schedule (cron)", "text", "0 3 * * *"],
     ["managed_label", "Label added to managed collections", "text", "Curatarr"],

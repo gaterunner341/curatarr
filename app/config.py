@@ -19,7 +19,7 @@ PORT = int(os.environ.get("CURATARR_PORT", "8585"))
 LOG_LEVEL = os.environ.get("CURATARR_LOG_LEVEL", "INFO").upper()
 
 # Optional protection for the web UI / API. Basic auth is used by browsers,
-# the API key header (X-Api-Key) is handy for scripts and webhooks.
+# the API key header (X-Api-Key) is handy for scripts.
 AUTH_USERNAME = os.environ.get("CURATARR_USERNAME", "")
 AUTH_PASSWORD = os.environ.get("CURATARR_PASSWORD", "")
 API_KEY = os.environ.get("CURATARR_API_KEY", "")
@@ -36,7 +36,6 @@ ENV_SETTINGS = {
     "radarr_api_key": "RADARR_API_KEY",
     "sonarr_url": "SONARR_URL",
     "sonarr_api_key": "SONARR_API_KEY",
-    "discord_webhook": "DISCORD_WEBHOOK",
     "default_schedule": "CURATARR_SCHEDULE",
 }
 
@@ -57,8 +56,6 @@ DEFAULT_SETTINGS = {
     "sonarr_root_folder": "",
     "sonarr_quality_profile": "",
     "sonarr_search": "true",
-    "discord_webhook": "",
-    "notify_level": "changes",
     "default_schedule": "0 3 * * *",
     "managed_label": "Curatarr",
 }
@@ -70,7 +67,6 @@ SECRET_SETTINGS = {
     "mdblist_api_key",
     "radarr_api_key",
     "sonarr_api_key",
-    "discord_webhook",
 }
 
 # Stable client identifier used for plex.tv sign-in. Persisted in settings.

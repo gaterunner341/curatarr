@@ -24,7 +24,6 @@ services:
       # - RADARR_API_KEY=xxxxxxxxxxxxxxxxxxxx
       # - SONARR_URL=http://sonarr:8989
       # - SONARR_API_KEY=xxxxxxxxxxxxxxxxxxxx
-      # - DISCORD_WEBHOOK=https://discord.com/api/webhooks/...
       # - CURATARR_SCHEDULE=0 3 * * *
       # Protect the UI (browser login) and/or the API (X-Api-Key header):
       # - CURATARR_USERNAME=admin
