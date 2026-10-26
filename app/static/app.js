@@ -72,6 +72,7 @@ const routes = [
   [/^#\/import$/, importExport],
   [/^#\/movies$/, () => collections("movie")],
   [/^#\/tv$/, () => collections("show")],
+  [/^#\/holidays$/, holidaysPage],
   [/^.*$/, () => location.replace("#/movies")],   // old #/collections links land here
 ];
 
@@ -167,7 +168,9 @@ async function collections(kind) {
     libraries().catch(() => null),
   ]);
   // Without Plex the library types are unknown, so show everything rather than hide collections.
-  const rows = libs ? allRows.filter((r) => collectionKind(r.config, libs) === kind) : allRows;
+  // Holiday collections live on the Holidays page.
+  const regular = allRows.filter((r) => !r.config.holiday);
+  const rows = libs ? regular.filter((r) => collectionKind(r.config, libs) === kind) : regular;
   const meta = KINDS[kind];
   const cards = rows.map((r) => {
     const cfg = r.config;
@@ -325,11 +328,12 @@ async function editor(id, params = new URLSearchParams()) {
   }
   const kind = collectionKind(cfg, libs) || params.get("type") || "movie";
   const backHash = () => {
+    if (cfg.holiday) return "#/holidays";
     const opt = view.querySelector("#f-lib")?.selectedOptions[0];
     return KINDS[opt?.dataset.type || kind].hash;
   };
   document.querySelectorAll("[data-nav]").forEach((a) =>
-    a.classList.toggle("active", a.getAttribute("href") === KINDS[kind].hash));
+    a.classList.toggle("active", a.getAttribute("href") === (cfg.holiday ? "#/holidays" : KINDS[kind].hash)));
   const settings = await api("GET", "/settings").catch(() => ({ values: {} }));
   const defaultSchedule = settings.values.default_schedule || "";
   // Image files picked in the form; uploaded (or removed) when the collection is saved.
@@ -650,6 +654,99 @@ async function history() {
           <td class="small muted">${esc(r.message)}</td>
         </tr>`).join("")}
       </tbody></table></div>` : `<div class="card empty">No syncs have run yet.</div>`}`;
+}
+
+// ---------- holidays ----------
+
+async function holidaysPage() {
+  const [list, libs] = await Promise.all([
+    api("GET", "/holidays"),
+    libraries().catch(() => []),
+  ]);
+  let sectionId = state.holidayLibrary && libs.some((l) => l.id === state.holidayLibrary)
+    ? state.holidayLibrary
+    : (libs.find((l) => l.type === "movie") || libs[0])?.id || "";
+
+  const render = () => {
+    state.holidayLibrary = sectionId;
+    const cards = list.map((h) => {
+      const coll = h.collections.find((c) => String(c.config.section_id) === sectionId);
+      const others = h.collections.filter((c) => c !== coll).map((c) => c.config.library);
+      const cfg = coll?.config || {
+        promote_window: true, promote_yearly: true,
+        promote_start: `2000-${h.start}`, promote_end: `2000-${h.end}`,
+      };
+      const poster = h.poster
+        ? `<img class="poster" src="${esc(h.poster)}" alt="">`
+        : `<div class="poster">▦</div>`;
+      return `
+        <div class="coll holiday${coll ? "" : " off"}">
+          ${poster}
+          <div class="coll-body">
+            <label class="check holiday-toggle">
+              <input type="checkbox" data-holiday="${esc(h.key)}" ${coll ? "checked" : ""} ${h.available || coll ? "" : "disabled"}>
+              <span class="coll-title">${esc(h.name)}</span>
+            </label>
+            <div class="small muted">${esc(windowText(cfg))}</div>
+            ${coll ? `
+              <div class="small">${promotionActive(cfg) ? `<span class="badge success">on home screen now</span>` : `<span class="badge">off season</span>`}
+                ${coll.running ? badge("running") : badge(coll.last_status)}</div>
+              ${coll.last_message ? `<div class="small muted" title="${esc(coll.last_message)}" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(coll.last_message)}</div>` : ""}
+              <div class="coll-actions">
+                <button class="small primary" data-run="${coll.id}" ${coll.running ? "disabled" : ""}>Sync now</button>
+                <a class="btn small" href="#/collections/${coll.id}" style="padding:4px 10px;font-size:.8rem">Edit dates &amp; settings</a>
+              </div>`
+            : `<div class="small muted">${h.available ? "Tick to create it in this library." : "Lists not added yet."}</div>`}
+            ${others.length ? `<div class="small muted">Also on in: ${others.map(esc).join(", ")}</div>` : ""}
+          </div>
+        </div>`;
+    }).join("");
+
+    view.innerHTML = `
+      <div class="page-head"><h1>Holiday collections</h1></div>
+      <p class="hint" style="margin-top:-8px">Tick a holiday to create its collection. It shows on Library recommended,
+        My home and Friends' home during its dates every year and is hidden the rest of the year.
+        Use <strong>Edit dates &amp; settings</strong> to change the dates or where it appears.</p>
+      <div class="row" style="margin-bottom:16px">
+        <div><label for="holidayLib">Library</label>
+          <select id="holidayLib">${libs.map((l) => `<option value="${esc(l.id)}" ${l.id === sectionId ? "selected" : ""}>${esc(l.title)} (${l.type === "show" ? "TV" : "Movies"})</option>`).join("")
+            || `<option value="">Connect Plex first</option>`}</select></div>
+      </div>
+      <div class="collections">${cards}</div>`;
+
+    view.querySelector("#holidayLib").onchange = (e) => { sectionId = e.target.value; render(); };
+    view.querySelectorAll("[data-run]").forEach((b) => b.onclick = () => guard(async () => {
+      b.disabled = true;
+      await api("POST", `/collections/${b.dataset.run}/run`);
+      toast("Sync started");
+      setTimeout(route, 1500);
+    }));
+    view.querySelectorAll("[data-holiday]").forEach((box) => box.onchange = () => guard(async () => {
+      const h = list.find((x) => x.key === box.dataset.holiday);
+      const coll = h.collections.find((c) => String(c.config.section_id) === sectionId);
+      box.disabled = true;
+      try {
+        if (box.checked) {
+          if (!sectionId) throw new Error("Connect Plex and pick a library first");
+          await api("POST", `/holidays/${h.key}/enable`, { section_id: sectionId });
+          toast(`${h.name} collection created; first sync started`);
+        } else if (coll) {
+          if (!confirm(`Turn off ${h.name}? Its collection is removed from Curatarr.`)) { box.checked = true; return; }
+          const fromPlex = confirm("Also delete the collection from Plex?\n\nOK = delete it in Plex too, Cancel = keep it in Plex.");
+          await api("DELETE", `/collections/${coll.id}?remove_from_plex=${fromPlex}`);
+          toast(`${h.name} turned off`);
+        }
+      } catch (err) {
+        box.checked = !box.checked;
+        throw err;
+      } finally {
+        box.disabled = false;
+      }
+      route();
+    }));
+    if (list.some((h) => h.collections.some((c) => c.running))) refreshTimer = setInterval(route, 4000);
+  };
+  render();
 }
 
 // ---------- logs ----------

@@ -84,6 +84,9 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
 .calendar { border-top: 1px solid var(--border); padding-top: 12px; }
 .calendar .row { margin: 6px 0; }
 .calendar input[type=date] { width: auto; color-scheme: dark; }
+.coll.holiday.off { opacity: .75; }
+.holiday-toggle { margin: 0; }
+.holiday-toggle input { width: 18px; height: 18px; }
 .lib-head { font-size: .95rem; margin: 18px 0 10px; color: var(--text); }
 .notice { border-left: 4px solid var(--accent); background: var(--panel-2); border-radius: 6px; padding: 12px 14px; margin-bottom: 16px; }
 .poster { width: 72px; height: 108px; flex: none; border-radius: 6px; background: var(--panel-2); object-fit: cover; display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: 1.6rem; }

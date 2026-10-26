@@ -3,6 +3,14 @@
 The version shown in the web UI's sidebar matches these entries. Each
 release is also published as `ghcr.io/gaterunner341/curatarr:<version>`.
 
+## 0.5.0
+
+- New **Holidays** page in the sidebar. Tick a holiday to create its collection in the chosen library, with a yearly home screen calendar for its season, shown on Library recommended, My home and Friends' home.
+  - Untick to turn it off. You choose whether to keep the collection in Plex.
+  - **Edit dates & settings** opens the normal editor to change the dates, lists or where it appears.
+  - Holiday collections are listed on the Holidays page instead of Movies / TV Shows.
+- Holidays: New Year's, Valentine's Day, St. Patrick's Day, Easter, Independence Day, Halloween, Thanksgiving, Christmas.
+
 ## 0.4.0
 
 - **Home screen calendar:** a collection can be shown on Library recommended, My home and Friends' home only between two dates, once or every year. Yearly windows can span New Year, such as Dec 15 – Jan 5.

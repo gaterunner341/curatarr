@@ -62,6 +62,7 @@ class CollectionConfig(BaseModel):
     schedule: str = ""           # cron expression; blank uses the global default
     request_missing: bool = False
     enabled: bool = True
+    holiday: str = ""            # key from app.holidays when created from the Holidays page
 
     @field_validator("name", "summary", "sort_title", "schedule", "poster_url", "art_url")
     @classmethod

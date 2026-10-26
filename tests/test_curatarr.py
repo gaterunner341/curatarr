@@ -397,3 +397,46 @@ def test_sync_applies_calendar_to_home_screen():
         fake = FakePlex()
         sync_collection(_cal(), {}, plex_with(fake), SECTION, refs_for(1, 2), {}, today=today)
         assert any(c == "POST /hubs/sections/1/manage" for c in fake.calls) is expect_hub
+
+
+# --- holidays -------------------------------------------------------------------------
+
+def test_holiday_windows_and_config():
+    from datetime import date
+    from app import holidays
+    ny = holidays.get("new-years")
+    start, end = holidays.window_dates(ny, 2026)
+    assert (start, end) == ("2026-12-26", "2027-01-02")
+    for h in holidays.HOLIDAYS:
+        cfg = CollectionConfig(**holidays.collection_config(
+            {**h, "sources": [{"type": "static", "value": "tt0000001"}]},
+            {"id": "1", "title": "Movies"}))
+        assert cfg.holiday == h["key"] and cfg.promote_window and cfg.promote_yearly
+        assert cfg.promote_home and cfg.promote_shared and cfg.promote_recommended
+    hw = CollectionConfig(**holidays.collection_config(
+        {**holidays.get("halloween"), "sources": [{"type": "static", "value": "tt1"}]},
+        {"id": "1", "title": "Movies"}))
+    assert hw.promotion_active(date(2030, 10, 15)) and not hw.promotion_active(date(2030, 11, 2))
+
+
+def test_enable_holiday_endpoint(monkeypatch):
+    from contextlib import nullcontext
+    from fastapi.testclient import TestClient
+    from app import api as api_mod, holidays, scheduler, sync as sync_mod
+    from app.main import app
+
+    monkeypatch.setitem(holidays.BY_KEY["halloween"], "sources",
+                        [{"type": "static", "value": "tt0000001"}])
+    monkeypatch.setattr(api_mod, "_plex", lambda: nullcontext(object()))
+    monkeypatch.setattr(sync_mod, "resolve_section",
+                        lambda plex, sid, lib: {"id": "1", "title": "Movies", "type": "movie"})
+    monkeypatch.setattr(scheduler, "run_now", lambda *a, **k: None)
+    client = TestClient(app)
+
+    assert client.post("/api/holidays/christmas/enable", json={"section_id": "1"}).status_code == 409
+    r = client.post("/api/holidays/halloween/enable", json={"section_id": "1"})
+    assert r.status_code == 201 and r.json()["config"]["holiday"] == "halloween"
+    assert client.post("/api/holidays/halloween/enable", json={"section_id": "1"}).status_code == 409
+    listed = {h["key"]: h for h in client.get("/api/holidays").json()}
+    assert listed["halloween"]["available"] and len(listed["halloween"]["collections"]) == 1
+    assert not listed["christmas"]["available"]

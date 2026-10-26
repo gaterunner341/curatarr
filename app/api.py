@@ -10,7 +10,7 @@ from fastapi import APIRouter, Body, File, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse, PlainTextResponse, Response
 from pydantic import ValidationError
 
-from . import arr, config, db, logs, plex as plexmod, plextv, scheduler, sources, sync
+from . import arr, config, db, holidays, logs, plex as plexmod, plextv, scheduler, sources, sync
 from .models import CollectionConfig, PreviewRequest
 from .plex import PlexError
 from .sources import SourceContext, SourceError
@@ -240,6 +240,46 @@ def create_collection(cfg: dict = Body(...), plex_rating_key: str = ""):
     if plex_rating_key:
         db.update_collection_state(collection_id, plex_rating_key=plex_rating_key)
     scheduler.reload_jobs()
+    return _collection_out(db.get_collection(collection_id))
+
+
+@router.get("/holidays")
+def list_holidays():
+    rows = db.list_collections()
+    result = []
+    for h in holidays.HOLIDAYS:
+        colls = [_collection_out(r) for r in rows if r["config"].get("holiday") == h["key"]]
+        result.append({
+            "key": h["key"], "name": h["name"], "start": h["start"], "end": h["end"],
+            "available": holidays.available(h),
+            "poster": f"/static/holidays/{h['poster']}" if h.get("poster") else "",
+            "collections": colls,
+        })
+    return result
+
+
+@router.post("/holidays/{key}/enable", status_code=201)
+def enable_holiday(key: str, section_id: str = Body(..., embed=True)):
+    holiday = holidays.get(key)
+    if not holiday:
+        raise HTTPException(404, "Unknown holiday")
+    if not holidays.available(holiday):
+        raise HTTPException(409, f"{holiday['name']} has no lists yet")
+    for row in db.list_collections():
+        if row["config"].get("holiday") == key and str(row["config"].get("section_id")) == section_id:
+            raise HTTPException(409, f"{holiday['name']} is already on for that library")
+    with _plex() as plex:
+        try:
+            section = sync.resolve_section(plex, section_id, "")
+        except (PlexError, sync.SyncError) as exc:
+            raise HTTPException(400, str(exc))
+    model = _validate(holidays.collection_config(holiday, section))
+    collection_id = db.create_collection(model.model_dump())
+    poster = holidays.install_poster(holiday, collection_id)
+    if poster:
+        db.update_collection_config(collection_id, {**model.model_dump(), "poster_file": poster})
+    scheduler.reload_jobs()
+    scheduler.run_now(collection_id)
     return _collection_out(db.get_collection(collection_id))
 
 
