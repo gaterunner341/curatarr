@@ -1,0 +1,664 @@
+"use strict";
+
+const view = document.getElementById("view");
+const state = { catalog: [], libraries: null };
+
+// ---------- helpers ----------
+
+const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({
+  "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+}[c]));
+
+async function api(method, path, body, raw = false) {
+  const opts = { method, headers: {} };
+  if (body instanceof FormData) {
+    opts.body = body;
+  } else if (typeof body === "string") {
+    opts.body = body;
+    opts.headers["Content-Type"] = "text/plain";
+  } else if (body !== undefined) {
+    opts.body = JSON.stringify(body);
+    opts.headers["Content-Type"] = "application/json";
+  }
+  const resp = await fetch(`/api${path}`, opts);
+  if (raw) return resp;
+  const data = resp.headers.get("content-type")?.includes("json") ? await resp.json() : await resp.text();
+  if (!resp.ok) {
+    let msg = data?.detail ?? data;
+    if (Array.isArray(msg)) msg = msg.map((e) => `${(e.loc || []).slice(1).join(".")}: ${e.msg}`).join("; ");
+    throw new Error(typeof msg === "string" ? msg : JSON.stringify(msg));
+  }
+  return data;
+}
+
+function toast(message, error = false) {
+  const el = document.createElement("div");
+  el.className = `toast${error ? " error" : ""}`;
+  el.textContent = message;
+  document.getElementById("toasts").appendChild(el);
+  setTimeout(() => el.remove(), error ? 8000 : 4000);
+}
+
+async function guard(fn) {
+  try { return await fn(); } catch (err) { toast(err.message, true); }
+}
+
+function when(iso) {
+  if (!iso) return "never";
+  const d = new Date(iso);
+  return isNaN(d) ? iso : d.toLocaleString();
+}
+
+const badge = (status) => status ? `<span class="badge ${esc(status)}">${esc(status)}</span>` : "";
+
+async function libraries() {
+  if (!state.libraries) state.libraries = await api("GET", "/plex/libraries");
+  return state.libraries;
+}
+
+async function catalog() {
+  if (!state.catalog.length) state.catalog = await api("GET", "/sources");
+  return state.catalog;
+}
+
+// ---------- router ----------
+
+const routes = [
+  [/^#\/collections\/new$/, () => editor(null)],
+  [/^#\/collections\/(\d+)$/, (m) => editor(Number(m[1]))],
+  [/^#\/history$/, history],
+  [/^#\/settings$/, settings],
+  [/^#\/import$/, importExport],
+  [/^.*$/, collections],
+];
+
+let refreshTimer = null;
+
+async function route() {
+  clearInterval(refreshTimer);
+  const hash = location.hash || "#/collections";
+  document.querySelectorAll("[data-nav]").forEach((a) =>
+    a.classList.toggle("active", hash.startsWith(`#/${a.dataset.nav}`)));
+  document.getElementById("sidebar").classList.remove("open");
+  for (const [re, fn] of routes) {
+    const m = hash.match(re);
+    if (m) {
+      view.innerHTML = `<p class="muted">Loading…</p>`;
+      try { await fn(m); } catch (err) {
+        view.innerHTML = `<div class="card"><h2>Something went wrong</h2><p class="muted">${esc(err.message)}</p></div>`;
+      }
+      return;
+    }
+  }
+}
+
+window.addEventListener("hashchange", route);
+document.getElementById("menuBtn").onclick = () => document.getElementById("sidebar").classList.toggle("open");
+
+async function loadStatus() {
+  const el = document.getElementById("serverStatus");
+  try {
+    const s = await api("GET", "/status");
+    document.getElementById("version").textContent = `v${s.version}`;
+    el.innerHTML = s.plex
+      ? `<span class="dot" style="background:var(--ok)"></span>${esc(s.plex.name)} · Plex ${esc(s.plex.version)}`
+      : `<span class="dot" style="background:var(--err)"></span>${esc(s.plex_error || "Plex not connected")}`;
+  } catch (err) {
+    el.textContent = err.message;
+  }
+}
+
+// ---------- collections list ----------
+
+function sourceSummary(cfg) {
+  const labels = Object.fromEntries(state.catalog.map((c) => [c.type, c.label]));
+  return cfg.sources.map((s) => labels[s.type] || s.type).join(", ");
+}
+
+async function collections() {
+  await catalog();
+  const rows = await api("GET", "/collections");
+  const cards = rows.map((r) => {
+    const cfg = r.config;
+    const poster = cfg.poster_file
+      ? `<img class="poster" src="/api/collections/${r.id}/image/poster?v=${encodeURIComponent(r.poster_applied || cfg.poster_file)}" alt="">`
+      : (cfg.poster_url ? `<img class="poster" src="${esc(cfg.poster_url)}" alt="" referrerpolicy="no-referrer">` : `<div class="poster">▦</div>`);
+    return `
+      <div class="coll${cfg.enabled ? "" : " disabled"}">
+        ${poster}
+        <div class="coll-body">
+          <div class="coll-title" title="${esc(cfg.name)}">${esc(cfg.name)}</div>
+          <div class="small muted">${esc(cfg.library || "?")} · ${esc(sourceSummary(cfg))}</div>
+          <div class="small">${r.running ? badge("running") : badge(r.last_status)} <span class="muted">${esc(when(r.last_run))}</span></div>
+          ${r.last_message ? `<div class="small muted" title="${esc(r.last_message)}" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(r.last_message)}</div>` : ""}
+          <div class="small muted">Next: ${cfg.enabled ? esc(when(r.next_run)) : "disabled"}</div>
+          <div class="coll-actions">
+            <button class="small primary" data-run="${r.id}" ${r.running ? "disabled" : ""}>Sync now</button>
+            <a class="btn small" href="#/collections/${r.id}" style="padding:4px 10px;font-size:.8rem">Edit</a>
+            <button class="small danger" data-del="${r.id}" data-name="${esc(cfg.name)}">Delete</button>
+          </div>
+        </div>
+      </div>`;
+  }).join("");
+
+  view.innerHTML = `
+    <div class="page-head">
+      <h1>Collections</h1>
+      <div class="actions">
+        <button id="runAll">Sync all</button>
+        <a class="btn primary" href="#/collections/new">+ New collection</a>
+      </div>
+    </div>
+    ${rows.length ? `<div class="collections">${cards}</div>` : `
+      <div class="card empty">
+        <p>No collections yet.</p>
+        <p class="small">Connect Plex in <a href="#/settings">Settings</a>, then create a collection from an IMDb, TMDB, Trakt or MDBList list.</p>
+        <a class="btn primary" href="#/collections/new">Create your first collection</a>
+      </div>`}`;
+
+  view.querySelector("#runAll").onclick = () => guard(async () => {
+    const r = await api("POST", "/collections/run-all");
+    toast(`Queued ${r.queued} collection(s)`);
+    setTimeout(route, 1500);
+  });
+  view.querySelectorAll("[data-run]").forEach((b) => b.onclick = () => guard(async () => {
+    b.disabled = true;
+    await api("POST", `/collections/${b.dataset.run}/run`);
+    toast("Sync started");
+    setTimeout(route, 1500);
+  }));
+  view.querySelectorAll("[data-del]").forEach((b) => b.onclick = () => guard(async () => {
+    if (!confirm(`Delete "${b.dataset.name}" from Curatarr?`)) return;
+    const fromPlex = confirm("Also delete the collection from Plex?\n\nOK = delete it in Plex too, Cancel = keep it in Plex.");
+    const r = await api("DELETE", `/collections/${b.dataset.del}?remove_from_plex=${fromPlex}`);
+    toast(r.message || "Collection deleted", !!r.message);
+    route();
+  }));
+  if (rows.some((r) => r.running)) refreshTimer = setInterval(route, 4000);
+}
+
+// ---------- collection editor ----------
+
+const DEFAULTS = {
+  name: "", library: "", section_id: "", sources: [{ type: "tmdb_list", value: "", limit: null }],
+  sync_mode: "sync", order: "custom", summary: "", sort_title: "", labels: [], collection_mode: "default",
+  poster_url: "", art_url: "", poster_file: "", art_file: "", item_limit: 0, min_items: 1,
+  delete_below_min: false, promote_home: false, promote_shared: false, promote_recommended: false,
+  schedule: "", request_missing: false, enabled: true,
+};
+
+function sourceRow(src, idx) {
+  const options = state.catalog.map((c) =>
+    `<option value="${c.type}" ${c.type === src.type ? "selected" : ""}>${esc(c.provider)} · ${esc(c.label)}</option>`).join("");
+  const meta = state.catalog.find((c) => c.type === src.type) || {};
+  const input = meta.options
+    ? `<select data-field="value">${Object.entries(meta.options).map(([k, v]) =>
+        `<option value="${esc(k)}" ${k === src.value ? "selected" : ""}>${esc(v)}</option>`).join("")}</select>`
+    : src.type === "static"
+      ? `<textarea data-field="value" rows="3" placeholder="${esc(meta.placeholder || "")}">${esc(src.value)}</textarea>`
+      : `<input type="text" data-field="value" value="${esc(src.value)}" placeholder="${esc(meta.placeholder || "")}">`;
+  return `
+    <div class="source" data-idx="${idx}">
+      <select data-field="type">${options}</select>
+      ${input}
+      <input type="number" data-field="limit" min="1" placeholder="Limit" value="${src.limit ?? ""}" title="Max items from this source">
+      <button type="button" class="small danger" data-remove="${idx}" title="Remove source">✕</button>
+    </div>`;
+}
+
+async function editor(id) {
+  await catalog();
+  const [row, libs] = await Promise.all([
+    id ? api("GET", `/collections/${id}`) : null,
+    libraries().catch((err) => { toast(`Plex: ${err.message}`, true); return []; }),
+  ]);
+  const cfg = { ...DEFAULTS, ...(row?.config || {}) };
+  cfg.sources = cfg.sources.map((s) => ({ ...s }));
+  const settings = await api("GET", "/settings").catch(() => ({ values: {} }));
+  const defaultSchedule = settings.values.default_schedule || "";
+
+  const libOptions = libs.map((l) =>
+    `<option value="${esc(l.id)}" data-title="${esc(l.title)}" ${l.id === cfg.section_id || (!cfg.section_id && l.title === cfg.library) ? "selected" : ""}>${esc(l.title)} (${l.type === "show" ? "TV" : "Movies"})</option>`).join("");
+
+  view.innerHTML = `
+    <div class="page-head">
+      <h1>${id ? esc(cfg.name) : "New collection"}</h1>
+      <div class="actions">
+        ${id ? `<button id="dryRun">Dry run</button>` : ""}
+        <button id="save">Save</button>
+        <button id="saveRun" class="primary">Save &amp; sync</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Basics</h2>
+      <div class="grid">
+        <div><label for="f-name">Collection name</label><input type="text" id="f-name" value="${esc(cfg.name)}" placeholder="IMDb Top 250"></div>
+        <div><label for="f-lib">Plex library</label>
+          <select id="f-lib">${libOptions || `<option value="${esc(cfg.section_id)}" data-title="${esc(cfg.library)}">${esc(cfg.library || "Connect Plex first")}</option>`}</select></div>
+        <div><label class="check"><input type="checkbox" id="f-enabled" ${cfg.enabled ? "checked" : ""}> Enabled (sync on schedule)</label></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Lists</h2>
+      <p class="hint" style="margin-top:-6px">Titles from every source are merged in order. Duplicates and titles of the wrong type for the library are skipped.</p>
+      <div id="sources"></div>
+      <div class="row" style="margin-top:8px">
+        <button type="button" id="addSource">+ Add source</button>
+        <button type="button" id="preview">Preview matches</button>
+      </div>
+      <div id="previewOut"></div>
+    </div>
+
+    <div class="card">
+      <h2>Sync behaviour</h2>
+      <div class="grid">
+        <div><label for="f-mode">Mode</label>
+          <select id="f-mode">
+            <option value="sync" ${cfg.sync_mode === "sync" ? "selected" : ""}>Sync: add new and remove titles no longer listed</option>
+            <option value="append" ${cfg.sync_mode === "append" ? "selected" : ""}>Append: only add titles</option>
+          </select></div>
+        <div><label for="f-order">Order in Plex</label>
+          <select id="f-order">
+            <option value="custom" ${cfg.order === "custom" ? "selected" : ""}>List order</option>
+            <option value="release" ${cfg.order === "release" ? "selected" : ""}>Release date</option>
+            <option value="alpha" ${cfg.order === "alpha" ? "selected" : ""}>Alphabetical</option>
+          </select></div>
+        <div><label for="f-limit">Max items (0 = no limit)</label><input type="number" id="f-limit" min="0" value="${cfg.item_limit}"></div>
+        <div><label for="f-min">Minimum matched items</label><input type="number" id="f-min" min="0" value="${cfg.min_items}">
+          <label class="check"><input type="checkbox" id="f-delmin" ${cfg.delete_below_min ? "checked" : ""}> Delete the Plex collection when below minimum</label></div>
+        <div><label for="f-schedule">Schedule (cron)</label><input type="text" id="f-schedule" value="${esc(cfg.schedule)}" placeholder="${esc(defaultSchedule)} (default)">
+          <div class="hint">Five-field cron, e.g. <code>0 */6 * * *</code> for every 6 hours.</div></div>
+        <div><label class="check"><input type="checkbox" id="f-request" ${cfg.request_missing ? "checked" : ""}> Send missing titles to Radarr / Sonarr</label></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Appearance in Plex</h2>
+      <div class="grid">
+        <div class="full"><label for="f-summary">Summary</label><textarea id="f-summary">${esc(cfg.summary)}</textarea></div>
+        <div><label for="f-sort">Sort title</label><input type="text" id="f-sort" value="${esc(cfg.sort_title)}" placeholder="!01 Top 250"></div>
+        <div><label for="f-labels">Labels (comma separated)</label><input type="text" id="f-labels" value="${esc(cfg.labels.join(", "))}"></div>
+        <div><label for="f-cmode">Collection visibility in library</label>
+          <select id="f-cmode">
+            <option value="default" ${cfg.collection_mode === "default" ? "selected" : ""}>Library default</option>
+            <option value="hide" ${cfg.collection_mode === "hide" ? "selected" : ""}>Hide collection</option>
+            <option value="hideItems" ${cfg.collection_mode === "hideItems" ? "selected" : ""}>Hide items, show collection</option>
+            <option value="showItems" ${cfg.collection_mode === "showItems" ? "selected" : ""}>Show collection and items</option>
+          </select></div>
+        <div><label>Home screen</label>
+          <label class="check"><input type="checkbox" id="f-rec" ${cfg.promote_recommended ? "checked" : ""}> Library recommended</label>
+          <label class="check"><input type="checkbox" id="f-home" ${cfg.promote_home ? "checked" : ""}> My home</label>
+          <label class="check"><input type="checkbox" id="f-shared" ${cfg.promote_shared ? "checked" : ""}> Friends' home</label></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Artwork</h2>
+      ${id ? "" : `<p class="hint">Save the collection first to upload image files. Image URLs work right away.</p>`}
+      <div class="images">
+        ${imageSlot(id, cfg, "poster", "Poster (2:3)")}
+        ${imageSlot(id, cfg, "art", "Background (16:9)")}
+      </div>
+      <p class="hint">An uploaded file takes priority over a URL. Collections built from a TMDB collection use the TMDB poster when nothing else is set.</p>
+    </div>`;
+
+  const sourcesEl = view.querySelector("#sources");
+  const renderSources = () => {
+    sourcesEl.innerHTML = cfg.sources.map(sourceRow).join("");
+    sourcesEl.querySelectorAll(".source").forEach((el) => {
+      const src = cfg.sources[Number(el.dataset.idx)];
+      el.querySelector("[data-field=type]").onchange = (e) => {
+        src.type = e.target.value;
+        const meta = state.catalog.find((c) => c.type === src.type);
+        src.value = meta.options ? Object.keys(meta.options)[0] : "";
+        renderSources();
+      };
+      el.querySelector("[data-field=value]").oninput = (e) => { src.value = e.target.value; };
+      el.querySelector("[data-field=value]").onchange = (e) => { src.value = e.target.value; };
+      el.querySelector("[data-field=limit]").oninput = (e) => { src.limit = e.target.value ? Number(e.target.value) : null; };
+      el.querySelector("[data-remove]").onclick = () => {
+        if (cfg.sources.length > 1) { cfg.sources.splice(Number(el.dataset.idx), 1); renderSources(); }
+      };
+    });
+  };
+  renderSources();
+  view.querySelector("#addSource").onclick = () => { cfg.sources.push({ type: "tmdb_list", value: "", limit: null }); renderSources(); };
+
+  const collect = () => {
+    const lib = view.querySelector("#f-lib");
+    const opt = lib.selectedOptions[0];
+    return {
+      ...cfg,
+      name: view.querySelector("#f-name").value,
+      section_id: lib.value,
+      library: opt?.dataset.title || "",
+      enabled: view.querySelector("#f-enabled").checked,
+      sync_mode: view.querySelector("#f-mode").value,
+      order: view.querySelector("#f-order").value,
+      item_limit: Number(view.querySelector("#f-limit").value || 0),
+      min_items: Number(view.querySelector("#f-min").value || 0),
+      delete_below_min: view.querySelector("#f-delmin").checked,
+      schedule: view.querySelector("#f-schedule").value,
+      request_missing: view.querySelector("#f-request").checked,
+      summary: view.querySelector("#f-summary").value,
+      sort_title: view.querySelector("#f-sort").value,
+      labels: view.querySelector("#f-labels").value.split(",").map((s) => s.trim()).filter(Boolean),
+      collection_mode: view.querySelector("#f-cmode").value,
+      promote_recommended: view.querySelector("#f-rec").checked,
+      promote_home: view.querySelector("#f-home").checked,
+      promote_shared: view.querySelector("#f-shared").checked,
+      poster_url: view.querySelector("#poster-url").value,
+      art_url: view.querySelector("#art-url").value,
+      sources: cfg.sources.filter((s) => s.value),
+    };
+  };
+
+  const save = async () => {
+    const body = collect();
+    const saved = id ? await api("PUT", `/collections/${id}`, body) : await api("POST", "/collections", body);
+    toast("Saved");
+    return saved;
+  };
+
+  view.querySelector("#save").onclick = () => guard(async () => {
+    const saved = await save();
+    if (!id) location.hash = `#/collections/${saved.id}`;
+  });
+  view.querySelector("#saveRun").onclick = () => guard(async () => {
+    const saved = await save();
+    await api("POST", `/collections/${saved.id}/run`);
+    toast("Sync started");
+    location.hash = "#/collections";
+  });
+  view.querySelector("#dryRun")?.addEventListener("click", () => guard(async () => {
+    await save();
+    toast("Dry run in progress…");
+    const r = await api("POST", `/collections/${id}/run?dry_run=true`);
+    toast(`${r.status}: ${r.message || ""}`, r.status === "error");
+  }));
+
+  view.querySelector("#preview").onclick = () => guard(async () => {
+    const out = view.querySelector("#previewOut");
+    out.innerHTML = `<p class="muted">Fetching lists and matching against Plex…</p>`;
+    const body = collect();
+    try {
+      const r = await api("POST", "/preview", { section_id: body.section_id, library: body.library, sources: body.sources, item_limit: body.item_limit });
+      out.innerHTML = `
+        <p><strong>${r.matched}</strong> of <strong>${r.total}</strong> titles are in <em>${esc(r.library.title)}</em>.</p>
+        ${r.errors.map((e) => `<p class="no small">${esc(e)}</p>`).join("")}
+        <div class="table-wrap" style="max-height:420px;overflow:auto"><table>
+          <thead><tr><th>#</th><th>Title</th><th>Year</th><th>IDs</th><th>In Plex</th></tr></thead>
+          <tbody>${r.items.map((i, n) => `
+            <tr><td>${n + 1}</td><td>${esc(i.plex_title || i.title || "—")}</td><td>${esc(i.year || "")}</td>
+            <td class="small muted">${[i.imdb, i.tmdb && `tmdb:${i.tmdb}`, i.tvdb && `tvdb:${i.tvdb}`].filter(Boolean).map(esc).join(" · ")}</td>
+            <td>${i.in_plex ? `<span class="yes">✔</span>` : `<span class="no">✖</span>`}</td></tr>`).join("")}
+          </tbody></table></div>`;
+    } catch (err) {
+      out.innerHTML = `<p class="no">${esc(err.message)}</p>`;
+    }
+  });
+
+  for (const kind of ["poster", "art"]) {
+    const input = view.querySelector(`#${kind}-file`);
+    if (input) input.onchange = () => guard(async () => {
+      if (!input.files.length) return;
+      const form = new FormData();
+      form.append("file", input.files[0]);
+      await api("POST", `/collections/${id}/image/${kind}`, form);
+      toast(`${kind === "poster" ? "Poster" : "Background"} uploaded — it is applied on the next sync`);
+      route();
+    });
+    const del = view.querySelector(`#${kind}-del`);
+    if (del) del.onclick = () => guard(async () => {
+      await api("DELETE", `/collections/${id}/image/${kind}`);
+      route();
+    });
+  }
+}
+
+function imageSlot(id, cfg, kind, title) {
+  const file = cfg[`${kind}_file`];
+  const url = cfg[`${kind}_url`];
+  const cls = kind === "poster" ? "poster-img" : "art-img";
+  const src = file ? `/api/collections/${id}/image/${kind}?v=${Date.now()}` : url;
+  return `
+    <div class="image-slot">
+      <label>${title}</label>
+      ${src ? `<img class="${cls}" src="${esc(src)}" alt="" referrerpolicy="no-referrer">` : `<div class="${cls} poster" style="width:100%;height:auto">▦</div>`}
+      ${id ? `<input type="file" id="${kind}-file" accept="image/jpeg,image/png,image/webp">` : ""}
+      ${file ? `<button type="button" class="small danger" id="${kind}-del">Remove uploaded file</button>` : ""}
+      <input type="url" id="${kind}-url" value="${esc(url)}" placeholder="…or image URL">
+    </div>`;
+}
+
+// ---------- history ----------
+
+async function history() {
+  const runs = await api("GET", "/runs?limit=200");
+  view.innerHTML = `
+    <div class="page-head"><h1>History</h1></div>
+    ${runs.length ? `<div class="card table-wrap"><table>
+      <thead><tr><th>When</th><th>Collection</th><th>Status</th><th>Matched</th><th>+ / −</th><th>Missing</th><th>Details</th></tr></thead>
+      <tbody>${runs.map((r) => `
+        <tr>
+          <td class="small">${esc(when(r.finished || r.started))}<div class="muted">${esc(r.trigger)}</div></td>
+          <td>${esc(r.collection_name)}</td>
+          <td>${badge(r.status)}</td>
+          <td>${r.matched}/${r.source_count}</td>
+          <td>+${r.added} / −${r.removed}${r.requested ? `<div class="small muted">${r.requested} requested</div>` : ""}</td>
+          <td>${r.missing.length ? `<details><summary>${r.missing.length}</summary><ul class="small">${r.missing.map((m) =>
+            `<li>${esc(m.title || m.imdb || (m.tmdb && "tmdb:" + m.tmdb) || (m.tvdb && "tvdb:" + m.tvdb))}${m.year ? ` (${m.year})` : ""}</li>`).join("")}</ul></details>` : "0"}</td>
+          <td class="small muted">${esc(r.message)}</td>
+        </tr>`).join("")}
+      </tbody></table></div>` : `<div class="card empty">No syncs have run yet.</div>`}`;
+}
+
+// ---------- settings ----------
+
+const SETTING_GROUPS = [
+  { title: "Plex", test: "plex", fields: [
+    ["plex_url", "Server URL", "url", "http://192.168.1.10:32400"],
+    ["plex_token", "Token", "password", "X-Plex-Token"],
+    ["plex_verify_ssl", "Verify SSL certificates", "bool"],
+  ], extra: `<button type="button" id="plexSignIn">Sign in with Plex</button><div id="plexServers" class="servers"></div>` },
+  { title: "TMDB", test: "tmdb", fields: [
+    ["tmdb_api_key", "API key (v3) or Read Access Token (v4)", "password", ""],
+  ], hint: `Free at <a href="https://www.themoviedb.org/settings/api" target="_blank" rel="noopener">themoviedb.org/settings/api</a>. Needed for TMDB sources.` },
+  { title: "Trakt", test: "trakt", fields: [
+    ["trakt_client_id", "Client ID", "password", ""],
+  ], hint: `Create an API app at <a href="https://trakt.tv/oauth/applications" target="_blank" rel="noopener">trakt.tv/oauth/applications</a>.` },
+  { title: "MDBList", test: "mdblist", fields: [
+    ["mdblist_api_key", "API key", "password", ""],
+  ], hint: `From your <a href="https://mdblist.com/preferences/" target="_blank" rel="noopener">MDBList preferences</a>.` },
+  { title: "Radarr (missing movies)", test: "radarr", arr: "radarr", fields: [
+    ["radarr_url", "URL", "url", "http://radarr:7878"],
+    ["radarr_api_key", "API key", "password", ""],
+    ["radarr_root_folder", "Root folder", "text", "/movies"],
+    ["radarr_quality_profile", "Quality profile id", "text", "1"],
+    ["radarr_search", "Search when added", "bool"],
+  ] },
+  { title: "Sonarr (missing shows)", test: "sonarr", arr: "sonarr", fields: [
+    ["sonarr_url", "URL", "url", "http://sonarr:8989"],
+    ["sonarr_api_key", "API key", "password", ""],
+    ["sonarr_root_folder", "Root folder", "text", "/tv"],
+    ["sonarr_quality_profile", "Quality profile id", "text", "1"],
+    ["sonarr_search", "Search when added", "bool"],
+  ] },
+  { title: "Notifications", test: "discord", fields: [
+    ["discord_webhook", "Discord webhook URL", "password", "https://discord.com/api/webhooks/…"],
+    ["notify_level", "Notify on", "select", { changes: "Changes and errors", errors: "Errors only", always: "Every sync", off: "Never" }],
+  ] },
+  { title: "General", fields: [
+    ["default_schedule", "Default schedule (cron)", "text", "0 3 * * *"],
+    ["managed_label", "Label added to managed collections", "text", "Curatarr"],
+  ] },
+];
+
+function settingField([key, label, type, extra], values, fromEnv) {
+  const env = fromEnv.includes(key) ? ` <span class="badge">env</span>` : "";
+  if (type === "bool") {
+    return `<div><label class="check"><input type="checkbox" data-key="${key}" ${values[key] !== "false" ? "checked" : ""}> ${label}</label></div>`;
+  }
+  if (type === "select") {
+    return `<div><label>${label}</label><select data-key="${key}">${Object.entries(extra).map(([k, v]) =>
+      `<option value="${k}" ${values[key] === k ? "selected" : ""}>${esc(v)}</option>`).join("")}</select></div>`;
+  }
+  return `<div><label>${label}${env}</label><input type="${type === "password" ? "password" : "text"}" data-key="${key}" value="${esc(values[key])}" placeholder="${esc(extra || "")}" autocomplete="off"></div>`;
+}
+
+async function settings() {
+  const { values, from_env: fromEnv } = await api("GET", "/settings");
+  view.innerHTML = `
+    <div class="page-head"><h1>Settings</h1><div class="actions"><button class="primary" id="saveSettings">Save</button></div></div>
+    ${SETTING_GROUPS.map((g) => `
+      <div class="card">
+        <h2>${g.title}</h2>
+        ${g.hint ? `<p class="hint" style="margin-top:-6px">${g.hint}</p>` : ""}
+        <div class="grid">${g.fields.map((f) => settingField(f, values, fromEnv)).join("")}</div>
+        <div class="row" style="margin-top:12px">
+          ${g.test ? `<button type="button" data-test="${g.test}">Test</button>` : ""}
+          ${g.arr ? `<button type="button" data-arr="${g.arr}">Load folders &amp; profiles</button>` : ""}
+          ${g.extra || ""}
+        </div>
+        ${g.arr ? `<div id="${g.arr}-options" class="small muted" style="margin-top:8px"></div>` : ""}
+      </div>`).join("")}
+    <p class="hint">Values marked <span class="badge">env</span> come from container environment variables; saving a value here overrides them.</p>`;
+
+  const gather = () => {
+    const out = {};
+    view.querySelectorAll("[data-key]").forEach((el) => {
+      out[el.dataset.key] = el.type === "checkbox" ? String(el.checked) : el.value;
+    });
+    return out;
+  };
+  const saveAll = async () => {
+    await api("PUT", "/settings", gather());
+    state.libraries = null;
+  };
+
+  view.querySelector("#saveSettings").onclick = () => guard(async () => {
+    await saveAll();
+    toast("Settings saved");
+    loadStatus();
+  });
+  view.querySelectorAll("[data-test]").forEach((b) => b.onclick = () => guard(async () => {
+    await saveAll();
+    b.disabled = true;
+    try {
+      const r = await api("POST", `/settings/test/${b.dataset.test}`);
+      toast(r.message, !r.ok);
+      if (b.dataset.test === "plex") loadStatus();
+    } finally { b.disabled = false; }
+  }));
+  view.querySelectorAll("[data-arr]").forEach((b) => b.onclick = () => guard(async () => {
+    await saveAll();
+    const kind = b.dataset.arr;
+    const r = await api("GET", `/arr/${kind}/options`);
+    const out = view.querySelector(`#${kind}-options`);
+    out.innerHTML = `Root folders: ${r.root_folders.map((f) => `<a href="#" data-fill="${kind}_root_folder" data-val="${esc(f)}">${esc(f)}</a>`).join(", ") || "none"}<br>
+      Quality profiles: ${r.quality_profiles.map((p) => `<a href="#" data-fill="${kind}_quality_profile" data-val="${p.id}">${esc(p.name)} (${p.id})</a>`).join(", ")}`;
+    out.querySelectorAll("[data-fill]").forEach((a) => a.onclick = (e) => {
+      e.preventDefault();
+      view.querySelector(`[data-key="${a.dataset.fill}"]`).value = a.dataset.val;
+    });
+  }));
+
+  view.querySelector("#plexSignIn").onclick = () => guard(async () => {
+    const pin = await api("POST", "/plex/auth/pin");
+    const popup = window.open(pin.auth_url, "plexauth", "width=600,height=750");
+    toast("Complete the sign-in in the Plex window…");
+    const started = Date.now();
+    const poll = async () => {
+      if (Date.now() - started > 5 * 60 * 1000) return toast("Plex sign-in timed out", true);
+      const r = await api("GET", `/plex/auth/pin/${pin.id}`);
+      if (!r.authorized) return setTimeout(poll, 2000);
+      popup?.close();
+      showServers(r.servers, r.token);
+    };
+    setTimeout(poll, 2000);
+  });
+
+  function showServers(servers, token) {
+    const el = view.querySelector("#plexServers");
+    if (!servers.length) {
+      view.querySelector('[data-key="plex_token"]').value = token;
+      el.innerHTML = `<span class="muted">Signed in, but no servers were found. Enter the server URL manually and save.</span>`;
+      return;
+    }
+    el.innerHTML = `<span class="muted small">Signed in. Pick a connection:</span>` + servers.map((s, i) =>
+      s.connections.map((c, j) => `<button type="button" class="small" data-srv="${i}" data-conn="${j}">${esc(s.name)} — ${esc(c.uri)}${c.local ? " (local)" : ""}</button>`).join("")).join("");
+    el.querySelectorAll("[data-srv]").forEach((b) => b.onclick = () => guard(async () => {
+      const s = servers[Number(b.dataset.srv)];
+      view.querySelector('[data-key="plex_url"]').value = s.connections[Number(b.dataset.conn)].uri;
+      view.querySelector('[data-key="plex_token"]').value = s.token;
+      await saveAll();
+      const r = await api("POST", "/settings/test/plex");
+      toast(r.message, !r.ok);
+      loadStatus();
+    }));
+  }
+}
+
+// ---------- import / export ----------
+
+const SAMPLE_YAML = `collections:
+  - name: IMDb Top 250
+    library: Movies
+    sources:
+      - type: imdb_chart
+        value: top
+    sort_title: "!01 IMDb Top 250"
+    promote_home: true
+  - name: Marvel Cinematic Universe
+    library: Movies
+    sources:
+      - type: tmdb_list
+        value: https://www.themoviedb.org/list/8136
+    order: release
+  - name: Trending Shows
+    library: TV Shows
+    sources:
+      - type: trakt_chart
+        value: shows/trending
+        limit: 30
+    schedule: "0 */12 * * *"`;
+
+async function importExport() {
+  view.innerHTML = `
+    <div class="page-head"><h1>Import / Export</h1></div>
+    <div class="card">
+      <h2>Export</h2>
+      <p class="muted">Download every collection as YAML to back it up or move it to another server.</p>
+      <a class="btn" href="/api/export" download>Download collections.yml</a>
+    </div>
+    <div class="card">
+      <h2>Import</h2>
+      <p class="muted small">Collections are matched by name and library: existing ones are updated, new ones are created.
+        A <code>collections.yml</code> placed in the config folder is also imported (new names only) when the container starts.</p>
+      <textarea id="yaml" style="min-height:280px;font-family:ui-monospace,monospace" spellcheck="false" placeholder="${esc(SAMPLE_YAML)}"></textarea>
+      <div class="row" style="margin-top:10px">
+        <input type="file" id="yamlFile" accept=".yml,.yaml,text/yaml" style="max-width:280px">
+        <label class="check"><input type="checkbox" id="overwrite" checked> Update existing collections</label>
+        <button class="primary" id="doImport">Import</button>
+      </div>
+      <details style="margin-top:14px"><summary>Example</summary><pre>${esc(SAMPLE_YAML)}</pre></details>
+    </div>`;
+  view.querySelector("#yamlFile").onchange = async (e) => {
+    const f = e.target.files[0];
+    if (f) view.querySelector("#yaml").value = await f.text();
+  };
+  view.querySelector("#doImport").onclick = () => guard(async () => {
+    const text = view.querySelector("#yaml").value;
+    if (!text.trim()) return toast("Paste or choose a YAML file first", true);
+    const r = await api("POST", `/import?overwrite=${view.querySelector("#overwrite").checked}`, text);
+    toast(`Created ${r.created}, updated ${r.updated}${r.errors.length ? `, ${r.errors.length} error(s)` : ""}`, r.errors.length > 0);
+    r.errors.forEach((e) => toast(e, true));
+  });
+}
+
+// ---------- boot ----------
+
+loadStatus();
+route();

@@ -1,0 +1,32 @@
+# Curatarr: Plex collections from IMDb / TMDB / Trakt / MDBList lists.
+#   docker compose pull && docker compose up -d
+# then open http://<host>:8585 and finish setup under Settings.
+services:
+  curatarr:
+    image: ghcr.io/gaterunner341/curatarr:latest
+    container_name: curatarr
+    restart: unless-stopped
+    ports:
+      - "8585:8585"
+    volumes:
+      - ./config:/config          # database, uploaded posters, optional collections.yml
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=America/New_York
+      # Everything below is optional; it can all be set in the web UI instead.
+      # - PLEX_URL=http://plex:32400
+      # - PLEX_TOKEN=xxxxxxxxxxxxxxxxxxxx
+      # - TMDB_API_KEY=xxxxxxxxxxxxxxxxxxxx
+      # - TRAKT_CLIENT_ID=xxxxxxxxxxxxxxxxxxxx
+      # - MDBLIST_API_KEY=xxxxxxxxxxxxxxxxxxxx
+      # - RADARR_URL=http://radarr:7878
+      # - RADARR_API_KEY=xxxxxxxxxxxxxxxxxxxx
+      # - SONARR_URL=http://sonarr:8989
+      # - SONARR_API_KEY=xxxxxxxxxxxxxxxxxxxx
+      # - DISCORD_WEBHOOK=https://discord.com/api/webhooks/...
+      # - CURATARR_SCHEDULE=0 3 * * *
+      # Protect the UI (browser login) and/or the API (X-Api-Key header):
+      # - CURATARR_USERNAME=admin
+      # - CURATARR_PASSWORD=change-me
+      # - CURATARR_API_KEY=generate-a-long-random-string

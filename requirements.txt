@@ -1,0 +1,7 @@
+fastapi>=0.115,<1
+uvicorn[standard]>=0.30,<1
+httpx>=0.27,<1
+pydantic>=2.7,<3
+apscheduler>=3.10,<4
+pyyaml>=6.0,<7
+python-multipart>=0.0.9

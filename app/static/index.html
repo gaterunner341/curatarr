@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Curatarr</title>
+  <link rel="icon" href="/static/logo.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <button class="menu-btn" id="menuBtn" aria-label="Menu">&#9776;</button>
+    <a class="brand" href="#/collections"><img src="/static/logo.svg" alt="" width="28" height="28"> Curatarr</a>
+    <span class="server" id="serverStatus"></span>
+  </header>
+  <div class="layout">
+    <nav class="sidebar" id="sidebar">
+      <a href="#/collections" data-nav="collections">Collections</a>
+      <a href="#/history" data-nav="history">History</a>
+      <a href="#/import" data-nav="import">Import / Export</a>
+      <a href="#/settings" data-nav="settings">Settings</a>
+      <div class="version" id="version"></div>
+    </nav>
+    <main id="view" class="view"></main>
+  </div>
+  <div id="toasts" class="toasts" aria-live="polite"></div>
+  <script src="/static/app.js"></script>
+</body>
+</html>
