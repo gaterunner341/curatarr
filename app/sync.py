@@ -270,8 +270,13 @@ def _run_collection(collection_id: int, trigger: str, dry_run: bool) -> dict:
                 cfg.section_id, cfg.library = section["id"], section["title"]
                 db.update_collection_config(collection_id, cfg.model_dump())
             ctx = SourceContext(settings=settings, http=http, media_type=section["type"])
+            log.info("'%s': library '%s' (id %s, %s), %d source(s)", cfg.name, section["title"],
+                     section["id"], section["type"], len(cfg.sources))
             refs, source_errors = resolve(cfg.sources, ctx, cfg.item_limit)
             run["source_count"] = len(refs)
+            for err in source_errors:
+                log.warning("'%s': source failed: %s", cfg.name, err)
+            log.info("'%s': %d title(s) from lists", cfg.name, len(refs))
             if source_errors and not refs:
                 raise SyncError("; ".join(source_errors))
             state = {k: row.get(k) for k in ("plex_rating_key", "poster_applied", "art_applied")}
@@ -289,6 +294,12 @@ def _run_collection(collection_id: int, trigger: str, dry_run: bool) -> dict:
         run.update(status=result.status, matched=result.matched, added=result.added,
                    removed=result.removed, requested=result.requested, missing=result.missing,
                    message=" | ".join(result.messages))
+        log.info("'%s': %s - matched %d, added %d, removed %d, missing %d. %s", cfg.name,
+                 result.status, result.matched, result.added, result.removed,
+                 len(result.missing), run["message"])
+        if result.missing:
+            log.debug("'%s': missing %s", cfg.name, ", ".join(
+                m.get("imdb") or f"tmdb:{m.get('tmdb')}" for m in result.missing))
         if not dry_run:
             db.update_collection_state(collection_id, **{
                 k: result.state.get(k) for k in ("plex_rating_key", "poster_applied", "art_applied")

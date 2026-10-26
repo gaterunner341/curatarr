@@ -67,6 +67,7 @@ const routes = [
   [/^#\/collections\/new$/, () => editor(null)],
   [/^#\/collections\/(\d+)$/, (m) => editor(Number(m[1]))],
   [/^#\/history$/, history],
+  [/^#\/logs$/, logsPage],
   [/^#\/settings$/, settings],
   [/^#\/import$/, importExport],
   [/^.*$/, collections],
@@ -454,6 +455,57 @@ async function history() {
           <td class="small muted">${esc(r.message)}</td>
         </tr>`).join("")}
       </tbody></table></div>` : `<div class="card empty">No syncs have run yet.</div>`}`;
+}
+
+// ---------- logs ----------
+
+async function logsPage() {
+  view.innerHTML = `
+    <div class="page-head">
+      <h1>Logs</h1>
+      <div class="actions">
+        <a class="btn primary" href="/api/logs/download" download>Download logs</a>
+      </div>
+    </div>
+    <div class="card">
+      <div class="row" style="margin-bottom:12px">
+        <div><label for="logLevel">Level</label>
+          <select id="logLevel">
+            <option value="">All</option>
+            <option value="INFO">Info and above</option>
+            <option value="WARNING" selected>Warnings and errors</option>
+            <option value="ERROR">Errors only</option>
+          </select></div>
+        <div class="grow"><label for="logSearch">Search</label><input type="text" id="logSearch" placeholder="Collection name, error text…"></div>
+        <button type="button" id="logRefresh">Refresh</button>
+      </div>
+      <p class="hint" style="margin-top:0">Downloads include all log files and a summary of your setup. Tokens and API keys are removed.</p>
+      <div id="logOut" class="log-view"></div>
+    </div>`;
+
+  const load = () => guard(async () => {
+    const params = new URLSearchParams({
+      lines: "1000",
+      level: view.querySelector("#logLevel").value,
+      search: view.querySelector("#logSearch").value,
+    });
+    const entries = await api("GET", `/logs?${params}`);
+    const out = view.querySelector("#logOut");
+    out.innerHTML = entries.length
+      ? entries.slice().reverse().map((e) => `
+          <div class="log-line lvl-${esc(e.level)}">
+            <span class="log-time">${esc(e.time)}</span>
+            <span class="log-level">${esc(e.level)}</span>
+            <span class="log-msg"><span class="muted">${esc(e.logger)}:</span> ${esc(e.message)}</span>
+          </div>`).join("")
+      : `<p class="muted">No log entries match.</p>`;
+  });
+
+  view.querySelector("#logLevel").onchange = load;
+  view.querySelector("#logRefresh").onclick = load;
+  let timer;
+  view.querySelector("#logSearch").oninput = () => { clearTimeout(timer); timer = setTimeout(load, 300); };
+  await load();
 }
 
 // ---------- settings ----------

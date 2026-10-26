@@ -119,7 +119,18 @@ pre { background: var(--bg); border: 1px solid var(--border); border-radius: 6px
 .facts dt { color: var(--muted); font-size: .85rem; }
 .facts dd { margin: 0; min-width: 0; }
 
+.log-view { max-height: 65vh; overflow: auto; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; font-size: .8rem; }
+.log-line { display: grid; grid-template-columns: max-content 70px 1fr; gap: 10px; padding: 4px 10px; border-bottom: 1px solid var(--panel-2); }
+.log-time { color: var(--muted); white-space: nowrap; }
+.log-level { font-weight: 700; }
+.log-msg { white-space: pre-wrap; overflow-wrap: anywhere; }
+.lvl-WARNING .log-level { color: var(--warn); }
+.lvl-ERROR .log-level, .lvl-CRITICAL .log-level { color: var(--err); }
+.lvl-INFO .log-level { color: var(--ok); }
+.lvl-DEBUG .log-level { color: var(--muted); }
+
 @media (max-width: 760px) {
+  .log-line { grid-template-columns: 1fr; gap: 2px; }
   .menu-btn { display: block; }
   .sidebar { position: fixed; top: 56px; bottom: 0; left: 0; z-index: 20; transform: translateX(-100%); transition: transform .2s; }
   .sidebar.open { transform: none; }

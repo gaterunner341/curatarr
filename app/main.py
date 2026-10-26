@@ -9,10 +9,9 @@ from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-from . import api, config, db, scheduler
+from . import api, config, db, logs, scheduler
 
-logging.basicConfig(level=config.LOG_LEVEL,
-                    format="%(asctime)s %(levelname)-7s %(name)s: %(message)s")
+logs.setup()
 log = logging.getLogger("curatarr")
 
 STATIC_DIR = Path(__file__).parent / "static"
@@ -87,8 +86,9 @@ def spa(path: str):
 
 def run() -> None:
     import uvicorn
+    # log_config=None keeps uvicorn on our handlers (console + /config/logs).
     uvicorn.run(app, host="0.0.0.0", port=config.PORT, log_level=config.LOG_LEVEL.lower(),
-                proxy_headers=True, forwarded_allow_ips="*")
+                log_config=None, access_log=False, proxy_headers=True, forwarded_allow_ips="*")
 
 
 if __name__ == "__main__":

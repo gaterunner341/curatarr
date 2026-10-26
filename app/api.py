@@ -1,15 +1,16 @@
 """REST API used by the web UI (and available for scripting)."""
 import logging
 import os
+from datetime import datetime
 from pathlib import Path
 
 import httpx
 import yaml
 from fastapi import APIRouter, Body, File, HTTPException, Query, UploadFile
-from fastapi.responses import FileResponse, PlainTextResponse
+from fastapi.responses import FileResponse, PlainTextResponse, Response
 from pydantic import ValidationError
 
-from . import arr, config, db, plex as plexmod, plextv, scheduler, sources, sync
+from . import arr, config, db, logs, plex as plexmod, plextv, scheduler, sources, sync
 from .models import CollectionConfig, PreviewRequest
 from .plex import PlexError
 from .sources import SourceContext, SourceError
@@ -391,6 +392,19 @@ def import_yaml(text: str, overwrite: bool = True) -> dict:
             created += 1
     scheduler.reload_jobs()
     return {"created": created, "updated": updated, "errors": errors}
+
+
+@router.get("/logs")
+def get_logs(lines: int = Query(500, ge=1, le=5000), level: str = "", search: str = ""):
+    return logs.tail(lines, level, search)
+
+
+@router.get("/logs/download")
+def download_logs():
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    data = logs.bundle(db.get_settings(), db.list_collections())
+    return Response(data, media_type="application/zip", headers={
+        "Content-Disposition": f'attachment; filename="curatarr-logs-{stamp}.zip"'})
 
 
 @router.get("/export", response_class=PlainTextResponse)

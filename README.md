@@ -125,6 +125,14 @@ collections:
 | `request_missing` | `false` | Send missing titles to Radarr or Sonarr |
 | `enabled` | `true` | Turn scheduled syncs on or off |
 
+## Logs and troubleshooting
+
+Logs are written to `/config/logs/curatarr.log`, which rotates at 2 MB and keeps 5 old files. They also go to the container's console.
+
+The **Logs** page in the web UI lets you filter entries by level or search them. **Download logs** gives you a `.zip` of all log files plus a `diagnostics.txt` summary of your setup and collections. Tokens and API keys are removed from both, so the file is safe to attach to a bug report.
+
+Set `CURATARR_LOG_LEVEL=DEBUG` for more detail, such as the IDs of titles missing from Plex.
+
 ## A note on IMDb
 
 IMDb has no public API, and it sometimes turns away automated requests with a bot check. Curatarr does not try to get around that check. If an IMDb source is blocked, use one of these instead:

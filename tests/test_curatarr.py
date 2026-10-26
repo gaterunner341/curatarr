@@ -233,3 +233,40 @@ collections:
     again = api.import_yaml(exported)
     assert again == {"created": 0, "updated": 1, "errors": []}
     assert len(db.list_collections()) == 1
+
+
+# --- logging ------------------------------------------------------------------------
+
+def test_redact_hides_tokens_and_keys():
+    from app.logs import redact
+    text = ("GET https://api.themoviedb.org/3/list/1?api_key=abc123&page=2 "
+            "http://plex:32400/identity?X-Plex-Token=SECRET "
+            "headers={'X-Plex-Token': 'SECRET2', 'Authorization': 'Bearer eyJhbGci'}")
+    out = redact(text)
+    for secret in ("abc123", "SECRET", "SECRET2", "eyJhbGci"):
+        assert secret not in out
+    assert "page=2" in out and "[REDACTED]" in out
+
+
+def test_log_tail_filters_and_bundle(tmp_path, monkeypatch):
+    import zipfile
+    from app import logs
+    monkeypatch.setattr(logs, "LOG_DIR", tmp_path)
+    monkeypatch.setattr(logs, "LOG_FILE", tmp_path / "curatarr.log")
+    (tmp_path / "curatarr.log").write_text(
+        "2026-10-26 10:00:00,000 INFO    app.sync: Syncing collection 'A' (manual)\n"
+        "2026-10-26 10:00:01,000 ERROR   app.sync: Sync of 'A' crashed\n"
+        "Traceback (most recent call last):\n"
+        "  boom api_key=leaked\n"
+        "2026-10-26 10:00:02,000 WARNING app.sync: 'B': source failed\n", encoding="utf-8")
+    assert len(logs.tail(100)) == 3
+    errors = logs.tail(100, level="ERROR")
+    assert len(errors) == 1 and "Traceback" in errors[0]["message"]
+    assert [e["message"] for e in logs.tail(100, search="'b'")] == ["'B': source failed"]
+
+    data = logs.bundle({"plex_url": "http://plex", "plex_token": "tok"}, [])
+    with zipfile.ZipFile(__import__("io").BytesIO(data)) as zf:
+        assert set(zf.namelist()) == {"diagnostics.txt", "curatarr.log"}
+        assert "leaked" not in zf.read("curatarr.log").decode()
+        diag = zf.read("diagnostics.txt").decode()
+        assert "tok" not in diag.replace("token", "") and "plex_token=set" in diag
