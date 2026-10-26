@@ -1,0 +1,28 @@
+# Curatarr for TrueNAS SCALE (24.10 "Electric Eel" and newer)
+#
+# Apps > Discover Apps > ⋮ (top right) > Install via YAML
+#   Name: curatarr
+#   Paste this whole file and click Save.
+#
+# Then open http://<truenas-ip>:8585 and use Settings > Sign in with Plex.
+# Nothing in this file needs to be edited.
+services:
+  curatarr:
+    image: ghcr.io/gaterunner341/curatarr:latest
+    pull_policy: always
+    restart: unless-stopped
+    ports:
+      - "8585:8585"            # web UI: http://<truenas-ip>:8585
+    environment:
+      PUID: "568"              # TrueNAS "apps" user
+      PGID: "568"              # TrueNAS "apps" group
+      TZ: "Etc/UTC"            # e.g. America/New_York, used for sync schedules
+      # PLEX_URL: "http://<truenas-ip>:32400"   # optional, can be set in the UI
+    volumes:
+      - curatarr-config:/config
+      # To keep the config on one of your datasets instead (e.g. to drop in a
+      # collections.yml), replace the line above with:
+      # - /mnt/<pool>/apps/curatarr/config:/config
+
+volumes:
+  curatarr-config:

@@ -55,6 +55,18 @@ Then go to **Collections → New collection**.
 
 See [`docker-compose.yml`](docker-compose.yml) for every supported environment variable.
 
+## Install on TrueNAS SCALE
+
+On TrueNAS SCALE 24.10 or newer:
+
+1. Go to **Apps → Discover Apps → ⋮ (top right) → Install via YAML**.
+2. Name the app `curatarr`.
+3. Paste the contents of [`truenas/curatarr.yaml`](truenas/curatarr.yaml) and click **Save**.
+
+The file already maps port 8585 and creates storage for the config, so it needs no edits. Open `http://<truenas-ip>:8585` once the app shows **Running**.
+
+Use **Install via YAML** rather than the **Custom App** form. The form leaves port mappings empty unless you add them yourself, and the web UI can't be reached without one.
+
 ## Environment variables
 
 | Variable | Purpose |
