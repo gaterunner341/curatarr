@@ -17,7 +17,6 @@ services:
       PUID: "568"              # TrueNAS "apps" user
       PGID: "568"              # TrueNAS "apps" group
       TZ: "Etc/UTC"            # e.g. America/New_York, used for sync schedules
-      # PLEX_URL: "http://<truenas-ip>:32400"   # optional, can be set in the UI
     volumes:
       - curatarr-config:/config
       # To keep the config on one of your datasets instead (e.g. to drop in a
