@@ -77,7 +77,7 @@ Use **Install via YAML** rather than the **Custom App** form. The form leaves po
 | `PLEX_URL`, `PLEX_TOKEN` | Plex connection (or set in UI) |
 | `TMDB_API_KEY`, `TRAKT_CLIENT_ID`, `MDBLIST_API_KEY` | List provider keys |
 | `RADARR_URL`, `RADARR_API_KEY`, `SONARR_URL`, `SONARR_API_KEY` | Missing title requests |
-| `CURATARR_SCHEDULE` | Default cron schedule (default `0 3 * * *`) |
+| `CURATARR_SCHEDULE` | Default cron schedule (default `0 */6 * * *`) |
 | `CURATARR_USERNAME`, `CURATARR_PASSWORD` | Turn on a browser login for the UI and API |
 | `CURATARR_API_KEY` | Require an `X-Api-Key` header (or `?apikey=`) for the API |
 | `CURATARR_PORT` | Listen port (default `8585`) |

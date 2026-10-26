@@ -303,3 +303,13 @@ def test_linking_existing_collection_in_append_mode_keeps_its_items():
     assert set(fake.collections["100"]) == {"1", "5", "6"}
     assert (result.added, result.removed) == (1, 0)
     assert not any(c.startswith("POST /library/collections") for c in fake.calls)
+
+
+def test_old_default_schedule_is_migrated():
+    from app import main
+    db.save_settings({"default_schedule": "0 3 * * *"})
+    main.migrate_default_schedule()
+    assert db.get_settings()["default_schedule"] == "0 */6 * * *"
+    db.save_settings({"default_schedule": "30 1 * * *"})   # a user's own choice is kept
+    main.migrate_default_schedule()
+    assert db.get_settings()["default_schedule"] == "30 1 * * *"

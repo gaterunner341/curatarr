@@ -25,9 +25,20 @@ def seed_from_yaml() -> None:
         log.info("Seeded from %s: %s", config.SEED_FILE, result)
 
 
+OLD_DEFAULT_SCHEDULES = {"0 3 * * *"}   # defaults shipped by earlier versions
+
+
+def migrate_default_schedule() -> None:
+    """Installs that saved an old built-in default move to the current one."""
+    if db.get_settings().get("default_schedule") in OLD_DEFAULT_SCHEDULES:
+        db.save_settings({"default_schedule": config.DEFAULT_SETTINGS["default_schedule"]})
+        log.info("Default schedule updated to '%s'", config.DEFAULT_SETTINGS["default_schedule"])
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     db.connect()
+    migrate_default_schedule()
     try:
         seed_from_yaml()
     except ValueError as exc:

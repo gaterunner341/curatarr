@@ -624,7 +624,7 @@ const SETTING_GROUPS = [
     ["sonarr_search", "Search when added", "bool"],
   ] },
   { title: "General", fields: [
-    ["default_schedule", "Default schedule (cron)", "text", "0 3 * * *"],
+    ["default_schedule", "Default schedule (cron)", "text", "0 */6 * * *"],
     ["managed_label", "Label added to managed collections", "text", "Curatarr"],
   ] },
 ];
