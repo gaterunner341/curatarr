@@ -404,9 +404,13 @@ def test_sync_applies_calendar_to_home_screen():
 def test_holiday_windows_and_config():
     from datetime import date
     from app import holidays
-    ny = holidays.get("new-years")
-    start, end = holidays.window_dates(ny, 2026)
-    assert (start, end) == ("2026-12-26", "2027-01-02")
+    wrap = {"start": "12-26", "end": "01-02"}
+    assert holidays.window_dates(wrap, 2026) == ("2026-12-26", "2027-01-02")
+    assert [h["key"] for h in holidays.HOLIDAYS] == [
+        "valentines", "st-patricks", "easter", "independence-day", "halloween", "veterans-day",
+        "thanksgiving", "christmas"]
+    assert all(holidays.available(h) and h["link"].startswith("https://www.themoviedb.org/keyword/")
+               for h in holidays.HOLIDAYS)
     for h in holidays.HOLIDAYS:
         cfg = CollectionConfig(**holidays.collection_config(
             {**h, "sources": [{"type": "static", "value": "tt0000001"}]},
@@ -425,18 +429,20 @@ def test_enable_holiday_endpoint(monkeypatch):
     from app import api as api_mod, holidays, scheduler, sync as sync_mod
     from app.main import app
 
-    monkeypatch.setitem(holidays.BY_KEY["halloween"], "sources",
-                        [{"type": "static", "value": "tt0000001"}])
     monkeypatch.setattr(api_mod, "_plex", lambda: nullcontext(object()))
     monkeypatch.setattr(sync_mod, "resolve_section",
                         lambda plex, sid, lib: {"id": "1", "title": "Movies", "type": "movie"})
     monkeypatch.setattr(scheduler, "run_now", lambda *a, **k: None)
     client = TestClient(app)
 
-    assert client.post("/api/holidays/christmas/enable", json={"section_id": "1"}).status_code == 409
-    r = client.post("/api/holidays/halloween/enable", json={"section_id": "1"})
-    assert r.status_code == 201 and r.json()["config"]["holiday"] == "halloween"
+    assert client.post("/api/holidays/new-years/enable", json={"section_id": "1"}).status_code == 404
+    r = client.post("/api/holidays/halloween/enable", json={"section_id": "1", "request_missing": True})
+    assert r.status_code == 201
+    cfg = r.json()["config"]
+    assert cfg["holiday"] == "halloween" and cfg["request_missing"] is True
+    assert cfg["sources"][0]["value"] == "movie?with_keywords=3335&sort_by=popularity.desc"
+    assert cfg["sources"][0]["limit"] == 100
     assert client.post("/api/holidays/halloween/enable", json={"section_id": "1"}).status_code == 409
     listed = {h["key"]: h for h in client.get("/api/holidays").json()}
     assert listed["halloween"]["available"] and len(listed["halloween"]["collections"]) == 1
-    assert not listed["christmas"]["available"]
+    assert listed["christmas"]["collections"] == [] and "radarr" in listed["christmas"]["arr_ready"]

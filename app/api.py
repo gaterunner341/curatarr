@@ -246,11 +246,15 @@ def create_collection(cfg: dict = Body(...), plex_rating_key: str = ""):
 @router.get("/holidays")
 def list_holidays():
     rows = db.list_collections()
+    settings = db.get_settings()
+    with httpx.Client() as http:
+        arr_ready = {kind: arr.Arr(kind, settings, http).configured for kind in ("radarr", "sonarr")}
     result = []
     for h in holidays.HOLIDAYS:
         colls = [_collection_out(r) for r in rows if r["config"].get("holiday") == h["key"]]
         result.append({
             "key": h["key"], "name": h["name"], "start": h["start"], "end": h["end"],
+            "link": h.get("link", ""), "arr_ready": arr_ready,
             "available": holidays.available(h),
             "poster": f"/static/holidays/{h['poster']}" if h.get("poster") else "",
             "collections": colls,
@@ -259,7 +263,9 @@ def list_holidays():
 
 
 @router.post("/holidays/{key}/enable", status_code=201)
-def enable_holiday(key: str, section_id: str = Body(..., embed=True)):
+def enable_holiday(key: str, section_id: str = Body(..., embed=True),
+                   request_missing: bool = Body(False, embed=True)):
+    """Create the holiday's collection; ``request_missing`` sends missing titles to Radarr/Sonarr."""
     holiday = holidays.get(key)
     if not holiday:
         raise HTTPException(404, "Unknown holiday")
@@ -273,7 +279,7 @@ def enable_holiday(key: str, section_id: str = Body(..., embed=True)):
             section = sync.resolve_section(plex, section_id, "")
         except (PlexError, sync.SyncError) as exc:
             raise HTTPException(400, str(exc))
-    model = _validate(holidays.collection_config(holiday, section))
+    model = _validate(holidays.collection_config(holiday, section, request_missing))
     collection_id = db.create_collection(model.model_dump())
     poster = holidays.install_poster(holiday, collection_id)
     if poster:

@@ -16,24 +16,44 @@ from . import config
 
 POSTER_DIR = Path(__file__).parent / "static" / "holidays"
 
+HOLIDAY_LIMIT = 100   # most popular titles per holiday; keeps Radarr requests sane
+
+
+def _keyword(keyword_id: int) -> list[dict]:
+    """A TMDB keyword as a source: its most popular movies."""
+    return [{"type": "tmdb_discover",
+             "value": f"movie?with_keywords={keyword_id}&sort_by=popularity.desc",
+             "limit": HOLIDAY_LIMIT}]
+
+
 # start/end are "MM-DD" and repeat yearly; windows may cross New Year.
+# "link" is the TMDB page the list comes from, shown on the Holidays page.
 HOLIDAYS: list[dict] = [
-    {"key": "new-years", "name": "New Year's", "start": "12-26", "end": "01-02",
-     "sources": [], "poster": ""},
     {"key": "valentines", "name": "Valentine's Day", "start": "02-01", "end": "02-14",
-     "sources": [], "poster": ""},
+     "link": "https://www.themoviedb.org/keyword/160404-valentine-s-day/movie",
+     "sources": _keyword(160404), "poster": ""},
     {"key": "st-patricks", "name": "St. Patrick's Day", "start": "03-10", "end": "03-17",
-     "sources": [], "poster": ""},
+     "link": "https://www.themoviedb.org/keyword/209352-st-patrick-s-day/movie",
+     "sources": _keyword(209352), "poster": ""},
+    # Easter moves each year; this window covers every possible date.
     {"key": "easter", "name": "Easter", "start": "03-20", "end": "04-25",
-     "sources": [], "poster": ""},
+     "link": "https://www.themoviedb.org/keyword/9921-easter/movie",
+     "sources": _keyword(9921), "poster": ""},
     {"key": "independence-day", "name": "Independence Day", "start": "06-25", "end": "07-04",
-     "sources": [], "poster": ""},
+     "link": "https://www.themoviedb.org/keyword/282190-4th-of-july/movie",
+     "sources": _keyword(282190), "poster": ""},
     {"key": "halloween", "name": "Halloween", "start": "10-01", "end": "10-31",
-     "sources": [], "poster": ""},
-    {"key": "thanksgiving", "name": "Thanksgiving", "start": "11-01", "end": "11-30",
-     "sources": [], "poster": ""},
+     "link": "https://www.themoviedb.org/keyword/3335-halloween/movie",
+     "sources": _keyword(3335), "poster": ""},
+    {"key": "veterans-day", "name": "Veteran's Day", "start": "11-01", "end": "11-11",
+     "link": "https://www.themoviedb.org/keyword/162365-military/movie",
+     "sources": _keyword(162365), "poster": ""},
+    {"key": "thanksgiving", "name": "Thanksgiving", "start": "11-12", "end": "11-28",
+     "link": "https://www.themoviedb.org/keyword/4543-thanksgiving/movie",
+     "sources": _keyword(4543), "poster": ""},
     {"key": "christmas", "name": "Christmas", "start": "11-25", "end": "12-26",
-     "sources": [], "poster": ""},
+     "link": "https://www.themoviedb.org/keyword/207317-christmas/movie",
+     "sources": _keyword(207317), "poster": ""},
 ]
 
 BY_KEY = {h["key"]: h for h in HOLIDAYS}
@@ -54,10 +74,11 @@ def window_dates(holiday: dict, year: int | None = None) -> tuple[str, str]:
     return f"{year}-{holiday['start']}", f"{end_year}-{holiday['end']}"
 
 
-def collection_config(holiday: dict, section: dict) -> dict:
+def collection_config(holiday: dict, section: dict, request_missing: bool = False) -> dict:
     """Config for a new collection built from a holiday."""
     start, end = window_dates(holiday)
     cfg = {
+        "request_missing": request_missing,
         "name": f"{holiday['name']} Collection",
         "library": section["title"],
         "section_id": section["id"],

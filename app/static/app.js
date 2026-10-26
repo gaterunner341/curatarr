@@ -659,10 +659,14 @@ async function history() {
 // ---------- holidays ----------
 
 async function holidaysPage() {
-  const [list, libs] = await Promise.all([
+  const [list, allLibs] = await Promise.all([
     api("GET", "/holidays"),
     libraries().catch(() => []),
   ]);
+  // Holiday lists are movie keywords, so only movie libraries are offered.
+  const libs = allLibs.filter((l) => l.type === "movie");
+  const arrReady = list[0]?.arr_ready || {};
+  state.holidayArr ||= {};
   let sectionId = state.holidayLibrary && libs.some((l) => l.id === state.holidayLibrary)
     ? state.holidayLibrary
     : (libs.find((l) => l.type === "movie") || libs[0])?.id || "";
@@ -687,7 +691,10 @@ async function holidaysPage() {
               <input type="checkbox" data-holiday="${esc(h.key)}" ${coll ? "checked" : ""} ${h.available || coll ? "" : "disabled"}>
               <span class="coll-title">${esc(h.name)}</span>
             </label>
-            <div class="small muted">${esc(windowText(cfg))}</div>
+            <div class="small muted">${esc(windowText(cfg))}${h.link ? ` · <a href="${esc(h.link)}" target="_blank" rel="noopener">TMDB list</a>` : ""}</div>
+            ${h.available || coll ? `<label class="check small" title="${arrReady.radarr ? "" : "Set up Radarr in Settings first"}">
+              <input type="checkbox" data-arr="${esc(h.key)}" ${(coll ? coll.config.request_missing : state.holidayArr[h.key]) ? "checked" : ""} ${arrReady.radarr ? "" : "disabled"}>
+              Add missing movies to Radarr${arrReady.radarr ? "" : ` <a href="#/settings">(set up Radarr)</a>`}</label>` : ""}
             ${coll ? `
               <div class="small">${promotionActive(cfg) ? `<span class="badge success">on home screen now</span>` : `<span class="badge">off season</span>`}
                 ${coll.running ? badge("running") : badge(coll.last_status)}</div>
@@ -721,6 +728,18 @@ async function holidaysPage() {
       toast("Sync started");
       setTimeout(route, 1500);
     }));
+    // Radarr choice: remembered for a holiday that's off, saved straight away for one that's on.
+    view.querySelectorAll("[data-arr]").forEach((box) => box.onchange = () => guard(async () => {
+      const h = list.find((x) => x.key === box.dataset.arr);
+      const coll = h.collections.find((c) => String(c.config.section_id) === sectionId);
+      if (!coll) { state.holidayArr[h.key] = box.checked; return; }
+      if (box.checked && !confirm(`Add ${h.name}'s missing movies to Radarr from now on?\n\nUp to 100 movies could be added and searched for on the next sync.`)) {
+        box.checked = false; return;
+      }
+      await api("PUT", `/collections/${coll.id}`, { ...coll.config, request_missing: box.checked });
+      coll.config.request_missing = box.checked;
+      toast(box.checked ? "Missing movies will be added to Radarr on the next sync" : "Radarr requests turned off");
+    }));
     view.querySelectorAll("[data-holiday]").forEach((box) => box.onchange = () => guard(async () => {
       const h = list.find((x) => x.key === box.dataset.holiday);
       const coll = h.collections.find((c) => String(c.config.section_id) === sectionId);
@@ -728,7 +747,11 @@ async function holidaysPage() {
       try {
         if (box.checked) {
           if (!sectionId) throw new Error("Connect Plex and pick a library first");
-          await api("POST", `/holidays/${h.key}/enable`, { section_id: sectionId });
+          const requestMissing = Boolean(state.holidayArr[h.key]);
+          if (requestMissing && !confirm(`Turn on ${h.name} and add its missing movies to Radarr?\n\nUp to 100 movies could be added and searched for.`)) {
+            box.checked = false; return;
+          }
+          await api("POST", `/holidays/${h.key}/enable`, { section_id: sectionId, request_missing: requestMissing });
           toast(`${h.name} collection created; first sync started`);
         } else if (coll) {
           if (!confirm(`Turn off ${h.name}? Its collection is removed from Curatarr.`)) { box.checked = true; return; }

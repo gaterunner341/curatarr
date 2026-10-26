@@ -16,6 +16,7 @@
 - **Artwork:** upload a poster or background image, or give an image URL. TMDB franchise posters are used automatically.
 - **Plex presentation:** summary, sort title, labels, collection mode (hide items or show items), and promotion to Library Recommended, your Home and Friends' Home
 - **Home screen calendar:** show a collection on Library Recommended, your Home and Friends' Home only between two dates, once or every year (e.g. Halloween in October). It switches on and off automatically just after midnight.
+- **Holidays page:** one-tick collections for Valentine's Day, St. Patrick's Day, Easter, Independence Day, Halloween, Veteran's Day, Thanksgiving and Christmas. Each collection is built from TMDB and shows on the home screen during its season every year. You can also add its missing movies to Radarr.
 - **Matching:** uses the IMDb, TMDB and TVDB IDs stored in Plex, for both new and legacy agents, with a title and year fallback
 - **Existing Plex collections:** listed below your Curatarr collections. Use **Sync with a list** on one to keep it updated from a list. Linked collections start in append mode, so nothing already in them is removed.
 - **Preview:** shows which titles are already in your library before you save

@@ -9,7 +9,23 @@ release is also published as `ghcr.io/gaterunner341/curatarr:<version>`.
   - Untick to turn it off. You choose whether to keep the collection in Plex.
   - **Edit dates & settings** opens the normal editor to change the dates, lists or where it appears.
   - Holiday collections are listed on the Holidays page instead of Movies / TV Shows.
-- Holidays: New Year's, Valentine's Day, St. Patrick's Day, Easter, Independence Day, Halloween, Thanksgiving, Christmas.
+- Each holiday uses the 100 most popular movies for its TMDB keyword. A link to the TMDB list is on each card.
+
+  | Holiday | On the home screen |
+  | --- | --- |
+  | Valentine's Day | Feb 1 – Feb 14 |
+  | St. Patrick's Day | Mar 10 – Mar 17 |
+  | Easter | Mar 20 – Apr 25 (covers every possible Easter date) |
+  | Independence Day | Jun 25 – Jul 4 |
+  | Halloween | Oct 1 – Oct 31 |
+  | Veteran's Day | Nov 1 – Nov 11 |
+  | Thanksgiving | Nov 12 – Nov 28 |
+  | Christmas | Nov 25 – Dec 26 |
+- Each holiday has an **Add missing movies to Radarr** option.
+  - Choose it before turning a holiday on, or change it later.
+  - Curatarr asks for confirmation first, because up to 100 movies could be added.
+  - The option is greyed out until Radarr is set up in Settings.
+- Holidays can only be added to movie libraries, because the lists are movie lists.
 
 ## 0.4.0
 
