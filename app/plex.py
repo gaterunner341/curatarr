@@ -322,9 +322,10 @@ class Plex:
                           params={"metadataItemId": collection_key, **flags})
 
 
-def from_settings(settings: dict) -> Plex:
+def from_settings(settings: dict, timeout: float = 60) -> Plex:
     return Plex(
         settings.get("plex_url", ""),
         settings.get("plex_token", ""),
         verify_ssl=settings.get("plex_verify_ssl", "true") != "false",
+        timeout=timeout,
     )

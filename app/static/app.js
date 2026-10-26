@@ -145,7 +145,7 @@ async function collections() {
     <div class="page-head">
       <h1>Collections</h1>
       <div class="actions">
-        <button id="runAll">Sync all</button>
+        ${rows.length ? `<button id="runAll">Sync all</button>` : ""}
         <a class="btn primary" href="#/collections/new">+ New collection</a>
       </div>
     </div>
@@ -156,11 +156,12 @@ async function collections() {
         <a class="btn primary" href="#/collections/new">Create your first collection</a>
       </div>`}`;
 
-  view.querySelector("#runAll").onclick = () => guard(async () => {
+  view.querySelector("#runAll")?.addEventListener("click", () => guard(async () => {
     const r = await api("POST", "/collections/run-all");
-    toast(`Queued ${r.queued} collection(s)`);
+    if (!r.queued) return toast("No enabled collections to sync", true);
+    toast(`Syncing ${r.queued} collection(s)`);
     setTimeout(route, 1500);
-  });
+  }));
   view.querySelectorAll("[data-run]").forEach((b) => b.onclick = () => guard(async () => {
     b.disabled = true;
     await api("POST", `/collections/${b.dataset.run}/run`);
@@ -458,11 +459,6 @@ async function history() {
 // ---------- settings ----------
 
 const SETTING_GROUPS = [
-  { title: "Plex", test: "plex", fields: [
-    ["plex_url", "Server URL", "url", "http://192.168.1.10:32400"],
-    ["plex_token", "Token", "password", "X-Plex-Token"],
-    ["plex_verify_ssl", "Verify SSL certificates", "bool"],
-  ], extra: `<button type="button" id="plexSignIn">Sign in with Plex</button><div id="plexServers" class="servers"></div>` },
   { title: "TMDB", test: "tmdb", fields: [
     ["tmdb_api_key", "API key (v3) or Read Access Token (v4)", "password", ""],
   ], hint: `Free at <a href="https://www.themoviedb.org/settings/api" target="_blank" rel="noopener">themoviedb.org/settings/api</a>. Needed for TMDB sources.` },
@@ -508,6 +504,7 @@ async function settings() {
   const { values, from_env: fromEnv } = await api("GET", "/settings");
   view.innerHTML = `
     <div class="page-head"><h1>Settings</h1><div class="actions"><button class="primary" id="saveSettings">Save</button></div></div>
+    <div class="card" id="plexCard"></div>
     ${SETTING_GROUPS.map((g) => `
       <div class="card">
         <h2>${g.title}</h2>
@@ -561,7 +558,93 @@ async function settings() {
     });
   }));
 
-  view.querySelector("#plexSignIn").onclick = () => guard(async () => {
+  await plexCard(view.querySelector("#plexCard"), values);
+}
+
+// The Plex card is kept apart from the other settings: once connected it is a
+// read-only summary, and changes go through "Change server" or "Disconnect".
+async function plexCard(card, values, editing = false) {
+  const connected = Boolean(values.plex_url && values.plex_token);
+  if (connected && !editing) {
+    card.innerHTML = `<h2>Plex</h2><p class="muted">Checking connection…</p>`;
+    const status = await api("GET", "/status").catch((err) => ({ plex_error: err.message }));
+    const ok = Boolean(status.plex);
+    card.innerHTML = `
+      <div class="row" style="align-items:center;margin-bottom:12px">
+        <h2 style="margin:0">Plex</h2>
+        <span class="badge ${ok ? "success" : "error"}">${ok ? "Connected" : "Not reachable"}</span>
+      </div>
+      <dl class="facts">
+        ${ok ? `<dt>Server</dt><dd>${esc(status.plex.name)} <span class="muted">· Plex ${esc(status.plex.version)}</span></dd>` : ""}
+        <dt>Address</dt><dd class="mono">${esc(values.plex_url)}</dd>
+        <dt>Token</dt><dd class="muted">Saved</dd>
+        ${ok ? "" : `<dt>Error</dt><dd class="no">${esc(status.plex_error || "Unknown error")}</dd>`}
+      </dl>
+      <div class="row" style="margin-top:14px">
+        <button type="button" id="plexTest">Test connection</button>
+        <button type="button" id="plexChange">Change server</button>
+        <button type="button" class="danger" id="plexDisconnect">Disconnect</button>
+      </div>`;
+    card.querySelector("#plexTest").onclick = () => guard(async () => {
+      const r = await api("POST", "/settings/test/plex");
+      toast(r.message, !r.ok);
+      loadStatus();
+    });
+    card.querySelector("#plexChange").onclick = () => plexCard(card, values, true);
+    card.querySelector("#plexDisconnect").onclick = () => guard(async () => {
+      if (!confirm("Disconnect Curatarr from Plex? Collections will stop syncing until you connect again.")) return;
+      await api("PUT", "/settings", { plex_url: "", plex_token: "" });
+      Object.assign(values, { plex_url: "", plex_token: "" });
+      state.libraries = null;
+      loadStatus();
+      plexCard(card, values);
+    });
+    return;
+  }
+
+  card.innerHTML = `
+    <h2>Plex</h2>
+    <p class="hint" style="margin-top:-6px">Sign in with your Plex account, then choose the server address Curatarr should use.</p>
+    <div class="row">
+      <button type="button" class="primary" id="plexSignIn">Sign in with Plex</button>
+      ${connected ? `<button type="button" id="plexCancel">Cancel</button>` : ""}
+    </div>
+    <div id="plexServers" class="servers"></div>
+    <details style="margin-top:14px">
+      <summary>Enter the address and token manually</summary>
+      <div class="grid" style="margin-top:10px">
+        <div><label>Server URL</label><input type="text" data-plex="plex_url" placeholder="http://192.168.1.10:32400" autocomplete="off"></div>
+        <div><label>Token</label><input type="password" data-plex="plex_token" placeholder="X-Plex-Token" autocomplete="off"></div>
+        <div><label class="check"><input type="checkbox" data-plex="plex_verify_ssl" ${values.plex_verify_ssl !== "false" ? "checked" : ""}> Verify SSL certificates</label></div>
+      </div>
+      <button type="button" id="plexManual" style="margin-top:10px">Save &amp; connect</button>
+    </details>`;
+
+  const connect = async (url, token, verify) => {
+    const update = { plex_url: url, plex_token: token };
+    if (verify !== undefined) update.plex_verify_ssl = String(verify);
+    await api("PUT", "/settings", update);
+    const r = await api("POST", "/settings/test/plex");
+    if (!r.ok) {
+      toast(`Saved, but Plex could not be reached at that address: ${r.message}`, true);
+    } else {
+      toast(r.message);
+    }
+    Object.assign(values, { plex_url: url, plex_token: token });
+    state.libraries = null;
+    loadStatus();
+    plexCard(card, values);
+  };
+
+  card.querySelector("#plexCancel")?.addEventListener("click", () => plexCard(card, values));
+  card.querySelector("#plexManual").onclick = () => guard(async () => {
+    const url = card.querySelector('[data-plex="plex_url"]').value.trim();
+    const token = card.querySelector('[data-plex="plex_token"]').value.trim();
+    if (!url || !token) return toast("Enter both the server URL and the token", true);
+    await connect(url, token, card.querySelector('[data-plex="plex_verify_ssl"]').checked);
+  });
+
+  card.querySelector("#plexSignIn").onclick = () => guard(async () => {
     const pin = await api("POST", "/plex/auth/pin");
     const popup = window.open(pin.auth_url, "plexauth", "width=600,height=750");
     toast("Complete the sign-in in the Plex window…");
@@ -577,22 +660,26 @@ async function settings() {
   });
 
   function showServers(servers, token) {
-    const el = view.querySelector("#plexServers");
+    const el = card.querySelector("#plexServers");
     if (!servers.length) {
-      view.querySelector('[data-key="plex_token"]').value = token;
-      el.innerHTML = `<span class="muted">Signed in, but no servers were found. Enter the server URL manually and save.</span>`;
+      card.querySelector('[data-plex="plex_token"]').value = token;
+      card.querySelector("details").open = true;
+      el.innerHTML = `<span class="muted">Signed in, but no servers were found. Enter the server address below.</span>`;
       return;
     }
-    el.innerHTML = `<span class="muted small">Signed in. Pick a connection:</span>` + servers.map((s, i) =>
-      s.connections.map((c, j) => `<button type="button" class="small" data-srv="${i}" data-conn="${j}">${esc(s.name)} — ${esc(c.uri)}${c.local ? " (local)" : ""}</button>`).join("")).join("");
+    el.innerHTML = `<span class="muted small">Signed in. Choose the address Curatarr should use (local addresses are fastest):</span>` +
+      servers.map((s, i) => `
+        <div class="server-pick">
+          <strong>${esc(s.name)}</strong>
+          ${s.connections.map((c, j) => `
+            <button type="button" class="small" data-srv="${i}" data-conn="${j}">
+              <span class="mono">${esc(c.uri)}</span>${c.local ? ` <span class="badge success">local</span>` : ` <span class="badge">remote</span>`}
+            </button>`).join("")}
+        </div>`).join("");
     el.querySelectorAll("[data-srv]").forEach((b) => b.onclick = () => guard(async () => {
+      el.querySelectorAll("button").forEach((x) => { x.disabled = true; });
       const s = servers[Number(b.dataset.srv)];
-      view.querySelector('[data-key="plex_url"]').value = s.connections[Number(b.dataset.conn)].uri;
-      view.querySelector('[data-key="plex_token"]').value = s.token;
-      await saveAll();
-      const r = await api("POST", "/settings/test/plex");
-      toast(r.message, !r.ok);
-      loadStatus();
+      await connect(s.connections[Number(b.dataset.conn)].uri, s.token);
     }));
   }
 }

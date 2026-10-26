@@ -65,7 +65,7 @@ def status():
               "plex": None, "plex_error": None}
     if settings.get("plex_url") and settings.get("plex_token"):
         try:
-            with plexmod.from_settings(settings) as plex:
+            with plexmod.from_settings(settings, timeout=10) as plex:
                 result["plex"] = plex.server_info()
         except PlexError as exc:
             result["plex_error"] = str(exc)
@@ -115,7 +115,7 @@ def test_service(service: str):
     settings = db.get_settings()
     try:
         if service == "plex":
-            with plexmod.from_settings(settings) as plex:
+            with plexmod.from_settings(settings, timeout=10) as plex:
                 info = plex.server_info()
                 return {"ok": True, "message": f"Connected to {info['name']} (v{info['version']})"}
         with httpx.Client(timeout=20) as http:
