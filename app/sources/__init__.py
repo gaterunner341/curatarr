@@ -57,8 +57,8 @@ FETCHERS: dict[str, Fetcher] = {
 
 # Describes each source for the web UI.
 CATALOG = [
-    {"type": "tmdb_list", "label": "TMDB list", "provider": "TMDB",
-     "placeholder": "https://www.themoviedb.org/list/8136 or 8136"},
+    {"type": "tmdb_list", "label": "TMDB list or page link", "provider": "TMDB",
+     "placeholder": "themoviedb.org link: list, collection, company (studio), keyword, network or person"},
     {"type": "tmdb_collection", "label": "TMDB collection (franchise)", "provider": "TMDB",
      "placeholder": "https://www.themoviedb.org/collection/10 or 10"},
     {"type": "tmdb_chart", "label": "TMDB chart", "provider": "TMDB", "options": tmdb.CHARTS},

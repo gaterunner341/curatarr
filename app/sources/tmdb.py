@@ -96,7 +96,46 @@ def _first_number(value: str, pattern: str) -> int:
     return int(match.group(1))
 
 
+# TMDB pages that map onto a discover query: (url pattern, discover filter).
+PAGE_FILTERS = [
+    (r"/company/(\d+)", "with_companies"),
+    (r"/keyword/(\d+)", "with_keywords"),
+    (r"/network/(\d+)", "with_networks"),
+    (r"/person/(\d+)", "with_people"),
+]
+PAGE_LIMIT = 500
+
+
+def _page_query(value: str, media_type: str) -> tuple[str, dict] | None:
+    """Turn a studio/keyword/network/person page URL into a discover query."""
+    for pattern, param in PAGE_FILTERS:
+        match = re.search(pattern, value)
+        if match:
+            if param == "with_networks" or re.search(r"/tv\b", value):
+                kind = "tv"
+            elif re.search(r"/movie\b", value):
+                kind = "movie"
+            else:
+                kind = "tv" if media_type == "show" else "movie"
+            date_field = "first_air_date" if kind == "tv" else "primary_release_date"
+            return kind, {param: match.group(1), "sort_by": f"{date_field}.desc"}
+    return None
+
+
 def fetch_list(value: str, ctx: SourceContext, limit: int | None) -> list[MediaRef]:
+    """A TMDB list, or any TMDB collection / studio / keyword / network / person page."""
+    if "/collection/" in value:
+        return fetch_collection(value, ctx, limit)
+    page = _page_query(value, ctx.media_type)
+    if page:
+        kind, params = page
+        items = TMDB(ctx.settings.get("tmdb_api_key", ""), ctx.http).paged(
+            f"discover/{kind}", limit or PAGE_LIMIT, **params)
+        return [r for r in (_ref(i, kind) for i in items) if r]
+    if not re.search(r"/list/\d+", value) and not value.strip().isdigit():
+        raise SourceError(
+            f"'{value}' is not a TMDB list. Use a themoviedb.org list, collection, company, "
+            "keyword, network or person link (or a list id)")
     list_id = _first_number(value, r"/list/(\d+)")
     items = TMDB(ctx.settings.get("tmdb_api_key", ""), ctx.http).paged(
         f"list/{list_id}", limit or 10000, key="items")

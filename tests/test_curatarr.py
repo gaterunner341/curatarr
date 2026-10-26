@@ -270,3 +270,24 @@ def test_log_tail_filters_and_bundle(tmp_path, monkeypatch):
         assert "leaked" not in zf.read("curatarr.log").decode()
         diag = zf.read("diagnostics.txt").decode()
         assert "tok" not in diag.replace("token", "") and "plex_token=set" in diag
+
+
+def test_tmdb_page_links_become_discover_queries():
+    seen = []
+
+    def handler(request):
+        seen.append((request.url.path, dict(request.url.params)))
+        if request.url.path == "/3/discover/movie":
+            return httpx.Response(200, json={"total_pages": 1, "results": [
+                {"id": 1, "title": "The Chosen", "release_date": "2024-01-01"}]})
+        return httpx.Response(404)
+
+    from app.sources import tmdb
+    refs = tmdb.fetch_list("https://www.themoviedb.org/company/165435-angel-studios/movie",
+                           ctx(handler, tmdb_api_key="k"), None)
+    assert [r.tmdb for r in refs] == [1]
+    path, params = seen[0]
+    assert path == "/3/discover/movie" and params["with_companies"] == "165435"
+    assert tmdb._page_query("https://www.themoviedb.org/network/213-netflix", "movie")[0] == "tv"
+    with pytest.raises(SourceError, match="not a TMDB list"):
+        tmdb.fetch_list("https://www.themoviedb.org/movie/603", ctx(handler, tmdb_api_key="k"), None)
