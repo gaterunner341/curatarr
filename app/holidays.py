@@ -31,29 +31,29 @@ def _keyword(keyword_id: int) -> list[dict]:
 HOLIDAYS: list[dict] = [
     {"key": "valentines", "name": "Valentine's Day", "start": "02-01", "end": "02-14",
      "link": "https://www.themoviedb.org/keyword/160404-valentine-s-day/movie",
-     "sources": _keyword(160404), "poster": ""},
+     "sources": _keyword(160404), "poster": "valentines.jpg"},
     {"key": "st-patricks", "name": "St. Patrick's Day", "start": "03-10", "end": "03-17",
      "link": "https://www.themoviedb.org/keyword/209352-st-patrick-s-day/movie",
-     "sources": _keyword(209352), "poster": ""},
+     "sources": _keyword(209352), "poster": "st-patricks.jpg"},
     # Easter moves each year; this window covers every possible date.
     {"key": "easter", "name": "Easter", "start": "03-20", "end": "04-25",
      "link": "https://www.themoviedb.org/keyword/9921-easter/movie",
-     "sources": _keyword(9921), "poster": ""},
+     "sources": _keyword(9921), "poster": "easter.jpg"},
     {"key": "independence-day", "name": "Independence Day", "start": "06-25", "end": "07-04",
      "link": "https://www.themoviedb.org/keyword/282190-4th-of-july/movie",
-     "sources": _keyword(282190), "poster": ""},
+     "sources": _keyword(282190), "poster": "independence-day.jpg"},
     {"key": "halloween", "name": "Halloween", "start": "10-01", "end": "10-31",
      "link": "https://www.themoviedb.org/keyword/3335-halloween/movie",
-     "sources": _keyword(3335), "poster": ""},
+     "sources": _keyword(3335), "poster": "halloween.jpg"},
     {"key": "veterans-day", "name": "Veteran's Day", "start": "11-01", "end": "11-11",
      "link": "https://www.themoviedb.org/keyword/162365-military/movie",
-     "sources": _keyword(162365), "poster": ""},
+     "sources": _keyword(162365), "poster": "veterans-day.jpg"},
     {"key": "thanksgiving", "name": "Thanksgiving", "start": "11-12", "end": "11-28",
      "link": "https://www.themoviedb.org/keyword/4543-thanksgiving/movie",
-     "sources": _keyword(4543), "poster": ""},
+     "sources": _keyword(4543), "poster": "thanksgiving.jpg"},
     {"key": "christmas", "name": "Christmas", "start": "11-25", "end": "12-26",
      "link": "https://www.themoviedb.org/keyword/207317-christmas/movie",
-     "sources": _keyword(207317), "poster": ""},
+     "sources": _keyword(207317), "poster": "christmas.jpg"},
 ]
 
 BY_KEY = {h["key"]: h for h in HOLIDAYS}
@@ -94,6 +94,21 @@ def collection_config(holiday: dict, section: dict, request_missing: bool = Fals
         "promote_yearly": True,
     }
     return cfg
+
+
+def backfill_posters() -> int:
+    """Give holiday collections without any artwork their built-in poster."""
+    from . import db                        # local import: db imports nothing from here
+    count = 0
+    for row in db.list_collections():
+        cfg = row["config"]
+        holiday = get(cfg.get("holiday", ""))
+        if holiday and not cfg.get("poster_file") and not cfg.get("poster_url"):
+            name = install_poster(holiday, row["id"])
+            if name:
+                db.update_collection_config(row["id"], {**cfg, "poster_file": name})
+                count += 1
+    return count
 
 
 def install_poster(holiday: dict, collection_id: int) -> str:

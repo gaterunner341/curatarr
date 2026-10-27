@@ -442,7 +442,19 @@ def test_enable_holiday_endpoint(monkeypatch):
     assert cfg["holiday"] == "halloween" and cfg["request_missing"] is True
     assert cfg["sources"][0]["value"] == "movie?with_keywords=3335&sort_by=popularity.desc"
     assert cfg["sources"][0]["limit"] == 100
+    assert cfg["poster_file"].endswith("-poster.jpg")
+    assert client.get(f"/api/collections/{r.json()['id']}/image/poster").status_code == 200
     assert client.post("/api/holidays/halloween/enable", json={"section_id": "1"}).status_code == 409
     listed = {h["key"]: h for h in client.get("/api/holidays").json()}
     assert listed["halloween"]["available"] and len(listed["halloween"]["collections"]) == 1
     assert listed["christmas"]["collections"] == [] and "radarr" in listed["christmas"]["arr_ready"]
+
+
+def test_backfill_gives_old_holiday_collections_a_poster():
+    from app import holidays
+    cfg = CollectionConfig(**holidays.collection_config(holidays.get("christmas"),
+                                                        {"id": "9", "title": "Movies"})).model_dump()
+    cid = db.create_collection(cfg)
+    assert holidays.backfill_posters() >= 1
+    assert db.get_collection(cid)["config"]["poster_file"] == f"{cid}-poster.jpg"
+    assert holidays.backfill_posters() == 0      # nothing left to do
