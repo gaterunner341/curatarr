@@ -74,12 +74,20 @@ def window_dates(holiday: dict, year: int | None = None) -> tuple[str, str]:
     return f"{year}-{holiday['start']}", f"{end_year}-{holiday['end']}"
 
 
+SORT_PREFIX = "!01_"   # sorts holiday collections above everything else in Plex
+
+
+def sort_title(holiday: dict) -> str:
+    return f"{SORT_PREFIX}{holiday['name']} Collection"
+
+
 def collection_config(holiday: dict, section: dict, request_missing: bool = False) -> dict:
     """Config for a new collection built from a holiday."""
     start, end = window_dates(holiday)
     cfg = {
         "request_missing": request_missing,
         "name": f"{holiday['name']} Collection",
+        "sort_title": sort_title(holiday),
         "library": section["title"],
         "section_id": section["id"],
         "sources": [dict(s) for s in holiday["sources"]],
@@ -96,18 +104,29 @@ def collection_config(holiday: dict, section: dict, request_missing: bool = Fals
     return cfg
 
 
-def backfill_posters() -> int:
-    """Give holiday collections without any artwork their built-in poster."""
+def backfill() -> int:
+    """Bring holiday collections made by older versions up to date.
+
+    Adds the built-in poster when no artwork is set and the !01_ sort title
+    when none is set; anything the user chose is left alone.
+    """
     from . import db                        # local import: db imports nothing from here
     count = 0
     for row in db.list_collections():
         cfg = row["config"]
         holiday = get(cfg.get("holiday", ""))
-        if holiday and not cfg.get("poster_file") and not cfg.get("poster_url"):
+        if not holiday:
+            continue
+        changes = {}
+        if not cfg.get("poster_file") and not cfg.get("poster_url"):
             name = install_poster(holiday, row["id"])
             if name:
-                db.update_collection_config(row["id"], {**cfg, "poster_file": name})
-                count += 1
+                changes["poster_file"] = name
+        if not cfg.get("sort_title"):
+            changes["sort_title"] = sort_title(holiday)
+        if changes:
+            db.update_collection_config(row["id"], {**cfg, **changes})
+            count += 1
     return count
 
 

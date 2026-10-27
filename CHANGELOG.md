@@ -3,6 +3,11 @@
 The version shown in the web UI's sidebar matches these entries. Each
 release is also published as `ghcr.io/gaterunner341/curatarr:<version>`.
 
+## 0.5.2
+
+- Holiday collections get the sort title `!01_<Holiday> Collection`, such as `!01_Halloween Collection`, so they sort above every other collection in Plex.
+- Holiday collections that already exist get the sort title on the next start, unless you set your own. Plex shows it after the collection's next sync.
+
 ## 0.5.1
 
 - Every holiday now has its own poster, all in one matching style: a dark seasonal gradient, a single emblem, a serif title and a thin frame. The posters show on the Holidays page and are applied in Plex when a holiday is turned on.

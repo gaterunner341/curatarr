@@ -39,8 +39,8 @@ def migrate_default_schedule() -> None:
 async def lifespan(app: FastAPI):
     db.connect()
     migrate_default_schedule()
-    if holidays.backfill_posters():
-        log.info("Added built-in posters to holiday collections")
+    if holidays.backfill():
+        log.info("Updated holiday collections with built-in posters / sort titles")
     try:
         seed_from_yaml()
     except ValueError as exc:

@@ -450,11 +450,19 @@ def test_enable_holiday_endpoint(monkeypatch):
     assert listed["christmas"]["collections"] == [] and "radarr" in listed["christmas"]["arr_ready"]
 
 
-def test_backfill_gives_old_holiday_collections_a_poster():
+def test_backfill_updates_old_holiday_collections():
     from app import holidays
     cfg = CollectionConfig(**holidays.collection_config(holidays.get("christmas"),
                                                         {"id": "9", "title": "Movies"})).model_dump()
-    cid = db.create_collection(cfg)
-    assert holidays.backfill_posters() >= 1
-    assert db.get_collection(cid)["config"]["poster_file"] == f"{cid}-poster.jpg"
-    assert holidays.backfill_posters() == 0      # nothing left to do
+    assert cfg["sort_title"] == "!01_Christmas Collection"
+    cid = db.create_collection({**cfg, "sort_title": ""})        # as created by v0.5.0
+    assert holidays.backfill() >= 1
+    updated = db.get_collection(cid)["config"]
+    assert updated["poster_file"] == f"{cid}-poster.jpg"
+    assert updated["sort_title"] == "!01_Christmas Collection"
+    assert holidays.backfill() == 0      # nothing left to do
+
+    custom = db.create_collection({**cfg, "sort_title": "zz mine", "poster_url": "http://x/p.jpg"})
+    holidays.backfill()
+    kept = db.get_collection(custom)["config"]
+    assert kept["sort_title"] == "zz mine" and kept["poster_file"] == ""
