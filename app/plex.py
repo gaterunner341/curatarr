@@ -299,7 +299,14 @@ class Plex:
                       params=params)
 
     def delete_collection(self, section_id: str, collection_key: str) -> None:
-        self._request("DELETE", f"/library/sections/{section_id}/collection/{collection_key}")
+        # Real servers delete a collection via its metadata item; the section path from
+        # the published API reference returns 404, so it is only a fallback.
+        try:
+            self._request("DELETE", f"/library/metadata/{collection_key}")
+        except PlexError as exc:
+            if exc.status not in (404, 405):
+                raise
+            self._request("DELETE", f"/library/sections/{section_id}/collection/{collection_key}")
 
     def set_prefs(self, rating_key: str, **prefs) -> None:
         self._request("PUT", f"/library/metadata/{rating_key}/prefs", params=prefs)

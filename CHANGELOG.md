@@ -3,6 +3,10 @@
 The version shown in the web UI's sidebar matches these entries. Each
 release is also published as `ghcr.io/gaterunner341/curatarr:<version>`.
 
+## 0.6.3
+
+- **Fixed:** deleting a collection from Plex failed with HTTP 404. This affected the "Only in Plex during its dates" option and **Delete → also delete from Plex**. Plex deletes collections at `/library/metadata/<id>`, not the section address from the published API reference, which is now only a fallback.
+
 ## 0.6.2
 
 - The left menu stays in place, with the version number at its bottom, while the page content scrolls. Long pages, such as an expanded Existing Plex collections section, no longer push the menu out of view.

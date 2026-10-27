@@ -144,6 +144,14 @@ class FakePlex(httpx.BaseTransport):
             rks = q["uri"].rsplit("/", 1)[1].split(",")
             self.collections["100"] = rks
             return mc({"Metadata": [{"ratingKey": "100"}]})
+        if path.startswith("/library/sections/") and "/collection/" in path and method == "DELETE":
+            return httpx.Response(404, text="Not Found")      # documented, but real Plex says 404
+        if path.startswith("/library/metadata/") and method == "DELETE":
+            key = path.split("/")[3]
+            if key not in self.collections:
+                return httpx.Response(404, text="Not Found")
+            del self.collections[key]
+            return mc({})
         if path.startswith("/library/metadata/") and method == "GET":
             key = path.split("/")[3]
             return mc({"Metadata": [{"type": "collection", "librarySectionID": self.sections.get(key, "1")}]}
@@ -552,7 +560,7 @@ def test_remove_off_season_deletes_only_owned_collections():
 
     gone = remove_off_season(cfg, {"plex_rating_key": "100", "plex_owned": 1, "poster_applied": "x"},
                              plex, SECTION, today=date(2026, 11, 2))
-    assert "DELETE /library/sections/1/collection/100" in fake.calls
+    assert "DELETE /library/metadata/100" in fake.calls and "100" not in fake.collections
     assert gone.status == "skipped" and "until Oct 1" in gone.messages[0]
     assert gone.state["plex_rating_key"] is None and gone.state["poster_applied"] is None
 
