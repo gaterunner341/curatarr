@@ -3,6 +3,10 @@
 The version shown in the web UI's sidebar matches these entries. Each
 release is also published as `ghcr.io/gaterunner341/curatarr:<version>`.
 
+## 0.6.4
+
+- **History** and **Logs** are now listed under **Settings** in the left menu, as indented sub-items. Settings stays highlighted while either one is open.
+
 ## 0.6.3
 
 - **Fixed:** deleting a collection from Plex failed with HTTP 404. This affected the "Only in Plex during its dates" option and **Delete → also delete from Plex**. Plex deletes collections at `/library/metadata/<id>`, not the section address from the published API reference, which is now only a fallback.

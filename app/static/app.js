@@ -83,6 +83,10 @@ async function route() {
   const hash = location.hash || "#/movies";
   document.querySelectorAll("[data-nav]").forEach((a) =>
     a.classList.toggle("active", hash.startsWith(`#/${a.dataset.nav}`)));
+  // A parent link (Settings) is marked while one of its sub-pages is open.
+  document.querySelectorAll("[data-group]").forEach((g) =>
+    g.classList.toggle("parent-active", [...document.querySelectorAll(`[data-parent="${g.dataset.group}"]`)]
+      .some((a) => a.classList.contains("active"))));
   document.getElementById("sidebar").classList.remove("open");
   for (const [re, fn] of routes) {
     const m = hash.match(re);

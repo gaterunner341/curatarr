@@ -41,6 +41,9 @@ h2 { font-size: 1.1rem; margin: 0 0 12px; }
 .sidebar a { padding: 12px 20px; color: var(--muted); text-decoration: none; border-left: 3px solid transparent; }
 .sidebar a:hover { color: var(--text); background: var(--panel-2); }
 .sidebar a.active { color: var(--text); border-left-color: var(--accent); background: var(--panel-2); }
+.sidebar a.sub { padding: 8px 20px 8px 38px; font-size: .9rem; position: relative; }
+.sidebar a.sub::before { content: ""; position: absolute; left: 24px; top: 0; bottom: 0; border-left: 1px solid var(--border); }
+.sidebar a.parent-active { color: var(--text); }
 .version { margin-top: auto; padding: 12px 20px; color: var(--muted); font-size: .8rem; }
 .view { flex: 1; min-width: 0; padding: 24px; max-width: 1200px; }
 
