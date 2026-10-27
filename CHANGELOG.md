@@ -3,6 +3,11 @@
 The version shown in the web UI's sidebar matches these entries. Each
 release is also published as `ghcr.io/gaterunner341/curatarr:<version>`.
 
+## 0.6.1
+
+- **Existing Plex collections** on the Movies and TV Shows pages can be collapsed, as a whole section and per library. The section starts collapsed and shows how many collections it holds.
+- Your browser remembers which sections you opened or closed, for each page.
+
 ## 0.6.0
 
 - **Seasonal-only collections:** a collection with a calendar can exist in Plex only during its dates.

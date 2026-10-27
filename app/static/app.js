@@ -256,11 +256,14 @@ async function existingPlexCollections(el, kind) {
   if (!unmanaged.length) { el.innerHTML = ""; return; }
   const byLibrary = {};
   unmanaged.forEach((c) => (byLibrary[c.section_title] ||= []).push(c));
+  // The whole section starts collapsed (it can be long); each library inside starts open.
   el.innerHTML = `
-    <div class="page-head" style="margin-bottom:6px"><h2 style="margin:0">Existing Plex collections</h2></div>
+    <details class="fold" data-fold="${kind}.existing" ${foldOpen(`${kind}.existing`, false) ? "open" : ""}>
+    <summary class="fold-head"><h2>Existing Plex collections</h2><span class="muted small">${unmanaged.length}</span></summary>
     <p class="hint" style="margin-top:0">Collections already in Plex. Link one to a list and Curatarr keeps it in sync from then on.</p>
     ${Object.entries(byLibrary).map(([lib, colls]) => `
-      <h3 class="lib-head">${esc(lib)} <span class="muted small">${colls.length}</span></h3>
+      <details class="fold" data-fold="${kind}.lib.${esc(lib)}" ${foldOpen(`${kind}.lib.${lib}`, true) ? "open" : ""}>
+      <summary class="fold-head lib-head"><h3>${esc(lib)}</h3><span class="muted small">${colls.length}</span></summary>
       <div class="collections">${colls.map((c) => `
         <div class="coll existing">
           ${c.thumb ? `<img class="poster" loading="lazy" src="/api/plex/image?path=${encodeURIComponent(c.thumb)}" alt="">` : `<div class="poster">▦</div>`}
@@ -274,7 +277,26 @@ async function existingPlexCollections(el, kind) {
             </div>
           </div>
         </div>`).join("")}
-      </div>`).join("")}`;
+      </div></details>`).join("")}
+    </details>`;
+  bindFolds(el);
+}
+
+// Open/closed state of collapsible sections, remembered in this browser only.
+function foldOpen(key, fallback) {
+  try {
+    const value = localStorage.getItem(`curatarr.fold.${key}`);
+    return value === null ? fallback : value === "open";
+  } catch {
+    return fallback;
+  }
+}
+
+function bindFolds(root) {
+  root.querySelectorAll("details[data-fold]").forEach((d) => d.addEventListener("toggle", (e) => {
+    e.stopPropagation();
+    try { localStorage.setItem(`curatarr.fold.${d.dataset.fold}`, d.open ? "open" : "closed"); } catch { /* storage off */ }
+  }));
 }
 
 // ---------- collection editor ----------

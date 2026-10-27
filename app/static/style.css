@@ -87,6 +87,13 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
 .coll.holiday.off { opacity: .75; }
 .holiday-toggle { margin: 0; }
 .holiday-toggle input { width: 18px; height: 18px; }
+.fold-head { display: flex; align-items: center; gap: 10px; cursor: pointer; list-style: none; padding: 6px 0; user-select: none; }
+.fold-head::-webkit-details-marker { display: none; }
+.fold-head::before { content: "▸"; color: var(--muted); font-size: .9rem; transition: transform .15s; width: 1em; }
+details[open] > .fold-head::before { transform: rotate(90deg); }
+.fold-head h2, .fold-head h3 { margin: 0; }
+.fold-head:hover h2, .fold-head:hover h3 { color: var(--accent); }
+details.fold > details.fold { margin-left: 4px; }
 .lib-head { font-size: .95rem; margin: 18px 0 10px; color: var(--text); }
 .notice { border-left: 4px solid var(--accent); background: var(--panel-2); border-radius: 6px; padding: 12px 14px; margin-bottom: 16px; }
 .poster { width: 72px; height: 108px; flex: none; border-radius: 6px; background: var(--panel-2); object-fit: cover; display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: 1.6rem; }
