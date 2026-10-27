@@ -3,6 +3,10 @@
 The version shown in the web UI's sidebar matches these entries. Each
 release is also published as `ghcr.io/gaterunner341/curatarr:<version>`.
 
+## 0.6.2
+
+- The left menu stays in place, with the version number at its bottom, while the page content scrolls. Long pages, such as an expanded Existing Plex collections section, no longer push the menu out of view.
+
 ## 0.6.1
 
 - **Existing Plex collections** on the Movies and TV Shows pages can be collapsed, as a whole section and per library. The section starts collapsed and shows how many collections it holds.
