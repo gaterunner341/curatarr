@@ -17,6 +17,7 @@ from .sources.tmdb import TMDB, _first_number
 log = logging.getLogger(__name__)
 
 INDEX_TTL = 300
+STATE_KEYS = ("plex_rating_key", "plex_owned", "poster_applied", "art_applied")
 _index_cache: dict[tuple[str, str], tuple[float, LibraryIndex]] = {}
 _index_lock = threading.Lock()
 _run_locks: dict[int, threading.Lock] = {}
@@ -156,17 +157,31 @@ def sync_collection(cfg: CollectionConfig, state: dict, plex: Plex, section: dic
     result.matched = len(matched)
 
     existing = state.get("plex_rating_key")
-    if existing and not plex.collection_exists(existing):
-        existing = None
+    # Curatarr only removes titles from (or deletes) Plex collections it created or that
+    # were linked on purpose. Rows from before 0.5.3 have no flag and count as owned.
+    owned = state.get("plex_owned")
+    owned = True if owned is None else bool(owned)
+    if existing:
+        where = plex.collection_section(existing)
+        if where is None:
+            existing = None
+        elif where and where != str(section["id"]):
+            log.warning("'%s': Plex collection %s is in another library; creating one in '%s'",
+                        name, existing, section["title"])
+            result.messages.append("Library changed, so a new Plex collection was made; "
+                                   "the one in the old library was left untouched")
+            existing = None
     if not existing:
-        existing = plex.find_collection(section["id"], cfg.name)
+        existing = plex.find_collection(section["id"], name)
+        owned = False                     # a same-named collection someone else made
     result.state["plex_rating_key"] = existing
+    result.state["plex_owned"] = int(owned) if existing else None
     log.info("'%s': %d matched in Plex, %d missing; %s", name, len(matched),
              len(result.missing),
              f"updating Plex collection {existing}" if existing else "no Plex collection yet")
 
     if len(matched) < max(cfg.min_items, 1):
-        if existing and cfg.delete_below_min and not dry_run:
+        if existing and owned and cfg.delete_below_min and not dry_run:
             plex.delete_collection(section["id"], existing)
             result.state.update(plex_rating_key=None, poster_applied=None, art_applied=None)
             result.messages.append(f"Deleted: only {len(matched)} item(s) matched "
@@ -180,7 +195,7 @@ def sync_collection(cfg: CollectionConfig, state: dict, plex: Plex, section: dic
     if dry_run:
         current = plex.collection_items(existing) if existing else []
         result.added = len([rk for rk in matched if rk not in set(current)])
-        if cfg.sync_mode == "sync":
+        if cfg.sync_mode == "sync" and owned:
             result.removed = len([rk for rk in current if rk not in seen])
         result.messages.append("Dry run: no changes were made")
         return result
@@ -191,6 +206,7 @@ def sync_collection(cfg: CollectionConfig, state: dict, plex: Plex, section: dic
         created = True
         result.added = len(matched)
         result.state["plex_rating_key"] = existing
+        result.state["plex_owned"] = 1
         result.state["poster_applied"] = None
         result.state["art_applied"] = None
         current = list(matched)
@@ -202,7 +218,10 @@ def sync_collection(cfg: CollectionConfig, state: dict, plex: Plex, section: dic
             plex.add_items(existing, to_add)
             current += to_add
             result.added = len(to_add)
-        if cfg.sync_mode == "sync":
+        if cfg.sync_mode == "sync" and not owned:
+            result.messages.append("This Plex collection already existed, so Curatarr only adds to it "
+                                   "(see the collection's settings to let it remove titles too)")
+        elif cfg.sync_mode == "sync":
             to_remove = [rk for rk in current if rk not in seen]
             for rk in to_remove:
                 plex.remove_item(existing, rk)
@@ -322,18 +341,19 @@ def _run_collection(collection_id: int, trigger: str, dry_run: bool) -> dict:
             log.info("'%s': %d title(s) from lists", cfg.name, len(refs))
             if source_errors and not refs:
                 raise SyncError("; ".join(source_errors))
-            state = {k: row.get(k) for k in ("plex_rating_key", "poster_applied", "art_applied")}
+            state = {k: row.get(k) for k in STATE_KEYS}
             result = sync_collection(cfg, state, plex, section, refs, settings, dry_run=dry_run)
             for err in source_errors:
                 result.warn(err)
             if cfg.request_missing and result.missing and not dry_run:
                 missing_refs = [MediaRef(**m) for m in result.missing]
-                result.requested, arr_errors = arr.request_missing(
+                result.requested, arr_errors, limited = arr.request_missing(
                     section["type"], missing_refs, settings, http)
                 for err in arr_errors:
                     result.warn(err)
                 if result.requested:
-                    result.messages.append(f"Requested {result.requested} missing title(s)")
+                    result.messages.append(f"Requested {result.requested} missing title(s)"
+                                           + (" (per-sync limit reached; more next sync)" if limited else ""))
         run.update(status=result.status, matched=result.matched, added=result.added,
                    removed=result.removed, requested=result.requested, missing=result.missing,
                    message=" | ".join(result.messages))
@@ -345,7 +365,7 @@ def _run_collection(collection_id: int, trigger: str, dry_run: bool) -> dict:
                 m.get("imdb") or f"tmdb:{m.get('tmdb')}" for m in result.missing))
         if not dry_run:
             db.update_collection_state(collection_id, **{
-                k: result.state.get(k) for k in ("plex_rating_key", "poster_applied", "art_applied")
+                k: result.state.get(k) for k in STATE_KEYS
             })
     except (PlexError, SyncError) as exc:
         run["message"] = str(exc)

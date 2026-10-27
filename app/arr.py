@@ -54,6 +54,23 @@ class Arr:
             "root_folders": [f["path"] for f in folders],
         }
 
+    def library_ids(self) -> dict[str, set]:
+        """External ids of everything already in Radarr/Sonarr, fetched in one call."""
+        resp = self._request("GET", "/series" if self.kind == "sonarr" else "/movie")
+        if resp.status_code >= 400:
+            raise ArrError(f"{self.kind.title()} returned HTTP {resp.status_code}")
+        have: dict[str, set] = {"tmdb": set(), "tvdb": set(), "imdb": set()}
+        for item in resp.json():
+            for key, field in (("tmdb", "tmdbId"), ("tvdb", "tvdbId"), ("imdb", "imdbId")):
+                if item.get(field):
+                    have[key].add(str(item[field]))
+        return have
+
+    @staticmethod
+    def already_has(ref: MediaRef, have: dict[str, set]) -> bool:
+        return any(getattr(ref, key) and str(getattr(ref, key)) in have[key]
+                   for key in ("tmdb", "tvdb", "imdb"))
+
     def _tmdb(self) -> TMDB | None:
         try:
             return TMDB(self.settings.get("tmdb_api_key", ""), self.http)
@@ -130,18 +147,38 @@ class Arr:
 
 
 def request_missing(media_type: str, refs: list[MediaRef], settings: dict,
-                    http: httpx.Client) -> tuple[int, list[str]]:
-    """Add missing refs to Radarr/Sonarr. Returns (added count, error messages)."""
+                    http: httpx.Client) -> tuple[int, list[str], bool]:
+    """Add missing refs to Radarr/Sonarr.
+
+    At most ``arr_max_requests`` titles are added per call (0 = no limit), and
+    titles Radarr/Sonarr already has are skipped without a lookup each.
+    Returns (added count, error messages, whether the limit was reached).
+    """
     arr = Arr("sonarr" if media_type == "show" else "radarr", settings, http)
     if not arr.configured:
-        return 0, [f"{arr.kind.title()} is not fully configured; missing titles were not requested"]
+        return 0, [f"{arr.kind.title()} is not fully configured; missing titles were not requested"], False
+    try:
+        limit = max(int(settings.get("arr_max_requests") or 0), 0)
+    except ValueError:
+        limit = 25
+    try:
+        have = arr.library_ids()
+    except (ArrError, httpx.HTTPError, ValueError) as exc:
+        return 0, [f"Could not read the {arr.kind.title()} library: {exc}"], False
     added, errors = 0, []
     for ref in refs:
+        if limit and added >= limit:
+            log.info("%s: request limit of %d reached; the rest wait for the next sync",
+                     arr.kind.title(), limit)
+            return added, errors, True
+        if arr.already_has(ref, have):
+            continue
         try:
             if arr.add(ref) == "added":
                 added += 1
+                log.info("%s: added %s", arr.kind.title(), ref.title or ref.imdb or ref.tmdb or ref.tvdb)
         except ArrError as exc:
             errors.append(str(exc))
             if len(errors) >= 5:
                 break
-    return added, errors
+    return added, errors, False

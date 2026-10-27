@@ -237,8 +237,8 @@ def create_collection(cfg: dict = Body(...), plex_rating_key: str = ""):
     """Create a collection. ``plex_rating_key`` links it to an existing Plex collection."""
     model = _validate(cfg)
     collection_id = db.create_collection(model.model_dump())
-    if plex_rating_key:
-        db.update_collection_state(collection_id, plex_rating_key=plex_rating_key)
+    if plex_rating_key:     # linked on purpose via "Sync with a list"
+        db.update_collection_state(collection_id, plex_rating_key=plex_rating_key, plex_owned=1)
     scheduler.reload_jobs()
     return _collection_out(db.get_collection(collection_id))
 
@@ -339,6 +339,15 @@ def delete_collection(collection_id: int, remove_from_plex: bool = False):
     db.delete_collection(collection_id)
     scheduler.reload_jobs()
     return {"deleted": True, "message": message}
+
+
+@router.post("/collections/{collection_id}/own")
+def own_collection(collection_id: int):
+    """Let Curatarr fully manage a Plex collection that already existed (allow removals)."""
+    if not db.get_collection(collection_id):
+        raise HTTPException(404, "Collection not found")
+    db.update_collection_state(collection_id, plex_owned=1)
+    return _collection_out(db.get_collection(collection_id))
 
 
 @router.post("/collections/{collection_id}/run")

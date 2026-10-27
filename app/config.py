@@ -2,7 +2,7 @@
 import os
 from pathlib import Path
 
-VERSION = "0.5.2"
+VERSION = "0.5.3"
 APP_NAME = "Curatarr"
 
 
@@ -57,6 +57,7 @@ DEFAULT_SETTINGS = {
     "sonarr_quality_profile": "",
     "sonarr_search": "true",
     "default_schedule": "0 */6 * * *",
+    "arr_max_requests": "25",
     "managed_label": "Curatarr",
 }
 

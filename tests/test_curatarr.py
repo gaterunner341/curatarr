@@ -126,6 +126,7 @@ class FakePlex(httpx.BaseTransport):
     def __init__(self):
         self.library = {str(i): f"imdb://tt000000{i}" for i in range(1, 7)}
         self.collections: dict[str, list[str]] = {}
+        self.sections: dict[str, str] = {}        # collection key -> library section id
         self.calls: list[str] = []
 
     def handle_request(self, request):
@@ -143,8 +144,10 @@ class FakePlex(httpx.BaseTransport):
             rks = q["uri"].rsplit("/", 1)[1].split(",")
             self.collections["100"] = rks
             return mc({"Metadata": [{"ratingKey": "100"}]})
-        if path.startswith("/library/metadata/100") and method == "GET":
-            return mc({"Metadata": [{"type": "collection"}]} if "100" in self.collections else {})
+        if path.startswith("/library/metadata/") and method == "GET":
+            key = path.split("/")[3]
+            return mc({"Metadata": [{"type": "collection", "librarySectionID": self.sections.get(key, "1")}]}
+                      if key in self.collections else {})
         parts = path.split("/")
         if path.startswith("/library/collections/100/items"):
             items = self.collections["100"]
@@ -152,8 +155,10 @@ class FakePlex(httpx.BaseTransport):
                 return mc({"Metadata": [{"ratingKey": rk} for rk in items], "totalSize": len(items)})
             if len(parts) == 5:   # add
                 items.extend(q["uri"].rsplit("/", 1)[1].split(","))
-            elif len(parts) == 6:   # remove
+            elif len(parts) == 6 and method == "DELETE":   # remove (real Plex uses DELETE)
                 items.remove(parts[5])
+            elif len(parts) == 6:
+                return httpx.Response(404, text="Not Found")
             elif parts[-1] == "move":
                 rk = parts[5]
                 items.remove(rk)
@@ -466,3 +471,56 @@ def test_backfill_updates_old_holiday_collections():
     holidays.backfill()
     kept = db.get_collection(custom)["config"]
     assert kept["sort_title"] == "zz mine" and kept["poster_file"] == ""
+
+
+def test_existing_same_named_collection_is_never_stripped():
+    fake = FakePlex()
+    fake.collections["100"] = ["5", "6"]          # the user's own "Best" collection
+    plex = plex_with(fake)
+    cfg = CollectionConfig(name="Best", library="Movies", sources=[Source(type="static", value="x")])
+    result = sync_collection(cfg, {}, plex, SECTION, refs_for(1, 2), {})
+    assert set(fake.collections["100"]) == {"1", "2", "5", "6"}
+    assert result.removed == 0 and result.state["plex_owned"] == 0
+    assert "only adds" in " ".join(result.messages)
+    # once the user allows it, removals happen
+    owned = sync_collection(cfg, {**result.state, "plex_owned": 1}, plex, SECTION, refs_for(1, 2), {})
+    assert set(fake.collections["100"]) == {"1", "2"} and owned.removed == 2
+
+
+def test_collection_in_another_library_is_replaced_not_reused():
+    fake = FakePlex()
+    fake.collections["100"] = ["5"]
+    fake.sections["100"] = "3"                     # lives in a different library
+    plex = plex_with(fake)
+    cfg = CollectionConfig(name="Fresh", library="Movies", sources=[Source(type="static", value="x")])
+    result = sync_collection(cfg, {"plex_rating_key": "100", "plex_owned": 1}, plex, SECTION,
+                             refs_for(1), {})
+    # a new collection is created instead of adding these titles to the other library's one
+    assert any(c == "POST /library/collections" for c in fake.calls)
+    assert not any(c == "PUT /library/collections/100/items" for c in fake.calls)
+    assert "Library changed" in " ".join(result.messages)
+
+
+def test_arr_requests_skip_existing_and_respect_limit():
+    from app import arr as arrmod
+    added = []
+
+    def radarr(request):
+        p = request.url.path
+        if p == "/api/v3/movie" and request.method == "GET":
+            return httpx.Response(200, json=[{"tmdbId": 1}])
+        if p == "/api/v3/movie/lookup/tmdb":
+            return httpx.Response(200, json=[{"title": "x", "tmdbId": int(request.url.params["tmdbId"])}])
+        if p == "/api/v3/movie" and request.method == "POST":
+            added.append(1)
+            return httpx.Response(201, json={})
+        return httpx.Response(404)
+
+    settings = {"radarr_url": "http://radarr", "radarr_api_key": "k", "radarr_root_folder": "/m",
+                "radarr_quality_profile": "1", "arr_max_requests": "5"}
+    refs = [MediaRef("movie", tmdb=i) for i in range(1, 41)]
+    http = httpx.Client(transport=httpx.MockTransport(radarr))
+    count, errors, limited = arrmod.request_missing("movie", refs, settings, http)
+    assert (count, errors, limited) == (5, [], True) and len(added) == 5
+    count, _, limited = arrmod.request_missing("movie", refs[:3], {**settings, "arr_max_requests": "0"}, http)
+    assert (count, limited) == (2, False)          # tmdb 1 is already in Radarr

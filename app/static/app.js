@@ -358,6 +358,12 @@ async function editor(id, params = new URLSearchParams()) {
       switch to <strong>Sync</strong> only if you want Curatarr to remove anything that isn't on your lists.
     </div>` : ""}
 
+    ${row && row.plex_owned === 0 ? `<div class="notice">
+      A Plex collection named <strong>${esc(cfg.name)}</strong> already existed, so Curatarr is using it but only
+      <strong>adds</strong> titles — it never removes titles from it or deletes it.
+      <div style="margin-top:8px"><button type="button" class="small" id="ownIt">Let Curatarr remove titles too</button></div>
+    </div>` : ""}
+
     <div class="card">
       <h2>Basics</h2>
       <div class="grid">
@@ -486,6 +492,13 @@ async function editor(id, params = new URLSearchParams()) {
   ["#f-wstart", "#f-wend", "#f-wyearly", ...["#f-rec", "#f-home", "#f-shared"]].forEach((sel) =>
     view.querySelector(sel).addEventListener("change", updateWindow));
   updateWindow();
+
+  view.querySelector("#ownIt")?.addEventListener("click", () => guard(async () => {
+    if (!confirm(`Let Curatarr fully manage "${cfg.name}"?\n\nIn Sync mode, titles that aren't on your lists will be removed from this Plex collection.`)) return;
+    await api("POST", `/collections/${id}/own`);
+    toast("Curatarr now fully manages this collection");
+    route();
+  }));
 
   view.querySelector("#addSource").onclick = () => { cfg.sources.push({ type: "tmdb_list", value: "", limit: null }); renderSources(); };
 
@@ -851,6 +864,7 @@ const SETTING_GROUPS = [
   ] },
   { title: "General", fields: [
     ["default_schedule", "Default schedule (cron)", "text", "0 */6 * * *"],
+    ["arr_max_requests", "Most titles sent to Radarr/Sonarr per collection sync (0 = no limit)", "text", "25"],
     ["managed_label", "Label added to managed collections", "text", "Curatarr"],
   ] },
 ];

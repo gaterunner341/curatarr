@@ -34,7 +34,9 @@ _LEGACY_AGENTS = {
 
 
 class PlexError(Exception):
-    pass
+    def __init__(self, message: str, status: int | None = None):
+        super().__init__(message)
+        self.status = status
 
 
 def parse_guid(guid: str) -> tuple[str, str] | None:
@@ -131,9 +133,10 @@ class Plex:
         except httpx.HTTPError as exc:
             raise PlexError(f"Could not reach Plex at {self.url}: {exc}") from exc
         if resp.status_code == 401:
-            raise PlexError("Plex rejected the token (401 Unauthorized)")
+            raise PlexError("Plex rejected the token (401 Unauthorized)", 401)
         if resp.status_code >= 400:
-            raise PlexError(f"Plex {method} {path} failed: HTTP {resp.status_code} {resp.text[:200]}")
+            raise PlexError(f"Plex {method} {path} failed: HTTP {resp.status_code} {resp.text[:200]}",
+                            resp.status_code)
         if not resp.content or "json" not in resp.headers.get("content-type", ""):
             return {}
         return resp.json().get("MediaContainer", {})
@@ -238,13 +241,19 @@ class Plex:
                 return coll["ratingKey"]
         return None
 
-    def collection_exists(self, rating_key: str) -> bool:
+    def collection_section(self, rating_key: str) -> str | None:
+        """Library section id of a collection, or None if it no longer exists."""
         try:
             data = self._request("GET", f"/library/metadata/{rating_key}")
         except PlexError:
-            return False
+            return None
         meta = data.get("Metadata") or []
-        return bool(meta) and meta[0].get("type") == "collection"
+        if not meta or meta[0].get("type") != "collection":
+            return None
+        return str(meta[0].get("librarySectionID") or data.get("librarySectionID") or "")
+
+    def collection_exists(self, rating_key: str) -> bool:
+        return self.collection_section(rating_key) is not None
 
     def collection_items(self, rating_key: str) -> list[str]:
         items = self._paged(f"/library/collections/{rating_key}/items")
@@ -274,8 +283,15 @@ class Plex:
                           params={"uri": self.items_uri(rating_keys[i:i + BATCH_SIZE])})
 
     def remove_item(self, collection_key: str, rating_key: str) -> None:
-        # Per the PMS API reference, removal is a PUT on the item path.
-        self._request("PUT", f"/library/collections/{collection_key}/items/{rating_key}")
+        # Plex servers remove with DELETE (the published reference says PUT, which
+        # real servers answer with 404), so PUT is only a fallback.
+        path = f"/library/collections/{collection_key}/items/{rating_key}"
+        try:
+            self._request("DELETE", path)
+        except PlexError as exc:
+            if exc.status not in (404, 405):
+                raise
+            self._request("PUT", path)
 
     def move_item(self, collection_key: str, rating_key: str, after: str | None) -> None:
         params = {"after": after} if after else None

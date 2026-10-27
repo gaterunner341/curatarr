@@ -3,6 +3,16 @@
 The version shown in the web UI's sidebar matches these entries. Each
 release is also published as `ghcr.io/gaterunner341/curatarr:<version>`.
 
+## 0.5.3
+
+Fixes from the first round of TrueNAS logs:
+
+- **Fixed:** removing titles from a collection failed with HTTP 404. Plex removes collection items with DELETE, not the PUT that the published API reference describes.
+- **Fixed:** after a collection was moved to a different library, syncs failed with HTTP 400 because they tried to add titles to the old library's Plex collection. A new collection is now created in the new library, and the old one is left untouched.
+- **Safer:** when a new Curatarr collection has the same name as a collection you already made in Plex, Curatarr uses it but only adds titles. It never removes titles from it or deletes it. A notice in the editor lets you allow removals.
+- **Safer:** missing titles are sent to Radarr/Sonarr at most 25 per collection per sync by default (**Settings → General**, 0 = no limit). Titles Radarr/Sonarr already has are skipped with one library check instead of one lookup per title, so large lists sync much faster. Each added title is logged.
+- The scheduler's "Added job" messages no longer fill the logs.
+
 ## 0.5.2
 
 - Holiday collections get the sort title `!01_<Holiday> Collection`, such as `!01_Halloween Collection`, so they sort above every other collection in Plex.

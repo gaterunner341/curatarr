@@ -63,8 +63,16 @@ def connect() -> sqlite3.Connection:
             _conn.row_factory = sqlite3.Row
             _conn.execute("PRAGMA journal_mode=WAL")
             _conn.executescript(SCHEMA)
+            _migrate(_conn)
             _conn.commit()
         return _conn
+
+
+def _migrate(conn: sqlite3.Connection) -> None:
+    """Add columns introduced after the first release."""
+    columns = {r[1] for r in conn.execute("PRAGMA table_info(collections)")}
+    if "plex_owned" not in columns:     # 0.5.3: 1 = Curatarr may remove titles / delete it
+        conn.execute("ALTER TABLE collections ADD COLUMN plex_owned INTEGER")
 
 
 def close() -> None:
@@ -151,6 +159,7 @@ def update_collection_config(collection_id: int, cfg: dict) -> None:
 
 _STATE_COLUMNS = {
     "plex_rating_key",
+    "plex_owned",
     "poster_applied",
     "art_applied",
     "last_run",

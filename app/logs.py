@@ -53,7 +53,8 @@ def setup() -> None:
     root.addHandler(file_handler)
     # Request logs from the HTTP client include full URLs with API keys; keep them quiet.
     # Per-request access lines from the web server would bury the useful entries.
-    for noisy in ("httpx", "httpcore", "apscheduler.executors.default", "uvicorn.access"):
+    # The scheduler logs every job it (re)adds, which buries the sync messages.
+    for noisy in ("httpx", "httpcore", "apscheduler", "uvicorn.access"):
         logging.getLogger(noisy).setLevel(logging.WARNING)
     for name in ("uvicorn", "uvicorn.error", "uvicorn.access"):
         logging.getLogger(name).handlers.clear()
