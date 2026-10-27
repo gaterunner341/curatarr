@@ -284,7 +284,7 @@ const DEFAULTS = {
   sync_mode: "sync", order: "custom", summary: "", sort_title: "", labels: [], collection_mode: "default",
   poster_url: "", art_url: "", poster_file: "", art_file: "", item_limit: 0, min_items: 1,
   delete_below_min: false, promote_home: false, promote_shared: false, promote_recommended: false,
-  promote_window: false, promote_start: "", promote_end: "", promote_yearly: true,
+  promote_window: false, promote_start: "", promote_end: "", promote_yearly: true, seasonal_only: false,
   schedule: "", request_missing: false, enabled: true,
 };
 
@@ -432,6 +432,7 @@ async function editor(id, params = new URLSearchParams()) {
             <div><label for="f-wend">Until (inclusive)</label><input type="date" id="f-wend" value="${esc(cfg.promote_end)}"></div>
             <div><label class="check"><input type="checkbox" id="f-wyearly" ${cfg.promote_yearly ? "checked" : ""}> Repeat every year</label></div>
           </div>
+          <label class="check"><input type="checkbox" id="f-seasonal" ${cfg.seasonal_only ? "checked" : ""}> Only keep the collection in Plex during these dates (deleted after, re-created when they come round)</label>
           <div class="hint" id="window-status"></div>
         </div>
       </div>
@@ -471,7 +472,7 @@ async function editor(id, params = new URLSearchParams()) {
   const spots = ["#f-rec", "#f-home", "#f-shared"].map((s) => view.querySelector(s));
   const updateWindow = () => {
     const on = view.querySelector("#f-window").checked;
-    view.querySelectorAll("#window-fields input").forEach((el) => { el.disabled = !on; });
+    view.querySelectorAll("#window-fields input, #f-seasonal").forEach((el) => { el.disabled = !on; });
     const status = view.querySelector("#window-status");
     if (!on) { status.textContent = ""; return; }
     const w = {
@@ -483,13 +484,16 @@ async function editor(id, params = new URLSearchParams()) {
     const where = spots.filter((s) => s.checked).map((s) => s.parentElement.textContent.trim()).join(", ") || "no spots selected";
     status.textContent = !w.promote_start || !w.promote_end
       ? "Pick both dates."
-      : `${windowText(w)} on ${where}. ${promotionActive(w) ? "Showing now." : "Hidden right now."} It switches automatically just after midnight.`;
+      : `${windowText(w)} on ${where}. ${promotionActive(w) ? "Showing now." : "Hidden right now."} It switches automatically just after midnight.`
+        + (view.querySelector("#f-seasonal").checked
+          ? ` Outside these dates the collection is deleted from Plex${promotionActive(w) ? "" : " (it's out of season now, so it'll be removed at the next sync)"}.`
+          : "");
   };
   view.querySelector("#f-window").addEventListener("change", (e) => {
     if (e.target.checked && !spots.some((s) => s.checked)) spots.forEach((s) => { s.checked = true; });
     updateWindow();
   });
-  ["#f-wstart", "#f-wend", "#f-wyearly", ...["#f-rec", "#f-home", "#f-shared"]].forEach((sel) =>
+  ["#f-wstart", "#f-wend", "#f-wyearly", "#f-seasonal", ...["#f-rec", "#f-home", "#f-shared"]].forEach((sel) =>
     view.querySelector(sel).addEventListener("change", updateWindow));
   updateWindow();
 
@@ -529,6 +533,7 @@ async function editor(id, params = new URLSearchParams()) {
       promote_start: view.querySelector("#f-wstart").value,
       promote_end: view.querySelector("#f-wend").value,
       promote_yearly: view.querySelector("#f-wyearly").checked,
+      seasonal_only: view.querySelector("#f-seasonal").checked,
       poster_url: view.querySelector("#poster-url").value,
       art_url: view.querySelector("#art-url").value,
       sources: cfg.sources.filter((s) => s.value),
@@ -680,6 +685,7 @@ async function holidaysPage() {
   const libs = allLibs.filter((l) => l.type === "movie");
   const arrReady = list[0]?.arr_ready || {};
   state.holidayArr ||= {};
+  state.holidaySeasonal ||= {};
   let sectionId = state.holidayLibrary && libs.some((l) => l.id === state.holidayLibrary)
     ? state.holidayLibrary
     : (libs.find((l) => l.type === "movie") || libs[0])?.id || "";
@@ -708,8 +714,13 @@ async function holidaysPage() {
             ${h.available || coll ? `<label class="check small" title="${arrReady.radarr ? "" : "Set up Radarr in Settings first"}">
               <input type="checkbox" data-arr="${esc(h.key)}" ${(coll ? coll.config.request_missing : state.holidayArr[h.key]) ? "checked" : ""} ${arrReady.radarr ? "" : "disabled"}>
               Add missing movies to Radarr${arrReady.radarr ? "" : ` <a href="#/settings">(set up Radarr)</a>`}</label>` : ""}
+            ${h.available || coll ? `<label class="check small">
+              <input type="checkbox" data-seasonal="${esc(h.key)}" ${(coll ? coll.config.seasonal_only : state.holidaySeasonal[h.key]) ? "checked" : ""}>
+              Only in Plex during its dates (deleted after)</label>` : ""}
             ${coll ? `
-              <div class="small">${promotionActive(cfg) ? `<span class="badge success">on home screen now</span>` : `<span class="badge">off season</span>`}
+              <div class="small">${promotionActive(cfg)
+                ? `<span class="badge success">on home screen now</span>`
+                : cfg.seasonal_only ? `<span class="badge">not in Plex until ${esc(windowText(cfg).split(" – ")[0])}</span>` : `<span class="badge">off season</span>`}
                 ${coll.running ? badge("running") : badge(coll.last_status)}</div>
               ${coll.last_message ? `<div class="small muted" title="${esc(coll.last_message)}" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(coll.last_message)}</div>` : ""}
               <div class="coll-actions">
@@ -753,6 +764,21 @@ async function holidaysPage() {
       coll.config.request_missing = box.checked;
       toast(box.checked ? "Missing movies will be added to Radarr on the next sync" : "Radarr requests turned off");
     }));
+    // Seasonal choice works the same way as the Radarr one.
+    view.querySelectorAll("[data-seasonal]").forEach((box) => box.onchange = () => guard(async () => {
+      const h = list.find((x) => x.key === box.dataset.seasonal);
+      const coll = h.collections.find((c) => String(c.config.section_id) === sectionId);
+      if (!coll) { state.holidaySeasonal[h.key] = box.checked; return; }
+      const outOfSeason = !promotionActive(coll.config);
+      if (box.checked && outOfSeason && !confirm(`${h.name} is out of season, so its Plex collection will be deleted at the next sync and re-created when its dates come round. Continue?`)) {
+        box.checked = false; return;
+      }
+      await api("PUT", `/collections/${coll.id}`, { ...coll.config, seasonal_only: box.checked });
+      coll.config.seasonal_only = box.checked;
+      if (outOfSeason) await api("POST", `/collections/${coll.id}/run`);   // apply now (remove or re-create)
+      toast(box.checked ? `${h.name} will only be in Plex during its dates` : `${h.name} stays in Plex all year`);
+      setTimeout(route, 1500);
+    }));
     view.querySelectorAll("[data-holiday]").forEach((box) => box.onchange = () => guard(async () => {
       const h = list.find((x) => x.key === box.dataset.holiday);
       const coll = h.collections.find((c) => String(c.config.section_id) === sectionId);
@@ -764,8 +790,13 @@ async function holidaysPage() {
           if (requestMissing && !confirm(`Turn on ${h.name} and add its missing movies to Radarr?\n\nUp to 100 movies could be added and searched for.`)) {
             box.checked = false; return;
           }
-          await api("POST", `/holidays/${h.key}/enable`, { section_id: sectionId, request_missing: requestMissing });
-          toast(`${h.name} collection created; first sync started`);
+          const seasonalOnly = Boolean(state.holidaySeasonal[h.key]);
+          await api("POST", `/holidays/${h.key}/enable`,
+            { section_id: sectionId, request_missing: requestMissing, seasonal_only: seasonalOnly });
+          toast(seasonalOnly && !promotionActive({ promote_window: true, promote_yearly: true,
+                promote_start: `2000-${h.start}`, promote_end: `2000-${h.end}` })
+            ? `${h.name} turned on; it'll appear in Plex when its dates start`
+            : `${h.name} collection created; first sync started`);
         } else if (coll) {
           if (!confirm(`Turn off ${h.name}? Its collection is removed from Curatarr.`)) { box.checked = true; return; }
           const fromPlex = confirm("Also delete the collection from Plex?\n\nOK = delete it in Plex too, Cancel = keep it in Plex.");

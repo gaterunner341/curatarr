@@ -3,6 +3,16 @@
 The version shown in the web UI's sidebar matches these entries. Each
 release is also published as `ghcr.io/gaterunner341/curatarr:<version>`.
 
+## 0.6.0
+
+- **Seasonal-only collections:** a collection with a calendar can exist in Plex only during its dates.
+  - It's created when the dates start and deleted from Plex after they end. This happens just after midnight, or at the next sync.
+  - It's re-created each year with its poster and settings, and Curatarr keeps its settings all year.
+  - Out of season, syncs skip fetching the lists entirely.
+- On the Holidays page, each holiday has an **Only in Plex during its dates (deleted after)** option. You can set it before turning the holiday on or change it later. Cards show "not in Plex until <date>" when out of season.
+- The same option is in the collection editor under the home screen calendar.
+- A Plex collection that existed before Curatarr is never deleted this way. It's left in place.
+
 ## 0.5.3
 
 Fixes from the first round of TrueNAS logs:

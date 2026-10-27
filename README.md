@@ -127,6 +127,7 @@ collections:
 | `promote_window` | `false` | Only show on the home screen between `promote_start` and `promote_end` |
 | `promote_start`, `promote_end` | | `YYYY-MM-DD`; the end date is included |
 | `promote_yearly` | `true` | Repeat the dates every year (ignores the year; can span New Year) |
+| `seasonal_only` | `false` | With a calendar: the Plex collection only exists between the dates. It's deleted after they end and re-created when they start |
 | `schedule` | global | Five-field cron expression |
 | `request_missing` | `false` | Send missing titles to Radarr or Sonarr |
 | `enabled` | `true` | Turn scheduled syncs on or off |

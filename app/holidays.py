@@ -81,11 +81,13 @@ def sort_title(holiday: dict) -> str:
     return f"{SORT_PREFIX}{holiday['name']} Collection"
 
 
-def collection_config(holiday: dict, section: dict, request_missing: bool = False) -> dict:
+def collection_config(holiday: dict, section: dict, request_missing: bool = False,
+                      seasonal_only: bool = False) -> dict:
     """Config for a new collection built from a holiday."""
     start, end = window_dates(holiday)
     cfg = {
         "request_missing": request_missing,
+        "seasonal_only": seasonal_only,
         "name": f"{holiday['name']} Collection",
         "sort_title": sort_title(holiday),
         "library": section["title"],

@@ -264,8 +264,13 @@ def list_holidays():
 
 @router.post("/holidays/{key}/enable", status_code=201)
 def enable_holiday(key: str, section_id: str = Body(..., embed=True),
-                   request_missing: bool = Body(False, embed=True)):
-    """Create the holiday's collection; ``request_missing`` sends missing titles to Radarr/Sonarr."""
+                   request_missing: bool = Body(False, embed=True),
+                   seasonal_only: bool = Body(False, embed=True)):
+    """Create the holiday's collection.
+
+    ``request_missing`` sends missing titles to Radarr/Sonarr; ``seasonal_only``
+    keeps the Plex collection only during the holiday's dates.
+    """
     holiday = holidays.get(key)
     if not holiday:
         raise HTTPException(404, "Unknown holiday")
@@ -279,7 +284,7 @@ def enable_holiday(key: str, section_id: str = Body(..., embed=True),
             section = sync.resolve_section(plex, section_id, "")
         except (PlexError, sync.SyncError) as exc:
             raise HTTPException(400, str(exc))
-    model = _validate(holidays.collection_config(holiday, section, request_missing))
+    model = _validate(holidays.collection_config(holiday, section, request_missing, seasonal_only))
     collection_id = db.create_collection(model.model_dump())
     poster = holidays.install_poster(holiday, collection_id)
     if poster:

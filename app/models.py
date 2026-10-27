@@ -59,6 +59,9 @@ class CollectionConfig(BaseModel):
     promote_start: str = ""
     promote_end: str = ""
     promote_yearly: bool = True
+    # With a calendar: the Plex collection only exists during the window. It is
+    # created when the window opens and deleted from Plex after it closes.
+    seasonal_only: bool = False
     schedule: str = ""           # cron expression; blank uses the global default
     request_missing: bool = False
     enabled: bool = True
@@ -99,6 +102,10 @@ class CollectionConfig(BaseModel):
         if first <= last:
             return first <= day <= last
         return day >= first or day <= last      # wraps over New Year, e.g. Dec 15 - Jan 5
+
+    def off_season(self, today: date) -> bool:
+        """True when the collection should not exist in Plex today."""
+        return self.promote_window and self.seasonal_only and not self.promotion_active(today)
 
     def promotion_flags(self, today: date) -> tuple[bool, bool, bool]:
         """(recommended, home, shared) to apply today."""

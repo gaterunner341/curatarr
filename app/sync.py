@@ -331,18 +331,23 @@ def _run_collection(collection_id: int, trigger: str, dry_run: bool) -> dict:
             if section["id"] != cfg.section_id or section["title"] != cfg.library:
                 cfg.section_id, cfg.library = section["id"], section["title"]
                 db.update_collection_config(collection_id, cfg.model_dump())
-            ctx = SourceContext(settings=settings, http=http, media_type=section["type"])
-            log.info("'%s': library '%s' (id %s, %s), %d source(s)", cfg.name, section["title"],
-                     section["id"], section["type"], len(cfg.sources))
-            refs, source_errors = resolve(cfg.sources, ctx, cfg.item_limit)
-            run["source_count"] = len(refs)
-            for err in source_errors:
-                log.warning("'%s': source failed: %s", cfg.name, err)
-            log.info("'%s': %d title(s) from lists", cfg.name, len(refs))
-            if source_errors and not refs:
-                raise SyncError("; ".join(source_errors))
             state = {k: row.get(k) for k in STATE_KEYS}
-            result = sync_collection(cfg, state, plex, section, refs, settings, dry_run=dry_run)
+            if cfg.off_season(date.today()):
+                # Seasonal collections don't exist in Plex outside their dates; skip the lists.
+                result = remove_off_season(cfg, state, plex, section, dry_run=dry_run)
+                source_errors = []
+            else:
+                ctx = SourceContext(settings=settings, http=http, media_type=section["type"])
+                log.info("'%s': library '%s' (id %s, %s), %d source(s)", cfg.name, section["title"],
+                         section["id"], section["type"], len(cfg.sources))
+                refs, source_errors = resolve(cfg.sources, ctx, cfg.item_limit)
+                run["source_count"] = len(refs)
+                for err in source_errors:
+                    log.warning("'%s': source failed: %s", cfg.name, err)
+                log.info("'%s': %d title(s) from lists", cfg.name, len(refs))
+                if source_errors and not refs:
+                    raise SyncError("; ".join(source_errors))
+                result = sync_collection(cfg, state, plex, section, refs, settings, dry_run=dry_run)
             for err in source_errors:
                 result.warn(err)
             if cfg.request_missing and result.missing and not dry_run:
@@ -382,19 +387,69 @@ def _run_collection(collection_id: int, trigger: str, dry_run: bool) -> dict:
     return run
 
 
+def next_start(cfg: CollectionConfig, today: date) -> date:
+    """The next day the collection's window opens."""
+    start = date.fromisoformat(cfg.promote_start)
+    if not cfg.promote_yearly:
+        return start
+    candidate = start.replace(year=today.year) if not (start.month == 2 and start.day == 29) \
+        else date(today.year, 3, 1)
+    return candidate if candidate > today else candidate.replace(year=today.year + 1)
+
+
+def remove_off_season(cfg: CollectionConfig, state: dict, plex: Plex, section: dict,
+                      dry_run: bool = False, today: date | None = None) -> SyncResult:
+    """Delete a seasonal collection from Plex while it's out of season."""
+    today = today or date.today()
+    result = SyncResult(status="skipped", state=dict(state))
+    opens = next_start(cfg, today)
+    back = f"{opens:%b} {opens.day}"
+    rk = state.get("plex_rating_key")
+    owned = state.get("plex_owned")
+    owned = True if owned is None else bool(owned)
+    if rk and plex.collection_section(rk) is not None:
+        if not owned:
+            result.messages.append("Off season, but this Plex collection existed before Curatarr, "
+                                   "so it was left in place")
+            return result
+        if dry_run:
+            result.messages.append(f"Dry run: would remove it from Plex until {back}")
+            return result
+        plex.delete_collection(section["id"], rk)
+        log.info("'%s': off season, deleted Plex collection %s until %s", cfg.name, rk, back)
+        result.messages.append(f"Off season: removed from Plex until {back}")
+    else:
+        result.messages.append(f"Off season: not in Plex until {back}")
+    result.state.update(plex_rating_key=None, plex_owned=None, poster_applied=None, art_applied=None)
+    return result
+
+
 def apply_home_calendars(today: date | None = None) -> int:
-    """Show or hide collections on the home screen according to their calendars.
+    """Apply collection calendars: home screen visibility and seasonal collections.
 
     Runs daily (and at startup) so a date window takes effect on its first and
-    last day without waiting for the next full sync. Returns how many were updated.
+    last day without waiting for the next full sync. Seasonal-only collections
+    are synced when their window opens (creating them) and when it closes
+    (deleting them). Returns how many collections were updated.
     """
     today = today or date.today()
+    calendared = [r for r in db.list_collections()
+                  if r["config"].get("promote_window") and r["config"].get("enabled", True)]
+    updated = 0
+    for row in calendared:
+        cfg = CollectionConfig(**row["config"])
+        if not cfg.seasonal_only:
+            continue
+        in_plex = bool(row.get("plex_rating_key"))
+        if cfg.off_season(today) == in_plex:     # needs creating, or needs removing
+            log.info("Calendar: '%s' %s", cfg.name, "season over, removing" if in_plex else "season started, creating")
+            run_collection(row["id"], "calendar")
+            updated += 1
     rows = [r for r in db.list_collections()
             if r["config"].get("promote_window") and r.get("plex_rating_key")]
     if not rows:
-        return 0
+        return updated
     settings = db.get_settings()
-    updated = 0
     try:
         with plexmod.from_settings(settings) as plex:
             for row in rows:

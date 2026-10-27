@@ -524,3 +524,55 @@ def test_arr_requests_skip_existing_and_respect_limit():
     assert (count, errors, limited) == (5, [], True) and len(added) == 5
     count, _, limited = arrmod.request_missing("movie", refs[:3], {**settings, "arr_max_requests": "0"}, http)
     assert (count, limited) == (2, False)          # tmdb 1 is already in Radarr
+
+
+# --- seasonal-only collections ---------------------------------------------------------
+
+def test_off_season_and_next_start():
+    from datetime import date
+    from app.sync import next_start
+    cfg = _cal(seasonal_only=True)
+    assert cfg.off_season(date(2026, 11, 2)) and not cfg.off_season(date(2026, 10, 2))
+    assert not _cal().off_season(date(2026, 11, 2))          # option off: never off season
+    assert next_start(cfg, date(2026, 11, 2)) == date(2027, 10, 1)
+    assert next_start(cfg, date(2026, 9, 2)) == date(2026, 10, 1)
+
+
+def test_remove_off_season_deletes_only_owned_collections():
+    from datetime import date
+    from app.sync import remove_off_season
+    cfg = _cal(seasonal_only=True)
+    fake = FakePlex()
+    fake.collections["100"] = ["1", "2"]
+    plex = plex_with(fake)
+    kept = remove_off_season(cfg, {"plex_rating_key": "100", "plex_owned": 0}, plex, SECTION,
+                             today=date(2026, 11, 2))
+    assert "left in place" in kept.messages[0] and kept.state["plex_rating_key"] == "100"
+    assert not any(c.startswith("DELETE") for c in fake.calls)
+
+    gone = remove_off_season(cfg, {"plex_rating_key": "100", "plex_owned": 1, "poster_applied": "x"},
+                             plex, SECTION, today=date(2026, 11, 2))
+    assert "DELETE /library/sections/1/collection/100" in fake.calls
+    assert gone.status == "skipped" and "until Oct 1" in gone.messages[0]
+    assert gone.state["plex_rating_key"] is None and gone.state["poster_applied"] is None
+
+
+def test_calendar_job_creates_and_removes_seasonal_collections(monkeypatch):
+    from datetime import date
+    from app import sync as sync_mod
+    for row in db.list_collections():
+        db.delete_collection(row["id"])
+    base = _cal(seasonal_only=True).model_dump()
+    in_season_missing = db.create_collection({**base, "name": "A"})
+    off_season_present = db.create_collection({**base, "name": "B"})
+    db.update_collection_state(off_season_present, plex_rating_key="200")
+    db.create_collection({**base, "name": "C", "seasonal_only": False})
+    calls = []
+    monkeypatch.setattr(sync_mod, "run_collection", lambda cid, trigger: calls.append((cid, trigger)))
+    monkeypatch.setattr(sync_mod.plexmod, "from_settings",
+                        lambda s: (_ for _ in ()).throw(sync_mod.PlexError("no plex")))
+    sync_mod.apply_home_calendars(date(2026, 10, 5))     # in season
+    assert calls == [(in_season_missing, "calendar")]
+    calls.clear()
+    sync_mod.apply_home_calendars(date(2026, 11, 5))     # out of season
+    assert calls == [(off_season_present, "calendar")]
