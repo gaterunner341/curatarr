@@ -315,16 +315,83 @@ def list_holidays():
     with httpx.Client() as http:
         arr_ready = {kind: arr.Arr(kind, settings, http).configured for kind in ("radarr", "sonarr")}
     result = []
-    for h in holidays.HOLIDAYS:
+    for h in holidays.all_holidays():
         colls = [_collection_out(r) for r in rows if r["config"].get("holiday") == h["key"]]
+        poster = ""
+        if h.get("custom"):
+            poster = f"/api/holidays/{h['key']}/poster?v={h.get('scheme', '')}-{h['name']}"
+        elif h.get("poster"):
+            poster = f"/static/holidays/{h['poster']}"
         result.append({
             "key": h["key"], "name": h["name"], "start": h["start"], "end": h["end"],
             "link": h.get("link", ""), "arr_ready": arr_ready,
-            "available": holidays.available(h),
-            "poster": f"/static/holidays/{h['poster']}" if h.get("poster") else "",
-            "collections": colls,
+            "available": holidays.available(h), "custom": bool(h.get("custom")),
+            "scheme": h.get("scheme", ""), "poster": poster, "collections": colls,
         })
     return result
+
+
+@router.get("/holidays/schemes")
+def holiday_schemes():
+    from . import posters
+    return posters.SCHEMES
+
+
+@router.get("/holidays/{key}/poster")
+def holiday_poster(key: str):
+    holiday = holidays.get(key)
+    path = holidays.poster_path(holiday) if holiday else None
+    if not path:
+        raise HTTPException(404, "No poster")
+    return FileResponse(path, media_type="image/jpeg", headers={"Cache-Control": "no-cache"})
+
+
+def _save_custom_holiday(entry: dict) -> dict:
+    from . import posters
+    try:
+        stored = holidays.save_custom(entry)
+    except (ValueError, posters.PosterError) as exc:
+        raise HTTPException(422, str(exc))
+    # Collections already made from this holiday follow its new dates and poster.
+    holiday = holidays.get(stored["key"])
+    start, end = holidays.window_dates(holiday)
+    for row in db.list_collections():
+        cfg = row["config"]
+        if cfg.get("holiday") != stored["key"]:
+            continue
+        changes = {"promote_start": start, "promote_end": end}
+        if cfg.get("poster_file") == f"{row['id']}-poster.jpg":
+            holidays.install_poster(holiday, row["id"])
+        db.update_collection_config(row["id"], {**cfg, **changes})
+    scheduler.reload_jobs()
+    return stored
+
+
+@router.post("/holidays/custom", status_code=201)
+def add_custom_holiday(body: dict = Body(...)):
+    """Add your own holiday: name, start/end ("MM-DD"), TMDB keyword or list link, colour scheme."""
+    return _save_custom_holiday({k: body.get(k) for k in ("name", "start", "end", "link", "scheme")})
+
+
+@router.put("/holidays/custom/{key}")
+def edit_custom_holiday(key: str, body: dict = Body(...)):
+    return _save_custom_holiday({**{k: body.get(k) for k in ("name", "start", "end", "link", "scheme")},
+                                 "key": key})
+
+
+@router.delete("/holidays/custom/{key}")
+def delete_custom_holiday(key: str, remove_from_plex: bool = False):
+    """Delete one of your holidays and the collections made from it (like unticking it)."""
+    if not key.startswith(holidays.CUSTOM_PREFIX) or not holidays.get(key):
+        raise HTTPException(404, "Unknown holiday")
+    messages = []
+    for row in db.list_collections():
+        if row["config"].get("holiday") == key:
+            r = delete_collection(row["id"], remove_from_plex)
+            if r.get("message"):
+                messages.append(r["message"])
+    holidays.delete_custom(key)
+    return {"deleted": True, "message": "; ".join(messages) or None}
 
 
 @router.post("/holidays/{key}/enable", status_code=201)

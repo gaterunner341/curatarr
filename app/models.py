@@ -88,6 +88,8 @@ class CollectionConfig(BaseModel):
     # With a calendar: the Plex collection only exists during the window. It is
     # created when the window opens and deleted from Plex after it closes.
     seasonal_only: bool = False
+    # With a calendar: while showing, move it to the top of Library recommended.
+    pin_top: bool = False
     schedule: str = ""           # cron expression; blank uses the global default
     request_missing: bool = False
     enabled: bool = True

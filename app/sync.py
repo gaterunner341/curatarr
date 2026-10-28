@@ -17,7 +17,7 @@ from .sources.tmdb import TMDB, _first_number
 log = logging.getLogger(__name__)
 
 INDEX_TTL = 300
-STATE_KEYS = ("plex_rating_key", "plex_owned", "poster_applied", "art_applied")
+STATE_KEYS = ("plex_rating_key", "plex_owned", "poster_applied", "art_applied", "hub_pinned")
 _index_cache: dict[tuple[str, str], tuple[float, LibraryIndex]] = {}
 _index_lock = threading.Lock()
 _run_locks: dict[int, threading.Lock] = {}
@@ -268,6 +268,7 @@ def sync_collection(cfg: CollectionConfig, state: dict, plex: Plex, section: dic
     if recommended or home or shared or not created:
         try:
             plex.set_hub_visibility(section["id"], rk, recommended, home, shared)
+            apply_pin(plex, section["id"], rk, cfg, today or date.today(), result.state)
         except PlexError as exc:
             result.warn(f"Could not update home screen visibility: {exc}")
 
@@ -406,6 +407,25 @@ def sync_playlist(cfg: CollectionConfig, state: dict, plex: Plex, sections: list
     result.messages.insert(0, f"{verb} with {len(matched)} title(s): "
                               f"+{result.added} / -{result.removed}, {len(result.missing)} missing")
     return result
+
+
+def apply_pin(plex: Plex, section_id: str, rk: str, cfg: CollectionConfig, today: date,
+              state: dict) -> None:
+    """Keep a calendar collection at the top of the home screen while it's showing.
+
+    ``state["hub_pinned"]`` remembers the hub that was first (None = not pinned),
+    so it can be put back on top when the dates end or pinning is turned off.
+    """
+    want = cfg.pin_top and any(cfg.promotion_flags(today))
+    pinned = state.get("hub_pinned")
+    if want and pinned is None:
+        state["hub_pinned"] = plex.pin_hub(section_id, rk)
+        if state["hub_pinned"] is not None:
+            log.info("'%s': pinned to the top of the home screen", cfg.name)
+    elif not want and pinned is not None:
+        plex.unpin_hub(section_id, rk, pinned)
+        state["hub_pinned"] = None
+        log.info("'%s': unpinned from the top of the home screen", cfg.name)
 
 
 def desired_order(cfg: CollectionConfig, matched: list[str]) -> list[str]:
@@ -717,7 +737,8 @@ def remove_off_season(cfg: CollectionConfig, state: dict, plex: Plex, section: d
         result.messages.append(f"Off season: removed from Plex until {back}")
     else:
         result.messages.append(f"Off season: not in Plex until {back}")
-    result.state.update(plex_rating_key=None, plex_owned=None, poster_applied=None, art_applied=None)
+    result.state.update(plex_rating_key=None, plex_owned=None, poster_applied=None, art_applied=None,
+                        hub_pinned=None)
     return result
 
 
@@ -755,6 +776,10 @@ def apply_home_calendars(today: date | None = None) -> int:
                     section = resolve_section(plex, cfg.section_id, cfg.library)
                     flags = cfg.promotion_flags(today)
                     plex.set_hub_visibility(section["id"], row["plex_rating_key"], *flags)
+                    state = {"hub_pinned": row.get("hub_pinned")}
+                    apply_pin(plex, section["id"], row["plex_rating_key"], cfg, today, state)
+                    if state["hub_pinned"] != row.get("hub_pinned"):
+                        db.update_collection_state(row["id"], hub_pinned=state["hub_pinned"])
                     updated += 1
                     log.info("Home screen calendar: '%s' %s", cfg.name,
                              "shown" if any(flags) else "hidden")

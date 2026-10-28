@@ -421,8 +421,11 @@ def test_holiday_windows_and_config():
     wrap = {"start": "12-26", "end": "01-02"}
     assert holidays.window_dates(wrap, 2026) == ("2026-12-26", "2027-01-02")
     assert [h["key"] for h in holidays.HOLIDAYS] == [
-        "valentines", "st-patricks", "easter", "independence-day", "halloween", "veterans-day",
-        "thanksgiving", "christmas"]
+        "new-years", "lunar-new-year", "football", "valentines", "st-patricks", "easter", "mothers-day",
+        "fathers-day", "independence-day", "back-to-school", "halloween", "veterans-day", "thanksgiving",
+        "christmas", "hanukkah"]
+    assert all(holidays.poster_path(h) for h in holidays.HOLIDAYS)
+    assert holidays.get("hanukkah")["sources"][0]["value"] == "movie?with_keywords=7328|272884&sort_by=popularity.desc"
     assert all(holidays.available(h) and h["link"].startswith("https://www.themoviedb.org/keyword/")
                for h in holidays.HOLIDAYS)
     for h in holidays.HOLIDAYS:
@@ -430,7 +433,7 @@ def test_holiday_windows_and_config():
             {**h, "sources": [{"type": "static", "value": "tt0000001"}]},
             {"id": "1", "title": "Movies"}))
         assert cfg.holiday == h["key"] and cfg.promote_window and cfg.promote_yearly
-        assert cfg.promote_home and cfg.promote_shared and cfg.promote_recommended
+        assert cfg.promote_home and cfg.promote_shared and cfg.promote_recommended and cfg.pin_top
     hw = CollectionConfig(**holidays.collection_config(
         {**holidays.get("halloween"), "sources": [{"type": "static", "value": "tt1"}]},
         {"id": "1", "title": "Movies"}))
@@ -449,7 +452,7 @@ def test_enable_holiday_endpoint(monkeypatch):
     monkeypatch.setattr(scheduler, "run_now", lambda *a, **k: None)
     client = TestClient(app)
 
-    assert client.post("/api/holidays/new-years/enable", json={"section_id": "1"}).status_code == 404
+    assert client.post("/api/holidays/flag-day/enable", json={"section_id": "1"}).status_code == 404
     r = client.post("/api/holidays/halloween/enable", json={"section_id": "1", "request_missing": True})
     assert r.status_code == 201
     cfg = r.json()["config"]
@@ -902,3 +905,69 @@ def test_tmdb_poster_choices():
     assert [c["url"].rsplit("/", 1)[1] for c in choices] == ["a.jpg", "b.jpg", "c.jpg"]
     assert choices[0]["thumb"].startswith("https://image.tmdb.org/t/p/w342/")
     assert [c["url"].rsplit("/", 1)[1] for c in tmdb.poster_choices("Star Wars")] == ["b.jpg", "c.jpg", "a.jpg"]
+
+
+def test_custom_holidays(monkeypatch):
+    from contextlib import nullcontext
+    from fastapi.testclient import TestClient
+    from app import api as api_mod, holidays, scheduler, sync as sync_mod
+    from app.main import app
+
+    monkeypatch.setattr(api_mod, "_plex", lambda: nullcontext(object()))
+    monkeypatch.setattr(sync_mod, "resolve_section",
+                        lambda plex, sid, lib: {"id": "1", "title": "Movies", "type": "movie"})
+    monkeypatch.setattr(scheduler, "run_now", lambda *a, **k: None)
+    client = TestClient(app)
+    bad = client.post("/api/holidays/custom", json={"name": "Pi Day", "start": "3-14", "end": "03-14",
+                                                     "link": "https://www.themoviedb.org/keyword/9840"})
+    assert bad.status_code == 422
+    r = client.post("/api/holidays/custom", json={"name": "Pi Day", "start": "03-10", "end": "03-14",
+                                                   "link": "https://www.themoviedb.org/keyword/9840-pi/movie",
+                                                   "scheme": "plum"})
+    assert r.status_code == 201 and r.json()["key"] == "custom-pi-day"
+    assert client.post("/api/holidays/custom", json={"name": "Pi Day", "start": "03-10", "end": "03-14",
+                                                      "link": "https://www.themoviedb.org/keyword/9840"}).status_code == 422
+    listed = {h["key"]: h for h in client.get("/api/holidays").json()}
+    assert listed["custom-pi-day"]["custom"] and listed["custom-pi-day"]["available"]
+    poster = client.get(listed["custom-pi-day"]["poster"])
+    assert poster.status_code == 200 and poster.content[:2] == b"\xff\xd8"          # a JPEG
+
+    made = client.post("/api/holidays/custom-pi-day/enable", json={"section_id": "1"}).json()
+    assert made["config"]["holiday"] == "custom-pi-day" and made["config"]["pin_top"]
+    assert made["config"]["sources"][0]["value"] == "movie?with_keywords=9840&sort_by=popularity.desc"
+    client.put("/api/holidays/custom/custom-pi-day", json={"name": "Pi Day", "start": "03-01", "end": "03-14",
+                                                           "link": "https://www.themoviedb.org/keyword/9840"})
+    assert db.get_collection(made["id"])["config"]["promote_start"].endswith("-03-01")
+    assert client.delete("/api/holidays/custom/custom-pi-day").json()["deleted"]
+    assert db.get_collection(made["id"]) is None and not holidays.get("custom-pi-day")
+    assert client.delete("/api/holidays/custom/christmas").status_code == 404
+
+
+def test_pin_to_top_while_showing():
+    from datetime import date
+    from app import sync as sync_mod
+
+    hubs = [{"identifier": "movie.recent"}, {"identifier": "custom.collection.1.100"}]
+    moves = []
+
+    def handler(request):
+        if request.url.path.endswith("/manage/move"):
+            moves.append(dict(request.url.params))
+            ident = request.url.params["identifier"]
+            hub = next(h for h in hubs if h["identifier"] == ident)
+            hubs.remove(hub)
+            after = request.url.params.get("after")
+            hubs.insert(next(i for i, h in enumerate(hubs) if h["identifier"] == after) + 1 if after else 0, hub)
+            return httpx.Response(200)
+        return httpx.Response(200, json={"MediaContainer": {"Hub": hubs}})
+    plex = Plex("http://plex", "token", client=httpx.Client(transport=httpx.MockTransport(handler)))
+    cfg = CollectionConfig(name="X", sources=[Source(type="static", value="x")], promote_window=True,
+                           promote_start="2000-12-01", promote_end="2000-12-26", promote_recommended=True,
+                           pin_top=True)
+    state = {}
+    sync_mod.apply_pin(plex, "1", "100", cfg, date(2026, 12, 5), state)
+    assert hubs[0]["identifier"] == "custom.collection.1.100" and state["hub_pinned"] == "movie.recent"
+    sync_mod.apply_pin(plex, "1", "100", cfg, date(2026, 12, 6), state)       # already pinned: no move
+    assert len(moves) == 1
+    sync_mod.apply_pin(plex, "1", "100", cfg, date(2026, 12, 27), state)      # dates over: put back
+    assert hubs[0]["identifier"] == "movie.recent" and state["hub_pinned"] is None

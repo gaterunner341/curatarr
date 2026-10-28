@@ -3,6 +3,28 @@
 The version shown in the web UI's sidebar matches these entries. Each
 release is also published as `ghcr.io/gaterunner341/curatarr:<version>`.
 
+## 0.11.0
+
+- **Seven more holidays,** each with a poster in the same style as the others:
+
+  | Holiday | Dates | TMDB keywords |
+  | --- | --- | --- |
+  | New Year's | Dec 26 – Jan 2 | new year's eve (613), new year's day (5632) |
+  | Lunar New Year | Jan 20 – Feb 20 | chinese new year (250496), lunar new year (356063) |
+  | Football | Jan 25 – Feb 15 | american football (579) |
+  | Mother's Day | May 1 – May 14 | mother's day (173983) |
+  | Father's Day | Jun 1 – Jun 21 | father's day (195439) |
+  | Back to School | Aug 10 – Sep 10 | back to school (187282), high school (6270) |
+  | Hanukkah | Nov 28 – Jan 2 | hanukkah (7328), chanukah (272884) |
+
+- **Add your own holiday:** **+ Add holiday** on the Holidays page.
+  - Give it a name, dates, a TMDB keyword or list link, and poster colors. Curatarr draws a matching poster with the holiday's initial.
+  - Your holidays work like the built-in ones and can be edited or deleted. Editing the dates updates their collections too.
+- **Top of the home screen:** a collection with a calendar can be moved to the top of the home screen while it's showing, then put back afterwards.
+  - Holiday collections do this by default, including ones you already have.
+  - To change it, use **Move it to the top of the home screen during these dates** in the collection's settings.
+- The Docker image now includes Pillow and the DejaVu fonts, which draw the posters for holidays you add.
+
 ## 0.10.0
 
 - **Dashboard:** a new start page, at the top of the left menu.

@@ -465,6 +465,37 @@ class Plex:
         data = self._request("GET", f"/hubs/sections/{section_id}/manage")
         return data.get("Hub", [])
 
+    @staticmethod
+    def _hub_for(hubs: list[dict], collection_key: str) -> str | None:
+        for hub in hubs:
+            ident = hub.get("identifier", "")
+            if str(hub.get("ratingKey", "")) == collection_key or ident.endswith(f".{collection_key}"):
+                return ident
+        return None
+
+    def pin_hub(self, section_id: str, collection_key: str) -> str | None:
+        """Move a collection's hub to the top of the library's hubs.
+
+        Returns the identifier of the hub that was first before (so it can be put
+        back), "" when the collection was already first, or None without a hub.
+        """
+        hubs = self.hubs(section_id)
+        ident = self._hub_for(hubs, collection_key)
+        if not ident:
+            return None
+        first = hubs[0].get("identifier", "") if hubs else ""
+        if first == ident:
+            return ""
+        self._request("PUT", f"/hubs/sections/{section_id}/manage/move", params={"identifier": ident})
+        return first
+
+    def unpin_hub(self, section_id: str, collection_key: str, after: str) -> None:
+        """Put a pinned hub back behind ``after`` (the hub that was first before)."""
+        ident = self._hub_for(self.hubs(section_id), collection_key)
+        if ident and after:
+            self._request("PUT", f"/hubs/sections/{section_id}/manage/move",
+                          params={"identifier": ident, "after": after})
+
     def set_hub_visibility(self, section_id: str, collection_key: str, recommended: bool,
                            home: bool, shared: bool) -> None:
         flags = {
@@ -472,12 +503,7 @@ class Plex:
             "promotedToOwnHome": int(home),
             "promotedToSharedHome": int(shared),
         }
-        existing = None
-        for hub in self.hubs(section_id):
-            ident = hub.get("identifier", "")
-            if str(hub.get("ratingKey", "")) == collection_key or ident.endswith(f".{collection_key}"):
-                existing = ident
-                break
+        existing = self._hub_for(self.hubs(section_id), collection_key)
         if existing:
             self._request("PUT", f"/hubs/sections/{section_id}/manage/{quote(existing, safe='')}",
                           params=flags)

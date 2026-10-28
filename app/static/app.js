@@ -721,7 +721,7 @@ const DEFAULTS = {
   sync_mode: "sync", order: "custom", summary: "", sort_title: "", labels: [], collection_mode: "default",
   poster_url: "", art_url: "", poster_file: "", art_file: "", item_limit: 0, min_items: 1,
   delete_below_min: false, promote_home: false, promote_shared: false, promote_recommended: false,
-  promote_window: false, promote_start: "", promote_end: "", promote_yearly: true, seasonal_only: false,
+  promote_window: false, promote_start: "", promote_end: "", promote_yearly: true, seasonal_only: false, pin_top: false,
   schedule: "", request_missing: false, enabled: true, exclude: [], max_rating: "", drop_unrated: false,
 };
 
@@ -955,6 +955,7 @@ async function editor(id, params = new URLSearchParams()) {
             <div><label class="check"><input type="checkbox" id="f-wyearly" ${cfg.promote_yearly ? "checked" : ""}> Repeat every year</label></div>
           </div>
           <label class="check"><input type="checkbox" id="f-seasonal" ${cfg.seasonal_only ? "checked" : ""}> Only keep the collection in Plex during these dates (deleted after, re-created when they come round)</label>
+          <label class="check"><input type="checkbox" id="f-pin" ${cfg.pin_top ? "checked" : ""}> Move it to the top of the home screen during these dates (put back after)</label>
           <div class="hint" id="window-status"></div>
         </div>
       </div>
@@ -1014,7 +1015,7 @@ async function editor(id, params = new URLSearchParams()) {
   const spots = ["#f-rec", "#f-home", "#f-shared"].map((s) => view.querySelector(s));
   const updateWindow = () => {
     const on = view.querySelector("#f-window").checked;
-    view.querySelectorAll("#window-fields input, #f-seasonal").forEach((el) => { el.disabled = !on; });
+    view.querySelectorAll("#window-fields input, #f-seasonal, #f-pin").forEach((el) => { el.disabled = !on; });
     const status = view.querySelector("#window-status");
     if (!on) { status.textContent = ""; return; }
     const w = {
@@ -1079,6 +1080,7 @@ async function editor(id, params = new URLSearchParams()) {
       promote_end: view.querySelector("#f-wend").value,
       promote_yearly: view.querySelector("#f-wyearly").checked,
       seasonal_only: view.querySelector("#f-seasonal").checked,
+      pin_top: view.querySelector("#f-pin").checked,
       poster_url: view.querySelector("#poster-url").value,
       art_url: view.querySelector("#art-url")?.value || "",
       sources: cfg.sources.filter((s) => s.value),
@@ -1329,12 +1331,17 @@ async function holidaysPage() {
               </div>`
             : `<div class="small muted">${h.available ? "Tick to create it in this library." : "Lists not added yet."}</div>`}
             ${others.length ? `<div class="small muted">Also on in: ${others.map(esc).join(", ")}</div>` : ""}
+            ${h.custom ? `<div class="small"><span class="badge">yours</span>
+              <button type="button" class="small" data-edit-holiday="${esc(h.key)}">Edit holiday</button>
+              <button type="button" class="small danger" data-del-holiday="${esc(h.key)}">Delete holiday</button></div>` : ""}
           </div>
         </div>`;
     }).join("");
 
     view.innerHTML = `
-      <div class="page-head"><h1>Holiday collections</h1></div>
+      <div class="page-head"><h1>Holiday collections</h1>
+        <div class="actions"><button class="primary" id="addHoliday">+ Add holiday</button></div></div>
+      <div id="holidayForm" class="card" hidden></div>
       <p class="hint" style="margin-top:-8px">Tick a holiday to create its collection. It shows on Library recommended,
         My home and Friends' home during its dates every year and is hidden the rest of the year.
         Use <strong>Edit dates &amp; settings</strong> to change the dates or where it appears.</p>
@@ -1346,6 +1353,18 @@ async function holidaysPage() {
       <div class="collections">${cards}</div>`;
 
     view.querySelector("#holidayLib").onchange = (e) => { sectionId = e.target.value; render(); };
+    view.querySelector("#addHoliday").onclick = () => holidayForm(null);
+    view.querySelectorAll("[data-edit-holiday]").forEach((b) => b.onclick = () =>
+      holidayForm(list.find((h) => h.key === b.dataset.editHoliday)));
+    view.querySelectorAll("[data-del-holiday]").forEach((b) => b.onclick = () => guard(async () => {
+      const h = list.find((x) => x.key === b.dataset.delHoliday);
+      if (!confirm(`Delete ${h.name}? Its collections are removed from Curatarr too.`)) return;
+      const fromPlex = h.collections.length
+        && confirm("Also delete its collections from Plex?\n\nOK = delete them in Plex too, Cancel = keep them in Plex.");
+      const r = await api("DELETE", `/holidays/custom/${h.key}?remove_from_plex=${Boolean(fromPlex)}`);
+      toast(r.message || `${h.name} deleted`, Boolean(r.message));
+      route();
+    }));
     view.querySelectorAll("[data-run]").forEach((b) => b.onclick = () => guard(async () => {
       b.disabled = true;
       await api("POST", `/collections/${b.dataset.run}/run`);
@@ -1414,6 +1433,45 @@ async function holidaysPage() {
     if (list.some((h) => h.collections.some((c) => c.running))) refreshTimer = setInterval(route, 4000);
   };
   render();
+}
+
+// Add or edit one of your own holidays: name, dates, TMDB link and poster colours.
+async function holidayForm(h) {
+  const box = view.querySelector("#holidayForm");
+  const schemes = state.schemes ||= await api("GET", "/holidays/schemes");
+  const scheme = h?.scheme || "royal";
+  box.hidden = false;
+  box.innerHTML = `
+    <h2>${h ? `Edit ${esc(h.name)}` : "Add a holiday"}</h2>
+    <div class="grid">
+      <div><label for="hName">Name</label><input type="text" id="hName" value="${esc(h?.name || "")}" placeholder="Earth Day"></div>
+      <div><label for="hStart">From</label><input type="date" id="hStart" value="${h ? `2000-${esc(h.start)}` : ""}"></div>
+      <div><label for="hEnd">Until (inclusive)</label><input type="date" id="hEnd" value="${h ? `2000-${esc(h.end)}` : ""}">
+        <div class="hint">Only the month and day are used; it repeats every year.</div></div>
+      <div class="full"><label for="hLink">TMDB keyword or list link</label>
+        <input type="url" id="hLink" value="${esc(h?.link || "")}" placeholder="https://www.themoviedb.org/keyword/…">
+        <div class="hint">Find a keyword on themoviedb.org (search, then Keywords) and paste its page link. Its 100 most popular movies are used.</div></div>
+      <div class="full"><label>Poster colours</label><div class="swatches">${Object.entries(schemes).map(([key, c]) => `
+        <label class="swatch" title="${esc(key)}"><input type="radio" name="hScheme" value="${esc(key)}" ${key === scheme ? "checked" : ""}>
+          <span style="background:linear-gradient(${esc(c.top)}, ${esc(c.bottom)})"><i style="background:${esc(c.icon)}"></i></span></label>`).join("")}
+      </div></div>
+    </div>
+    <div class="row" style="margin-top:12px">
+      <button type="button" class="primary" id="hSave">${h ? "Save" : "Add holiday"}</button>
+      <button type="button" id="hCancel">Cancel</button>
+    </div>`;
+  box.scrollIntoView({ behavior: "smooth", block: "start" });
+  box.querySelector("#hCancel").onclick = () => { box.hidden = true; };
+  box.querySelector("#hSave").onclick = () => guard(async () => {
+    const md = (sel) => box.querySelector(sel).value.slice(5);     // YYYY-MM-DD -> MM-DD
+    const body = {
+      name: box.querySelector("#hName").value, start: md("#hStart"), end: md("#hEnd"),
+      link: box.querySelector("#hLink").value, scheme: box.querySelector("[name=hScheme]:checked")?.value,
+    };
+    await (h ? api("PUT", `/holidays/custom/${h.key}`, body) : api("POST", "/holidays/custom", body));
+    toast(h ? `${body.name} saved` : `${body.name} added. Tick it to create its collection`);
+    route();
+  });
 }
 
 // ---------- logs ----------

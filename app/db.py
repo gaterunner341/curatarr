@@ -73,6 +73,8 @@ def _migrate(conn: sqlite3.Connection) -> None:
     columns = {r[1] for r in conn.execute("PRAGMA table_info(collections)")}
     if "plex_owned" not in columns:     # 0.5.3: 1 = Curatarr may remove titles / delete it
         conn.execute("ALTER TABLE collections ADD COLUMN plex_owned INTEGER")
+    if "hub_pinned" not in columns:     # 0.11.0: hub that was first before Curatarr pinned this one
+        conn.execute("ALTER TABLE collections ADD COLUMN hub_pinned TEXT")
     run_columns = {r[1] for r in conn.execute("PRAGMA table_info(runs)")}
     for column in ("added_items", "removed_items"):    # 0.7.0: which titles a sync changed
         if column not in run_columns:
@@ -164,6 +166,7 @@ def update_collection_config(collection_id: int, cfg: dict) -> None:
 _STATE_COLUMNS = {
     "plex_rating_key",
     "plex_owned",
+    "hub_pinned",
     "poster_applied",
     "art_applied",
     "last_run",
