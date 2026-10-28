@@ -135,6 +135,10 @@ ul.changes { margin: 6px 0 0; padding-left: 0; list-style: none; max-height: 240
 .badge.running { background: color-mix(in srgb, var(--accent) 20%, transparent); color: var(--accent); }
 
 .source { display: grid; grid-template-columns: 220px 1fr 90px auto; gap: 8px; align-items: center; margin-bottom: 8px; }
+.source .full-row { grid-column: 1 / -1; }
+.source .row > input { flex: 1; min-width: 0; }
+.pack-items { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 0 16px; margin-top: 8px; }
+.filter-builder { background: var(--panel-2); border: 1px solid var(--border); border-radius: 6px; padding: 12px; }
 
 table { width: 100%; border-collapse: collapse; font-size: .9rem; }
 th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }

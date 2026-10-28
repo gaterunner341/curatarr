@@ -686,3 +686,58 @@ def test_exclude_and_request_endpoints(monkeypatch):
     monkeypatch.setattr(arr_mod.Arr, "add", lambda self, ref: added.append((self.kind, ref.imdb)) or "added")
     r = client.post(f"/api/collections/{cid}/request", json={"imdb": "tt7", "media_type": "show"})
     assert r.json() == {"status": "added", "service": "sonarr"} and added == [("sonarr", "tt7")]
+
+
+def test_plex_filter_source():
+    from app.sources import plexfilter
+    seen = []
+
+    def handler(request):
+        seen.append(request.url)
+        return httpx.Response(200, json={"MediaContainer": {"totalSize": 2, "Metadata": [
+            {"ratingKey": 1, "title": "Halloween", "year": 1978,
+             "Guid": [{"id": "imdb://tt0077651"}, {"id": "tmdb://948"}]},
+            {"ratingKey": 2, "title": "No Guids", "year": 1981},
+        ]}})
+    plex = Plex("http://plex", "token", client=httpx.Client(transport=httpx.MockTransport(handler)))
+    ctx = SourceContext({}, None, "movie", plex, {"id": "1", "title": "Movies", "type": "movie"})
+    refs = plexfilter.fetch("genre=12&year>>=1970&year<<=1989&X-Plex-Token=evil", ctx, None)
+    assert [(r.imdb, r.tmdb, r.title, r.year) for r in refs] == [
+        ("tt0077651", 948, "Halloween", 1978), (None, None, "No Guids", 1981)]
+    params = seen[0].params
+    assert seen[0].path == "/library/sections/1/all"
+    assert params["genre"] == "12" and params["year>>"] == "1970" and params["year<<"] == "1989"
+    assert "X-Plex-Token" not in params                 # dropped from the filter; the real token is a header
+    with pytest.raises(SourceError):
+        plexfilter.fetch("X-Plex-Token=x", ctx, None)
+    with pytest.raises(SourceError):
+        plexfilter.fetch("genre=1", SourceContext({}, None, "movie"), None)
+
+
+def test_starter_packs(monkeypatch):
+    from contextlib import nullcontext
+    from fastapi.testclient import TestClient
+    from app import api as api_mod, packs, scheduler, sync as sync_mod
+    from app.main import app
+
+    assert len({i for i in packs.ITEMS}) == sum(len(p["items"]) for p in packs.PACKS)
+    for pack in packs.PACKS:
+        for item in pack["items"]:
+            Source(**item["source"])                          # every pack item is a valid source
+            assert item["source"]["value"].startswith("movie?" if pack["media"] == "movie" else "tv?")
+    monkeypatch.setattr(api_mod, "_plex", lambda: nullcontext(object()))
+    monkeypatch.setattr(sync_mod, "resolve_section",
+                        lambda plex, sid, lib: {"id": "7", "title": "Films", "type": "movie"})
+    queued = []
+    monkeypatch.setattr(scheduler, "run_now", lambda cid: queued.append(cid))
+    client = TestClient(app)
+    listed = client.get("/api/packs?media=movie").json()
+    assert {p["key"] for p in listed} == {"studios", "movie-decades", "movie-genres"}
+    r = client.post("/api/packs", json={"section_id": "7", "keys": ["studios.pixar-collection", "movie-genres.top-horror"],
+                                        "sync_mode": "append", "sync_now": True})
+    assert r.status_code == 201 and r.json() == {"created": 2, "skipped": []} and len(queued) == 2
+    again = client.post("/api/packs", json={"section_id": "7", "keys": ["studios.pixar-collection"]})
+    assert again.json() == {"created": 0, "skipped": ["Pixar Collection"]}
+    assert client.post("/api/packs", json={"section_id": "7", "keys": ["networks.hbo-originals"]}).status_code == 422
+    pixar = next(r for r in db.list_collections() if r["config"]["name"] == "Pixar Collection")["config"]
+    assert pixar["sync_mode"] == "append" and pixar["order"] == "release" and pixar["section_id"] == "7"

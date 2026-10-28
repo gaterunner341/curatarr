@@ -2,7 +2,7 @@
 import re
 from typing import Callable
 
-from . import imdb, mdblist, tmdb, trakt
+from . import imdb, mdblist, plexfilter, tmdb, trakt
 from .base import MediaRef, SourceContext, SourceError
 
 Fetcher = Callable[[str, SourceContext, int | None], list[MediaRef]]
@@ -53,6 +53,7 @@ FETCHERS: dict[str, Fetcher] = {
     "trakt_chart": trakt.fetch_chart,
     "mdblist": mdblist.fetch_list,
     "static": fetch_static,
+    "plex_filter": plexfilter.fetch,
 }
 
 # Describes each source for the web UI.
@@ -74,6 +75,8 @@ CATALOG = [
      "placeholder": "https://mdblist.com/lists/username/list-slug"},
     {"type": "static", "label": "Static ids", "provider": "Manual",
      "placeholder": "tt0133093, tmdb:604, tvdb:81189 — or paste an IMDb list CSV export"},
+    {"type": "plex_filter", "label": "Plex library filter", "provider": "Plex",
+     "placeholder": "Use Build filter, or e.g. genre=12&year>>=1980&unwatched=1"},
 ]
 
 

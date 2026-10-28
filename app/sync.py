@@ -407,7 +407,8 @@ def _run_collection(collection_id: int, trigger: str, dry_run: bool) -> dict:
                 result = remove_off_season(cfg, state, plex, section, dry_run=dry_run)
                 source_errors = []
             else:
-                ctx = SourceContext(settings=settings, http=http, media_type=section["type"])
+                ctx = SourceContext(settings=settings, http=http, media_type=section["type"],
+                                    plex=plex, section=section)
                 log.info("'%s': library '%s' (id %s, %s), %d source(s)", cfg.name, section["title"],
                          section["id"], section["type"], len(cfg.sources))
                 refs, source_errors = resolve(cfg.sources, ctx, cfg.item_limit)
@@ -544,7 +545,8 @@ def preview(section_id: str, library: str, sources, item_limit: int = 0) -> dict
     settings = db.get_settings()
     with plexmod.from_settings(settings) as plex, httpx.Client(timeout=30) as http:
         section = resolve_section(plex, section_id, library)
-        refs, errors = resolve(sources, SourceContext(settings, http, section["type"]), item_limit)
+        refs, errors = resolve(sources, SourceContext(settings, http, section["type"], plex, section),
+                               item_limit)
         index = library_index(plex, section, refresh=True)
         items = []
         for ref in refs:

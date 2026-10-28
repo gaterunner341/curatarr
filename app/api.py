@@ -10,7 +10,7 @@ from fastapi import APIRouter, Body, File, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse, PlainTextResponse, Response
 from pydantic import ValidationError
 
-from . import arr, config, db, holidays, logs, plex as plexmod, plextv, scheduler, sources, sync
+from . import arr, config, db, holidays, logs, packs, plex as plexmod, plextv, scheduler, sources, sync
 from .models import CollectionConfig, PreviewRequest
 from .plex import PlexError
 from .sources import SourceContext, SourceError
@@ -172,6 +172,23 @@ def plex_collections(section_id: str):
             raise HTTPException(502, str(exc))
 
 
+@router.get("/plex/libraries/{section_id}/filters")
+def plex_filters(section_id: str):
+    """Choices for the Plex filter builder. Fields a library doesn't have come back empty."""
+    out = {}
+    with _plex() as plex:
+        # No actor list: big libraries have tens of thousands of actors.
+        for field in ("genre", "director", "contentRating", "studio"):
+            try:
+                out[field] = sorted(plex.filter_values(section_id, field), key=lambda v: v["title"].lower())
+            except PlexError as exc:
+                if exc.status in (400, 404):
+                    out[field] = []
+                else:
+                    raise HTTPException(502, str(exc))
+    return out
+
+
 @router.get("/plex/collections")
 def plex_all_collections():
     """Every collection in Plex, marked with the Curatarr collection that manages it (if any)."""
@@ -301,6 +318,50 @@ def enable_holiday(key: str, section_id: str = Body(..., embed=True),
     scheduler.reload_jobs()
     scheduler.run_now(collection_id)
     return _collection_out(db.get_collection(collection_id))
+
+
+@router.get("/packs")
+def list_packs(media: str = "movie"):
+    """Starter packs for a library type, with the libraries each item already exists in."""
+    names: dict[str, list[str]] = {}
+    for r in db.list_collections():
+        names.setdefault(r["config"]["name"].strip().lower(), []).append(str(r["config"].get("section_id")))
+    return [{**pack, "items": [{**item, "in_libraries": names.get(item["name"].lower(), [])}
+                               for item in pack["items"]]}
+            for pack in packs.PACKS if pack["media"] == media]
+
+
+@router.post("/packs", status_code=201)
+def create_from_packs(body: dict = Body(...)):
+    keys = body.get("keys") or []
+    if not keys:
+        raise HTTPException(422, "Pick at least one collection")
+    with _plex() as plex:
+        try:
+            section = sync.resolve_section(plex, str(body.get("section_id") or ""), "")
+        except (PlexError, sync.SyncError) as exc:
+            raise HTTPException(400, str(exc))
+    existing = {(r["config"]["name"].strip().lower(), str(r["config"].get("section_id")))
+                for r in db.list_collections()}
+    created, skipped = [], []
+    for key in keys:
+        if key not in packs.ITEMS:
+            raise HTTPException(404, f"Unknown starter pack item '{key}'")
+        pack, item = packs.ITEMS[key]
+        if pack["media"] != section["type"]:
+            raise HTTPException(422, f"'{item['name']}' is for {pack['media']} libraries")
+        if (item["name"].lower(), section["id"]) in existing:
+            skipped.append(item["name"])
+            continue
+        cfg = _validate(packs.collection_config(item, section, body.get("sync_mode") or "sync",
+                                                bool(body.get("request_missing"))))
+        created.append(db.create_collection(cfg.model_dump()))
+    scheduler.reload_jobs()
+    if body.get("sync_now"):
+        for cid in created:
+            scheduler.run_now(cid)
+    log.info("Starter packs: created %d collection(s) in '%s'", len(created), section["title"])
+    return {"created": len(created), "skipped": skipped}
 
 
 @router.post("/collections/run-all")

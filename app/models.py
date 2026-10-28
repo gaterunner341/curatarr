@@ -15,6 +15,7 @@ SourceType = Literal[
     "trakt_chart",
     "mdblist",
     "static",
+    "plex_filter",
 ]
 
 CollectionMode = Literal["default", "hide", "hideItems", "showItems"]

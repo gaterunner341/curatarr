@@ -3,6 +3,23 @@
 The version shown in the web UI's sidebar matches these entries. Each
 release is also published as `ghcr.io/gaterunner341/curatarr:<version>`.
 
+## 0.8.0
+
+- **Plex library filter:** a new list source that picks titles from the collection's own Plex library instead of an outside list.
+  - Examples: unwatched 80s horror, everything added in the last 30 days, a director's films.
+  - Choose **Plex · Plex library filter** as a source and click **Build filter** to pick genre, director, studio, content rating, years, recently added, unwatched only and sort order.
+  - It can be combined with other lists or used on its own.
+- **Starter packs:** ready-made collections from TMDB, one click each. Open them with **Starter packs** on the Movies and TV Shows pages.
+
+  | Library | Packs |
+  | --- | --- |
+  | Movies | 12 studios (Pixar, Disney Animation, DreamWorks Animation, Studio Ghibli, LAIKA, Aardman, Marvel Studios, Lucasfilm, A24, Blumhouse, Legendary, New Line), best of each decade from the 1950s, top rated by genre |
+  | TV | 10 networks and streamers (HBO, Netflix, AMC, FX, Apple TV+, Disney+, Prime Video, Hulu, Showtime, BBC One), best of each decade from the 1980s, top rated by genre |
+
+  - Pick a library, tick the collections you want, and choose Sync or Append and whether to send missing titles to Radarr/Sonarr.
+  - Each pack becomes a normal collection you can edit afterwards.
+  - Collections already in that library are marked "added".
+
 ## 0.7.0
 
 - **Exclude a title:** on a collection's View page, hover a poster and click **✕** to take that title out of the collection and keep it out, even when a list has it. Excluded titles are listed in the collection's settings, where you can allow them again.

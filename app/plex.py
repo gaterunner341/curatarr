@@ -214,6 +214,12 @@ class Plex:
         log.warning("Stopped paging %s after %d pages", path, MAX_PAGES)
         return items
 
+    def filter_values(self, section_id: str, field: str) -> list[dict]:
+        """Values Plex offers for a library filter, e.g. genres: [{id, title}]."""
+        data = self._request("GET", f"/library/sections/{section_id}/{field}")
+        return [{"id": str(d.get("key")), "title": d.get("title")}
+                for d in data.get("Directory", []) if d.get("key") and d.get("title")]
+
     def section_items(self, section_id: str, section_type: str) -> list[dict]:
         return self._paged(f"/library/sections/{section_id}/all", {
             "type": SECTION_TYPES.get(section_type, TYPE_MOVIE),

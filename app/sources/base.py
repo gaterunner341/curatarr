@@ -40,6 +40,8 @@ class SourceContext:
     settings: dict
     http: httpx.Client
     media_type: str   # library type the list is being matched against
+    plex: object = None      # Plex client and library section, for the Plex filter source
+    section: dict | None = None
 
 
 def year_of(date: str | None) -> int | None:

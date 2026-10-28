@@ -75,6 +75,7 @@ const routes = [
   [/^#\/movies$/, () => collections("movie")],
   [/^#\/tv$/, () => collections("show")],
   [/^#\/holidays$/, holidaysPage],
+  [/^#\/packs\/(movie|show)$/, (m) => packsPage(m[1])],
   [/^.*$/, () => location.replace("#/movies")],   // old #/collections links land here
 ];
 
@@ -209,6 +210,7 @@ async function collections(kind) {
       <h1>${meta.title}</h1>
       <div class="actions">
         ${rows.length ? `<button id="runAll">Sync all</button>` : ""}
+        <a class="btn" href="#/packs/${kind}">Starter packs</a>
         <a class="btn primary" href="#/collections/new?type=${kind}">+ New collection</a>
       </div>
     </div>
@@ -459,6 +461,68 @@ async function collectionItems({ id = null, ratingKey = null, params = new URLSe
   });
 }
 
+// ---------- starter packs ----------
+
+async function packsPage(kind) {
+  const meta = KINDS[kind];
+  document.querySelector(`[data-nav="${meta.hash.slice(2)}"]`)?.classList.add("active");
+  const [packs, allLibs] = await Promise.all([api("GET", `/packs?media=${kind}`), libraries().catch(() => [])]);
+  const libs = allLibs.filter((l) => l.type === kind);
+  let sectionId = libs[0]?.id || "";
+  const picked = new Set();
+
+  const render = () => {
+    view.innerHTML = `
+      <p class="small" style="margin:0 0 8px"><a href="${meta.hash}">← Back</a></p>
+      <div class="page-head"><h1>Starter packs</h1>
+        <div class="actions"><button class="primary" id="createPacks" disabled>Create collections</button></div></div>
+      <p class="hint" style="margin-top:-8px">Ready-made ${meta.noun} collections from TMDB. Tick the ones you want;
+        each becomes a normal collection you can edit afterwards. A TMDB API key is needed (Settings).</p>
+      <div class="card"><div class="grid">
+        <div><label for="packLib">Library</label><select id="packLib">${libs.map((l) =>
+          `<option value="${esc(l.id)}" ${l.id === sectionId ? "selected" : ""}>${esc(l.title)}</option>`).join("")
+          || `<option value="">Connect Plex first</option>`}</select></div>
+        <div><label for="packMode">Mode</label><select id="packMode">
+          <option value="sync">Sync: add new and remove titles no longer listed</option>
+          <option value="append">Append: only add titles</option></select></div>
+        <div><label class="check"><input type="checkbox" id="packArr"> Send missing titles to ${kind === "show" ? "Sonarr" : "Radarr"}</label>
+          <label class="check"><input type="checkbox" id="packSync" checked> Sync them right away</label></div>
+      </div></div>
+      ${packs.map((p) => `
+        <details class="fold card" data-fold="packs.${esc(p.key)}" ${foldOpen(`packs.${p.key}`, true) ? "open" : ""}>
+          <summary class="fold-head"><h2>${esc(p.name)}</h2><span class="muted small">${esc(p.about)}</span></summary>
+          <div class="pack-items">${p.items.map((i) => {
+            const have = i.in_libraries.includes(sectionId);
+            return `<label class="check${have ? " muted" : ""}" title="${esc(i.about)}">
+              <input type="checkbox" data-pack="${esc(i.key)}" ${have ? "disabled" : picked.has(i.key) ? "checked" : ""}>
+              ${esc(i.name)}${have ? ` <span class="badge">added</span>` : ""}</label>`;
+          }).join("")}</div>
+        </details>`).join("")}`;
+    bindFolds(view);
+    const button = view.querySelector("#createPacks");
+    const count = () => {
+      button.disabled = !picked.size || !sectionId;
+      button.textContent = picked.size ? `Create ${picked.size} collection${picked.size === 1 ? "" : "s"}` : "Create collections";
+    };
+    count();
+    view.querySelector("#packLib").onchange = (e) => { sectionId = e.target.value; picked.clear(); render(); };
+    view.querySelectorAll("[data-pack]").forEach((box) => box.onchange = () => {
+      box.checked ? picked.add(box.dataset.pack) : picked.delete(box.dataset.pack);
+      count();
+    });
+    button.onclick = () => guard(async () => {
+      button.disabled = true;
+      const r = await api("POST", "/packs", {
+        section_id: sectionId, keys: [...picked], sync_mode: view.querySelector("#packMode").value,
+        request_missing: view.querySelector("#packArr").checked, sync_now: view.querySelector("#packSync").checked,
+      });
+      toast(`Created ${r.created} collection(s)${r.skipped.length ? `; ${r.skipped.length} already existed` : ""}`);
+      location.hash = meta.hash;
+    });
+  };
+  render();
+}
+
 // ---------- collection editor ----------
 
 const DEFAULTS = {
@@ -488,10 +552,63 @@ function sourceRow(src, idx) {
   return `
     <div class="source" data-idx="${idx}">
       <select data-field="type">${options}</select>
-      ${input}
+      ${src.type === "plex_filter" ? `<div class="row" style="flex-wrap:nowrap">${input}<button type="button" class="small" data-build>Build filter</button></div>` : input}
       <input type="number" data-field="limit" min="1" placeholder="Limit" value="${src.limit ?? ""}" title="Max items from this source">
       <button type="button" class="small danger" data-remove="${idx}" title="Remove source">✕</button>
+      <div class="filter-builder full-row" hidden></div>
     </div>`;
+}
+
+const PLEX_SORTS = [
+  ["", "Plex default"], ["originallyAvailableAt:desc", "Newest release first"], ["originallyAvailableAt", "Oldest release first"],
+  ["audienceRating:desc", "Highest audience rating"], ["rating:desc", "Highest critic rating"],
+  ["addedAt:desc", "Recently added"], ["titleSort", "Title"], ["viewCount:desc", "Most played"],
+];
+
+// Builds a Plex filter query (genre=12&year>>=1980…) from form fields.
+async function openFilterBuilder(box, src, sectionId, onApply) {
+  if (!box.hidden) { box.hidden = true; return; }
+  if (!sectionId) return toast("Pick a Plex library first", true);
+  box.hidden = false;
+  box.innerHTML = `<p class="muted small">Loading library filters…</p>`;
+  let f;
+  try {
+    f = await api("GET", `/plex/libraries/${encodeURIComponent(sectionId)}/filters`);
+  } catch (err) {
+    box.innerHTML = `<p class="no small">${esc(err.message)}</p>`;
+    return;
+  }
+  const cur = new URLSearchParams(src.value);
+  const opts = (list, selected) => `<option value="">Any</option>` + list.map((v) =>
+    `<option value="${esc(v.id)}" ${v.id === selected ? "selected" : ""}>${esc(v.title)}</option>`).join("");
+  const days = (cur.get("addedAt>>") || "").match(/^-(\d+)d$/)?.[1] || "";
+  box.innerHTML = `
+    <div class="grid">
+      <div><label>Genre</label><select data-q="genre">${opts(f.genre, cur.get("genre"))}</select></div>
+      ${f.director.length ? `<div><label>Director</label><select data-q="director">${opts(f.director, cur.get("director"))}</select></div>` : ""}
+      ${f.studio.length ? `<div><label>Studio / network</label><select data-q="studio">${opts(f.studio, cur.get("studio"))}</select></div>` : ""}
+      <div><label>Content rating</label><select data-q="contentRating">${opts(f.contentRating, cur.get("contentRating"))}</select></div>
+      <div><label>Year from</label><input type="number" data-q="year>>" value="${esc(cur.get("year>>") || "")}" placeholder="1980"></div>
+      <div><label>Year to</label><input type="number" data-q="year<<" value="${esc(cur.get("year<<") || "")}" placeholder="1989"></div>
+      <div><label>Added in the last … days</label><input type="number" min="1" data-days value="${esc(days)}" placeholder="30"></div>
+      <div><label>Sort</label><select data-q="sort">${PLEX_SORTS.map(([v, l]) =>
+        `<option value="${v}" ${v === (cur.get("sort") || "") ? "selected" : ""}>${l}</option>`).join("")}</select></div>
+      <div><label class="check"><input type="checkbox" data-q="unwatched" ${cur.get("unwatched") === "1" ? "checked" : ""}> Unwatched only</label></div>
+    </div>
+    <div class="row" style="margin-top:10px"><button type="button" class="small primary" data-apply>Use this filter</button>
+      <span class="hint">Matches titles already in this library. Combine it with other lists, or use it on its own.</span></div>`;
+  box.querySelector("[data-apply]").onclick = () => {
+    const parts = [];
+    box.querySelectorAll("[data-q]").forEach((el) => {
+      const value = el.type === "checkbox" ? (el.checked ? "1" : "") : el.value.trim();
+      if (value) parts.push(`${el.dataset.q}=${encodeURIComponent(value)}`);
+    });
+    const n = box.querySelector("[data-days]").value.trim();
+    if (n) parts.push(`addedAt>>=-${Number(n)}d`);
+    if (!parts.some((p) => !p.startsWith("sort="))) return toast("Pick at least one filter", true);
+    box.hidden = true;
+    onApply(parts.join("&"));
+  };
 }
 
 async function editor(id, params = new URLSearchParams()) {
@@ -660,6 +777,11 @@ async function editor(id, params = new URLSearchParams()) {
       el.querySelector("[data-remove]").onclick = () => {
         if (cfg.sources.length > 1) { cfg.sources.splice(Number(el.dataset.idx), 1); renderSources(); }
       };
+      el.querySelector("[data-build]")?.addEventListener("click", () => openFilterBuilder(
+        el.querySelector(".filter-builder"), src, view.querySelector("#f-lib").value, (query) => {
+          src.value = query;
+          el.querySelector("[data-field=value]").value = query;
+        }));
     });
   };
   renderSources();
