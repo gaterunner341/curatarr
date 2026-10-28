@@ -70,9 +70,12 @@ class LibraryIndex:
         self.by_id: dict[tuple[str, str], str] = {}
         self.by_title: dict[str, str] = {}
         self.titles: dict[str, str] = {}
+        self.ratings: dict[str, str] = {}
         for item in items:
             rk = str(item.get("ratingKey"))
             self.titles[rk] = item.get("title", "")
+            if item.get("contentRating"):
+                self.ratings[rk] = item["contentRating"]
             guids = [g.get("id", "") for g in item.get("Guid") or []]
             guids.append(item.get("guid", ""))
             for guid in guids:
@@ -85,6 +88,16 @@ class LibraryIndex:
 
     def __len__(self) -> int:
         return len(self.titles)
+
+    def lookup(self, ident: str) -> str | None:
+        """Rating key for an exclusion id: ``plex:<rk>``, ``tt…``, ``tmdb:…`` or ``tvdb:…``."""
+        ident = ident.strip()
+        if ident.startswith("plex:"):
+            return ident[5:] or None
+        if ident.startswith("tt"):
+            return self.by_id.get(("imdb", ident))
+        provider, _, value = ident.partition(":")
+        return self.by_id.get((provider, value)) if provider in ("tmdb", "tvdb") else None
 
     def match(self, ref) -> str | None:
         for provider in ("imdb", "tmdb", "tvdb"):

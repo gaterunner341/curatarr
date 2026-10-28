@@ -372,6 +372,69 @@ def collection_items(collection_id: int):
             raise HTTPException(502, str(exc))
 
 
+@router.post("/collections/{collection_id}/exclude")
+def exclude_title(collection_id: int, body: dict = Body(...)):
+    """Keep a title out of a collection for good, and take it out of Plex now."""
+    row = db.get_collection(collection_id)
+    if not row:
+        raise HTTPException(404, "Collection not found")
+    ident = str(body.get("id") or "").strip()
+    if not ident:
+        raise HTTPException(422, "id is required")
+    cfg = row["config"]
+    if any(e["id"] == ident for e in cfg.get("exclude") or []):
+        return _collection_out(row)
+    cfg["exclude"] = [*(cfg.get("exclude") or []), {"id": ident, "title": body.get("title") or ""}]
+    db.update_collection_config(collection_id, _validate(cfg).model_dump())
+    if ident.startswith("plex:") and row.get("plex_rating_key"):
+        with _plex() as plex:
+            try:
+                plex.remove_item(row["plex_rating_key"], ident[5:])
+            except PlexError as exc:
+                raise HTTPException(502, f"Excluded, but removing it from Plex failed: {exc}")
+    return _collection_out(db.get_collection(collection_id))
+
+
+@router.post("/collections/{collection_id}/request")
+def request_title(collection_id: int, body: dict = Body(...)):
+    """Send one missing title to Radarr (movie libraries) or Sonarr (TV libraries)."""
+    if not db.get_collection(collection_id):
+        raise HTTPException(404, "Collection not found")
+    kind = "sonarr" if body.get("media_type") == "show" else "radarr"
+    fields = {k: body.get(k) for k in ("title", "year", "imdb", "tmdb", "tvdb")}
+    ref = sources.MediaRef(media_type=body.get("media_type"), **{k: v for k, v in fields.items() if v})
+    settings = db.get_settings()
+    with httpx.Client(timeout=30) as http:
+        client = arr.Arr(kind, settings, http)
+        if not client.configured:
+            raise HTTPException(400, f"{kind.title()} isn't set up in Settings")
+        try:
+            outcome = client.add(ref)
+        except arr.ArrError as exc:
+            raise HTTPException(502, str(exc))
+    if outcome == "not_found":
+        raise HTTPException(404, f"{kind.title()} couldn't find this title")
+    log.info("%s: %s %s (requested by hand)", kind.title(), outcome, ref.title or ref.imdb or ref.tmdb)
+    return {"status": outcome, "service": kind}
+
+
+@router.post("/collections/{collection_id}/undo")
+def undo_collection(collection_id: int):
+    if not db.get_collection(collection_id):
+        raise HTTPException(404, "Collection not found")
+    try:
+        run = sync.undo_last_sync(collection_id)
+    except (PlexError, sync.SyncError) as exc:
+        raise HTTPException(400, str(exc))
+    scheduler.reload_jobs()
+    return run
+
+
+@router.get("/collections/{collection_id}/last-change")
+def collection_last_change(collection_id: int):
+    return db.last_change(collection_id)
+
+
 @router.post("/collections/{collection_id}/own")
 def own_collection(collection_id: int):
     """Let Curatarr fully manage a Plex collection that already existed (allow removals)."""

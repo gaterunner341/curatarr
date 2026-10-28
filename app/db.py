@@ -73,6 +73,10 @@ def _migrate(conn: sqlite3.Connection) -> None:
     columns = {r[1] for r in conn.execute("PRAGMA table_info(collections)")}
     if "plex_owned" not in columns:     # 0.5.3: 1 = Curatarr may remove titles / delete it
         conn.execute("ALTER TABLE collections ADD COLUMN plex_owned INTEGER")
+    run_columns = {r[1] for r in conn.execute("PRAGMA table_info(runs)")}
+    for column in ("added_items", "removed_items"):    # 0.7.0: which titles a sync changed
+        if column not in run_columns:
+            conn.execute(f"ALTER TABLE runs ADD COLUMN {column} TEXT")
 
 
 def close() -> None:
@@ -189,10 +193,12 @@ def record_run(run: dict) -> int:
     cols = [
         "collection_id", "collection_name", "trigger", "started", "finished", "status",
         "source_count", "matched", "added", "removed", "requested", "missing", "message",
+        "added_items", "removed_items",
     ]
     counters = {"source_count", "matched", "added", "removed", "requested"}
     values = [run.get(c) or 0 if c in counters else run.get(c) for c in cols]
-    values[cols.index("missing")] = json.dumps(run.get("missing") or [])
+    for c in _JSON_RUN_COLUMNS:
+        values[cols.index(c)] = json.dumps(run.get(c) or [])
     cur = _execute(
         f"INSERT INTO runs ({', '.join(cols)}) VALUES ({', '.join('?' for _ in cols)})",
         tuple(values),
@@ -211,6 +217,25 @@ def list_runs(collection_id: int | None = None, limit: int = 100) -> list[dict]:
             "SELECT * FROM runs WHERE collection_id = ? ORDER BY id DESC LIMIT ?",
             (collection_id, limit),
         )
-    for row in rows:
-        row["missing"] = json.loads(row["missing"] or "[]")
-    return rows
+    return [_decode_run(r) for r in rows]
+
+
+def last_change(collection_id: int) -> dict | None:
+    """The latest successful run of a collection that added or removed titles."""
+    rows = _query(
+        "SELECT * FROM runs WHERE collection_id = ? AND status IN ('success', 'warning') "
+        "AND (added > 0 OR removed > 0) ORDER BY id DESC LIMIT 1", (collection_id,))
+    if not rows:
+        return None
+    run = _decode_run(rows[0])
+    # Runs from before 0.7.0 didn't record which titles changed.
+    return run if run["added_items"] or run["removed_items"] else None
+
+
+_JSON_RUN_COLUMNS = ("missing", "added_items", "removed_items")
+
+
+def _decode_run(row: dict) -> dict:
+    for c in _JSON_RUN_COLUMNS:
+        row[c] = json.loads(row.get(c) or "[]")
+    return row

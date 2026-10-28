@@ -315,14 +315,16 @@ function bindFolds(root) {
 // What's in a collection, shown from Plex: a Curatarr collection (id) or any
 // Plex collection (ratingKey plus title/library from the link).
 async function collectionItems({ id = null, ratingKey = null, params = new URLSearchParams() }) {
-  let row = null, title, library, back, inPlex = true, items;
+  let row = null, title, library, back, inPlex = true, items, change = null;
   if (id) {
-    const [r, contents, libs] = await Promise.all([
+    const [r, contents, libs, last] = await Promise.all([
       api("GET", `/collections/${id}`),
       api("GET", `/collections/${id}/items`),
       libraries().catch(() => null),
+      api("GET", `/collections/${id}/last-change`).catch(() => null),
     ]);
     row = r;
+    change = last;
     ({ in_plex: inPlex, items } = contents);
     title = row.config.name;
     library = row.config.library;
@@ -342,6 +344,8 @@ async function collectionItems({ id = null, ratingKey = null, params = new URLSe
       <div class="item-poster">
         ${i.thumb ? `<img loading="lazy" src="/api/plex/image?path=${encodeURIComponent(i.thumb)}" alt="">` : "▦"}
         ${i.watched ? `<span class="item-watched" title="Watched">✔</span>` : ""}
+        ${row ? `<button type="button" class="item-exclude" data-exclude="${esc(i.ratingKey)}" data-title="${esc(i.title)}"
+          title="Remove and keep out of this collection">✕</button>` : ""}
       </div>
       <div class="item-title" title="${esc(i.title)}">${esc(i.title)}</div>
       <div class="small muted">${esc(i.year || "")}${i.episodes ? ` · ${i.episodes} episode${i.episodes === 1 ? "" : "s"}` : ""}</div>
@@ -361,6 +365,14 @@ async function collectionItems({ id = null, ratingKey = null, params = new URLSe
       </div>
     </div>
     ${row?.last_message ? `<p class="small muted" style="margin-top:-8px">${badge(row.last_status)} ${esc(row.last_message)}</p>` : ""}
+    ${row && !row.config.enabled ? `<div class="notice">Syncing is paused for this collection.
+      <button type="button" class="small" id="resume" style="margin-left:8px">Resume syncing</button></div>` : ""}
+    ${change ? `<div class="notice small">
+      Last change ${esc(when(change.finished || change.started))}${change.trigger === "undo" ? " (an undo)" : ""}:
+      <strong>+${change.added_items.length}</strong> / <strong>−${change.removed_items.length}</strong>
+      <a href="#/history">details</a>
+      <button type="button" class="small" id="undo" style="margin-left:8px">${change.trigger === "undo" ? "Redo" : "Undo"} this change</button>
+    </div>` : ""}
     <div id="missingOut"></div>
     ${inPlex ? `
       <div class="row" style="margin-bottom:16px">
@@ -389,6 +401,25 @@ async function collectionItems({ id = null, ratingKey = null, params = new URLSe
     await api("POST", `/collections/${row.id}/run`);
     toast("Sync started");
   });
+  view.querySelector("#resume")?.addEventListener("click", () => guard(async () => {
+    await api("PUT", `/collections/${row.id}`, { ...row.config, enabled: true });
+    toast("Syncing resumed");
+    route();
+  }));
+  view.querySelector("#undo")?.addEventListener("click", () => guard(async () => {
+    const verb = change.trigger === "undo" ? "Redo" : "Undo";
+    if (!confirm(`${verb} the last change to "${title}"?\n\nTakes out ${change.added_items.length} title(s) and puts back `
+      + `${change.removed_items.length}. Syncing is paused afterwards so the next scheduled sync doesn't redo it.`)) return;
+    const r = await api("POST", `/collections/${row.id}/undo`);
+    toast(r.message);
+    route();
+  }));
+  view.querySelectorAll("[data-exclude]").forEach((b) => b.onclick = () => guard(async () => {
+    if (!confirm(`Remove "${b.dataset.title}" from this collection and keep it out?\n\nYou can allow it again in the collection's settings.`)) return;
+    await api("POST", `/collections/${row.id}/exclude`, { id: `plex:${b.dataset.exclude}`, title: b.dataset.title });
+    b.closest(".item").remove();
+    toast(`Excluded "${b.dataset.title}"`);
+  }));
   // Titles from the lists that aren't in the Plex library (fetched on demand: lists can be slow).
   view.querySelector("#showMissing").onclick = (e) => guard(async () => {
     const out = view.querySelector("#missingOut");
@@ -398,16 +429,28 @@ async function collectionItems({ id = null, ratingKey = null, params = new URLSe
       const cfg = row.config;
       const r = await api("POST", "/preview", { section_id: cfg.section_id, library: cfg.library, sources: cfg.sources, item_limit: cfg.item_limit });
       const missing = r.items.filter((i) => !i.in_plex);
+      const service = r.library.type === "show" ? "Sonarr" : "Radarr";
       out.innerHTML = `
         <details class="card" open>
           <summary><strong>${missing.length}</strong> of ${r.total} list titles aren't in ${esc(r.library.title)}</summary>
           ${r.errors.map((err) => `<p class="no small">${esc(err)}</p>`).join("")}
           ${missing.length ? `<div class="table-wrap" style="max-height:320px;overflow:auto;margin-top:10px"><table>
-            <thead><tr><th>Title</th><th>Year</th><th>IDs</th></tr></thead>
-            <tbody>${missing.map((i) => `<tr><td>${esc(i.title || "—")}</td><td>${esc(i.year || "")}</td>
-              <td class="small muted">${[i.imdb, i.tmdb && `tmdb:${i.tmdb}`, i.tvdb && `tvdb:${i.tvdb}`].filter(Boolean).map(esc).join(" · ")}</td></tr>`).join("")}
+            <thead><tr><th>Title</th><th>Year</th><th>IDs</th><th></th></tr></thead>
+            <tbody>${missing.map((i, n) => `<tr><td>${esc(i.title || "—")}</td><td>${esc(i.year || "")}</td>
+              <td class="small muted">${[i.imdb, i.tmdb && `tmdb:${i.tmdb}`, i.tvdb && `tvdb:${i.tvdb}`].filter(Boolean).map(esc).join(" · ")}</td>
+              <td><button type="button" class="small" data-request="${n}">Add to ${service}</button></td></tr>`).join("")}
             </tbody></table></div>` : ""}
         </details>`;
+      out.querySelectorAll("[data-request]").forEach((b) => b.onclick = () => guard(async () => {
+        b.disabled = true;
+        try {
+          const res = await api("POST", `/collections/${row.id}/request`, { ...missing[Number(b.dataset.request)], media_type: r.library.type });
+          b.textContent = res.status === "added" ? "Added ✓" : `Already in ${service}`;
+        } catch (err) {
+          b.disabled = false;
+          throw err;
+        }
+      }));
     } catch (err) {
       out.innerHTML = `<p class="no">${esc(err.message)}</p>`;
     } finally {
@@ -424,8 +467,13 @@ const DEFAULTS = {
   poster_url: "", art_url: "", poster_file: "", art_file: "", item_limit: 0, min_items: 1,
   delete_below_min: false, promote_home: false, promote_shared: false, promote_recommended: false,
   promote_window: false, promote_start: "", promote_end: "", promote_yearly: true, seasonal_only: false,
-  schedule: "", request_missing: false, enabled: true,
+  schedule: "", request_missing: false, enabled: true, exclude: [], max_rating: "", drop_unrated: false,
 };
+
+// Content-rating caps, youngest audience first (mirrors models.RATING_LEVELS).
+const RATING_CAPS = [
+  ["G", "G / TV-G / TV-Y7"], ["PG", "PG / TV-PG"], ["PG-13", "PG-13 / TV-14"], ["R", "R / TV-MA"],
+];
 
 function sourceRow(src, idx) {
   const options = state.catalog.map((c) =>
@@ -454,6 +502,7 @@ async function editor(id, params = new URLSearchParams()) {
   ]);
   const cfg = { ...DEFAULTS, ...(row?.config || {}) };
   cfg.sources = cfg.sources.map((s) => ({ ...s }));
+  cfg.exclude = [...cfg.exclude];
   // Linking an existing Plex collection: keep its name and library, and default
   // to append so the titles already in it are not removed.
   const link = !id && params.get("link");
@@ -544,6 +593,14 @@ async function editor(id, params = new URLSearchParams()) {
         <div><label for="f-schedule">Schedule (cron)</label><input type="text" id="f-schedule" value="${esc(cfg.schedule)}" placeholder="${esc(defaultSchedule)} (default)">
           <div class="hint">Five-field cron, e.g. <code>0 */6 * * *</code> for every 6 hours.</div></div>
         <div><label class="check"><input type="checkbox" id="f-request" ${cfg.request_missing ? "checked" : ""}> Send missing titles to Radarr / Sonarr</label></div>
+        <div><label for="f-rating">Highest content rating</label>
+          <select id="f-rating">
+            <option value="">No limit</option>
+            ${RATING_CAPS.map(([v, label]) => `<option value="${v}" ${cfg.max_rating === v ? "selected" : ""}>${esc(label)}</option>`).join("")}
+          </select>
+          <label class="check"><input type="checkbox" id="f-unrated" ${cfg.drop_unrated ? "checked" : ""}> Also leave out unrated titles</label></div>
+        <div class="full"><label>Excluded titles</label><div id="excluded"></div>
+          <div class="hint">Excluded titles are never added, even when a list has them. Exclude a title from the collection's <strong>View</strong> page.</div></div>
       </div>
     </div>
 
@@ -606,6 +663,20 @@ async function editor(id, params = new URLSearchParams()) {
     });
   };
   renderSources();
+  const renderExcluded = () => {
+    const el = view.querySelector("#excluded");
+    el.innerHTML = cfg.exclude.length
+      ? cfg.exclude.map((e, i) => `<span class="chip">${esc(e.title || e.id)}<button type="button" data-unexclude="${i}" title="Allow this title again">✕</button></span>`).join("")
+      : `<span class="muted small">None</span>`;
+    el.querySelectorAll("[data-unexclude]").forEach((b) => b.onclick = () => {
+      cfg.exclude.splice(Number(b.dataset.unexclude), 1);
+      renderExcluded();
+    });
+  };
+  renderExcluded();
+  const updateRating = () => { view.querySelector("#f-unrated").disabled = !view.querySelector("#f-rating").value; };
+  view.querySelector("#f-rating").onchange = updateRating;
+  updateRating();
   // Home screen calendar: date fields only matter when the box is ticked; ticking it
   // with no home screen spots chosen selects all three.
   const spots = ["#f-rec", "#f-home", "#f-shared"].map((s) => view.querySelector(s));
@@ -661,6 +732,8 @@ async function editor(id, params = new URLSearchParams()) {
       delete_below_min: view.querySelector("#f-delmin").checked,
       schedule: view.querySelector("#f-schedule").value,
       request_missing: view.querySelector("#f-request").checked,
+      max_rating: view.querySelector("#f-rating").value,
+      drop_unrated: view.querySelector("#f-unrated").checked,
       summary: view.querySelector("#f-summary").value,
       sort_title: view.querySelector("#f-sort").value,
       labels: view.querySelector("#f-labels").value.split(",").map((s) => s.trim()).filter(Boolean),
@@ -805,7 +878,10 @@ async function history() {
           <td>${esc(r.collection_name)}</td>
           <td>${badge(r.status)}</td>
           <td>${r.matched}/${r.source_count}</td>
-          <td>+${r.added} / −${r.removed}${r.requested ? `<div class="small muted">${r.requested} requested</div>` : ""}</td>
+          <td>${r.added_items.length || r.removed_items.length ? `<details><summary>+${r.added} / −${r.removed}</summary>
+              <ul class="small changes">${r.added_items.map((i) => `<li class="yes">+ ${esc(i.title || i.rk)}</li>`).join("")}
+                ${r.removed_items.map((i) => `<li class="no">− ${esc(i.title || i.rk)}</li>`).join("")}</ul></details>`
+            : `+${r.added} / −${r.removed}`}${r.requested ? `<div class="small muted">${r.requested} requested</div>` : ""}</td>
           <td>${r.missing.length ? `<details><summary>${r.missing.length}</summary><ul class="small">${r.missing.map((m) =>
             `<li>${esc(m.title || m.imdb || (m.tmdb && "tmdb:" + m.tmdb) || (m.tvdb && "tvdb:" + m.tvdb))}${m.year ? ` (${m.year})` : ""}</li>`).join("")}</ul></details>` : "0"}</td>
           <td class="small muted">${esc(r.message)}</td>

@@ -136,7 +136,8 @@ class FakePlex(httpx.BaseTransport):
         if path == "/identity":
             return mc({"machineIdentifier": "abc"})
         if path == "/library/sections/1/all" and method == "GET":
-            items = [{"ratingKey": rk, "title": f"T{rk}", "Guid": [{"id": g}]} for rk, g in self.library.items()]
+            items = [{"ratingKey": rk, "title": f"T{rk}", "Guid": [{"id": g}],
+                      "contentRating": {"5": "R", "6": "gb/18"}.get(rk, "PG")} for rk, g in self.library.items()]
             return mc({"Metadata": items, "totalSize": len(items)})
         if path == "/library/sections/1/collections":
             return mc({"Metadata": [{"ratingKey": k, "title": "Best", "smart": 0} for k in self.collections]})
@@ -613,3 +614,75 @@ def test_collection_contents_and_items_endpoint(monkeypatch):
     r = client.get(f"/api/collections/{cid}/items").json()
     assert r["in_plex"] and len(r["items"]) == 3
     assert len(client.get("/api/plex/collections/7/items").json()) == 3
+
+
+def test_exclusions_and_rating_cap():
+    from app import sync as sync_mod
+    sync_mod.clear_index_cache()
+    fake = FakePlex()
+    plex = plex_with(fake)
+    cfg = CollectionConfig(name="Best", library="Movies", sources=[Source(type="static", value="x")],
+                           exclude=[{"id": "plex:2"}, {"id": "tt0000009", "title": "Not owned"}],
+                           max_rating="PG-13")
+    result = sync_collection(cfg, {}, plex, SECTION, refs_for(1, 2, 3, 5, 6, 9), {})
+    # 2 is excluded by rating key, 5 is R, 6 is unrated (non-US) and kept; 9 is excluded, not "missing"
+    assert fake.collections["100"] == ["1", "3", "6"]
+    assert result.missing == []
+    assert any("rating cap" in m for m in result.messages)
+    cfg.drop_unrated = True
+    sync_collection(cfg, result.state, plex, SECTION, refs_for(1, 2, 3, 5, 6), {})
+    assert fake.collections["100"] == ["1", "3"]
+    with pytest.raises(ValueError):
+        CollectionConfig(name="x", sources=[Source(type="static", value="x")], max_rating="PG-15")
+
+
+def test_run_diffs_and_undo(monkeypatch):
+    from app import plex as plexmod, sync as sync_mod
+    sync_mod.clear_index_cache()
+    fake = FakePlex()
+    monkeypatch.setattr(plexmod, "from_settings", lambda *a, **k: plex_with(fake))
+    cfg = CollectionConfig(name="Undo me", library="Movies", section_id="1",
+                           sources=[Source(type="static", value="x")])
+    cid = db.create_collection(cfg.model_dump())
+    first = sync_collection(cfg, {}, plex_with(fake), SECTION, refs_for(1, 2), {})
+    second = sync_collection(cfg, first.state, plex_with(fake), SECTION, refs_for(2, 3), {})
+    assert [i["rk"] for i in second.added_items] == ["3"] and second.added_items[0]["title"] == "T3"
+    assert [i["rk"] for i in second.removed_items] == ["1"]
+    db.update_collection_state(cid, plex_rating_key="100", plex_owned=1)
+    db.record_run({"collection_id": cid, "collection_name": "Undo me", "status": "success",
+                   "added": 1, "removed": 1, "added_items": second.added_items,
+                   "removed_items": second.removed_items})
+    assert db.list_runs(cid)[0]["added_items"][0]["rk"] == "3"
+
+    run = sync_mod.undo_last_sync(cid)
+    assert sorted(fake.collections["100"]) == ["1", "2"]
+    assert run["trigger"] == "undo" and not db.get_collection(cid)["config"]["enabled"]
+    sync_mod.undo_last_sync(cid)          # undoing the undo redoes the change
+    assert sorted(fake.collections["100"]) == ["2", "3"]
+
+
+def test_exclude_and_request_endpoints(monkeypatch):
+    from contextlib import nullcontext
+    from fastapi.testclient import TestClient
+    from app import api as api_mod, arr as arr_mod
+    from app.main import app
+
+    fake = FakePlex()
+    fake.collections["100"] = ["1", "2"]
+    monkeypatch.setattr(api_mod, "_plex", lambda: nullcontext(plex_with(fake)))
+    client = TestClient(app)
+    cid = db.create_collection({"name": "Ex", "library": "Movies", "section_id": "1",
+                                "sources": [{"type": "static", "value": "tt0000001"}]})
+    db.update_collection_state(cid, plex_rating_key="100")
+    r = client.post(f"/api/collections/{cid}/exclude", json={"id": "plex:2", "title": "T2"})
+    assert r.status_code == 200 and r.json()["config"]["exclude"] == [{"id": "plex:2", "title": "T2"}]
+    assert fake.collections["100"] == ["1"]
+    client.post(f"/api/collections/{cid}/exclude", json={"id": "plex:2"})       # no duplicate
+    assert len(db.get_collection(cid)["config"]["exclude"]) == 1
+
+    assert client.post(f"/api/collections/{cid}/request", json={"imdb": "tt1"}).status_code == 400
+    added = []
+    monkeypatch.setattr(arr_mod.Arr, "configured", property(lambda self: True))
+    monkeypatch.setattr(arr_mod.Arr, "add", lambda self, ref: added.append((self.kind, ref.imdb)) or "added")
+    r = client.post(f"/api/collections/{cid}/request", json={"imdb": "tt7", "media_type": "show"})
+    assert r.json() == {"status": "added", "service": "sonarr"} and added == [("sonarr", "tt7")]

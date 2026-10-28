@@ -3,6 +3,19 @@
 The version shown in the web UI's sidebar matches these entries. Each
 release is also published as `ghcr.io/gaterunner341/curatarr:<version>`.
 
+## 0.7.0
+
+- **Exclude a title:** on a collection's View page, hover a poster and click **✕** to take that title out of the collection and keep it out, even when a list has it. Excluded titles are listed in the collection's settings, where you can allow them again.
+- **Content-rating cap:** a collection can leave out titles above a rating, such as PG for a kids collection.
+  - The setting is **Highest content rating** under Sync behaviour. Movie and TV ratings that mean about the same are treated alike, for example PG-13 and TV-14.
+  - Titles without a US rating are kept unless you tick **Also leave out unrated titles**.
+- **Add one missing title:** in **Show missing titles**, each row has an **Add to Radarr** (or **Add to Sonarr**) button. It doesn't count toward the per-sync limit.
+- **What changed:** History lists the titles each sync added (+) and removed (−). Click the +/− count to see them. This applies to syncs from 0.7.0 on.
+- **Undo:** the View page shows the last change and has **Undo this change**, which takes out the titles that sync added and puts back the ones it removed.
+  - Syncing is then paused, so the next scheduled sync doesn't redo it. Click **Resume syncing** when you're ready.
+  - Undoing again redoes the change.
+  - Undo doesn't restore the previous order. The next sync after you resume puts the titles back in list order.
+
 ## 0.6.5
 
 - **View a collection** without opening Plex. Click a collection's name or **View** on the Movies, TV Shows or Holidays page to see the titles in it, in collection order, with posters and year. Watched titles have a check mark, and you can filter by title.

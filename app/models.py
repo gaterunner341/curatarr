@@ -32,6 +32,27 @@ class Source(BaseModel):
         return v.strip()
 
 
+class Exclusion(BaseModel):
+    """A title kept out of a collection: ``plex:<ratingKey>``, ``tt…``, ``tmdb:…`` or ``tvdb:…``."""
+    id: str = Field(min_length=1)
+    title: str = ""
+
+
+# Content ratings from youngest to oldest audience. US movie and TV ratings that
+# mean roughly the same share a level, so a cap works for both kinds of library.
+RATING_LEVELS = {
+    "TV-Y": 0, "G": 1, "TV-Y7": 1, "TV-G": 1, "PG": 2, "TV-PG": 2,
+    "PG-13": 3, "TV-14": 3, "R": 4, "TV-MA": 4, "NC-17": 5,
+}
+
+
+def rating_level(rating: str | None) -> int | None:
+    """Level of a Plex content rating, or None when it's unrated or not a US rating."""
+    if not rating:
+        return None
+    return RATING_LEVELS.get(rating.split("/")[-1].strip().upper())
+
+
 class CollectionConfig(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     library: str = ""            # Plex library title (portable across servers)
@@ -66,6 +87,17 @@ class CollectionConfig(BaseModel):
     request_missing: bool = False
     enabled: bool = True
     holiday: str = ""            # key from app.holidays when created from the Holidays page
+    exclude: list[Exclusion] = []
+    max_rating: str = ""         # content rating cap, e.g. "PG-13"; blank = no cap
+    drop_unrated: bool = False   # with a cap: also leave out unrated titles
+
+    @field_validator("max_rating")
+    @classmethod
+    def check_rating(cls, v: str) -> str:
+        v = v.strip().upper()
+        if v and v not in RATING_LEVELS:
+            raise ValueError(f"Unknown content rating '{v}'")
+        return v
 
     @field_validator("name", "summary", "sort_title", "schedule", "poster_url", "art_url")
     @classmethod
@@ -106,6 +138,15 @@ class CollectionConfig(BaseModel):
     def off_season(self, today: date) -> bool:
         """True when the collection should not exist in Plex today."""
         return self.promote_window and self.seasonal_only and not self.promotion_active(today)
+
+    def allows_rating(self, rating: str | None) -> bool:
+        """Whether a title with this content rating fits under ``max_rating``."""
+        if not self.max_rating:
+            return True
+        level = rating_level(rating)
+        if level is None:
+            return not self.drop_unrated
+        return level <= RATING_LEVELS[self.max_rating]
 
     def promotion_flags(self, today: date) -> tuple[bool, bool, bool]:
         """(recommended, home, shared) to apply today."""

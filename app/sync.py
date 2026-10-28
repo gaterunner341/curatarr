@@ -36,6 +36,8 @@ class SyncResult:
     removed: int = 0
     requested: int = 0
     missing: list[dict] = field(default_factory=list)
+    added_items: list[dict] = field(default_factory=list)      # [{rk, title}]
+    removed_items: list[dict] = field(default_factory=list)
     messages: list[str] = field(default_factory=list)
     state: dict = field(default_factory=dict)
 
@@ -145,16 +147,28 @@ def sync_collection(cfg: CollectionConfig, state: dict, plex: Plex, section: dic
     log.info("'%s': library index has %d item(s) (%.1fs)", name, len(index),
              time.monotonic() - started)
 
+    excluded_ids = {e.id for e in cfg.exclude}
+    blocked = {index.lookup(e.id) for e in cfg.exclude} - {None}
     matched: list[str] = []
     seen: set[str] = set()
+    over_rating = 0
     for ref in refs:
+        if excluded_ids & ref_ids(ref):
+            continue
         rk = index.match(ref)
         if rk is None:
             result.missing.append(ref.to_dict())
-        elif rk not in seen:
+        elif rk in blocked or rk in seen:
+            continue
+        elif not cfg.allows_rating(index.ratings.get(rk)):
+            over_rating += 1
+        else:
             seen.add(rk)
             matched.append(rk)
     result.matched = len(matched)
+    if over_rating:
+        result.messages.append(f"{over_rating} title(s) left out by the {cfg.max_rating} rating cap")
+    titled = lambda rks: [{"rk": rk, "title": index.titles.get(rk, "")} for rk in rks]  # noqa: E731
 
     existing = state.get("plex_rating_key")
     # Curatarr only removes titles from (or deletes) Plex collections it created or that
@@ -205,6 +219,7 @@ def sync_collection(cfg: CollectionConfig, state: dict, plex: Plex, section: dic
         existing = plex.create_collection(section["id"], section["type"], cfg.name, matched)
         created = True
         result.added = len(matched)
+        result.added_items = titled(matched)
         result.state["plex_rating_key"] = existing
         result.state["plex_owned"] = 1
         result.state["poster_applied"] = None
@@ -218,6 +233,7 @@ def sync_collection(cfg: CollectionConfig, state: dict, plex: Plex, section: dic
             plex.add_items(existing, to_add)
             current += to_add
             result.added = len(to_add)
+            result.added_items = titled(to_add)
         if cfg.sync_mode == "sync" and not owned:
             result.messages.append("This Plex collection already existed, so Curatarr only adds to it "
                                    "(see the collection's settings to let it remove titles too)")
@@ -227,6 +243,7 @@ def sync_collection(cfg: CollectionConfig, state: dict, plex: Plex, section: dic
                 plex.remove_item(existing, rk)
             current = [rk for rk in current if rk in seen]
             result.removed = len(to_remove)
+            result.removed_items = titled(to_remove)
 
     log.info("'%s': %s collection %s: +%d / -%d (%.1fs)", name,
              "created" if created else "updated", existing, result.added, result.removed,
@@ -279,6 +296,59 @@ def sync_collection(cfg: CollectionConfig, state: dict, plex: Plex, section: dic
     result.messages.insert(0, f"{verb} with {len(matched)} item(s): "
                               f"+{result.added} / -{result.removed}, {len(result.missing)} missing")
     return result
+
+
+def ref_ids(ref: MediaRef) -> set[str]:
+    """The exclusion ids a list title can be matched by."""
+    ids = {ref.imdb} if ref.imdb else set()
+    if ref.tmdb:
+        ids.add(f"tmdb:{ref.tmdb}")
+    if ref.tvdb:
+        ids.add(f"tvdb:{ref.tvdb}")
+    return ids
+
+
+def undo_last_sync(collection_id: int) -> dict:
+    """Reverse the latest sync that changed a collection, then pause the collection.
+
+    The undo is recorded as a run of its own, so undoing again redoes the change.
+    """
+    lock = _lock_for(collection_id)
+    if not lock.acquire(blocking=False):
+        raise SyncError("A sync for this collection is running; try again when it finishes")
+    try:
+        row = db.get_collection(collection_id)
+        if not row:
+            raise SyncError(f"Collection {collection_id} does not exist")
+        rk = row.get("plex_rating_key")
+        last = db.last_change(collection_id)
+        if not rk or not last:
+            raise SyncError("There's no sync with changes to undo")
+        cfg = CollectionConfig(**row["config"])
+        settings = db.get_settings()
+        with plexmod.from_settings(settings) as plex:
+            current = set(plex.collection_items(rk))
+            take_out = [i for i in last["added_items"] if i["rk"] in current]
+            put_back = [i for i in last["removed_items"] if i["rk"] not in current]
+            for item in take_out:
+                plex.remove_item(rk, item["rk"])
+            if put_back:
+                plex.add_items(rk, [i["rk"] for i in put_back])
+        cfg.enabled = False      # otherwise the next scheduled sync would redo it
+        db.update_collection_config(collection_id, cfg.model_dump())
+        message = (f"Undid the last change: took out {len(take_out)} title(s), "
+                   f"put back {len(put_back)}. Syncing is paused")
+        run = {"collection_id": collection_id, "collection_name": cfg.name, "trigger": "undo",
+               "started": db.now(), "finished": db.now(), "status": "success",
+               "added": len(put_back), "removed": len(take_out),
+               "added_items": put_back, "removed_items": take_out, "message": message}
+        db.record_run(run)
+        db.update_collection_state(collection_id, last_run=run["finished"], last_status="success",
+                                   last_message=message)
+        log.info("'%s': %s", cfg.name, message)
+        return run
+    finally:
+        lock.release()
 
 
 def auto_poster_url(cfg: CollectionConfig, settings: dict) -> str | None:
@@ -361,6 +431,7 @@ def _run_collection(collection_id: int, trigger: str, dry_run: bool) -> dict:
                                            + (" (per-sync limit reached; more next sync)" if limited else ""))
         run.update(status=result.status, matched=result.matched, added=result.added,
                    removed=result.removed, requested=result.requested, missing=result.missing,
+                   added_items=result.added_items, removed_items=result.removed_items,
                    message=" | ".join(result.messages))
         log.info("'%s': %s - matched %d, added %d, removed %d, missing %d. %s", cfg.name,
                  result.status, result.matched, result.added, result.removed,
