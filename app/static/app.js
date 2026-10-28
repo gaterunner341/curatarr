@@ -78,14 +78,16 @@ const routes = [
   [/^#\/tv$/, () => collections("show")],
   [/^#\/holidays$/, holidaysPage],
   [/^#\/packs\/(movie|show)$/, (m) => packsPage(m[1])],
-  [/^.*$/, () => location.replace("#/movies")],   // old #/collections links land here
+  [/^#\/dashboard$/, dashboardPage],
+  [/^#\/collections$/, () => location.replace("#/movies")],   // the old single Collections page
+  [/^.*$/, () => location.replace("#/dashboard")],
 ];
 
 let refreshTimer = null;
 
 async function route() {
   clearInterval(refreshTimer);
-  const hash = location.hash || "#/movies";
+  const hash = location.hash || "#/dashboard";
   document.querySelectorAll("[data-nav]").forEach((a) =>
     a.classList.toggle("active", hash.startsWith(`#/${a.dataset.nav}`)));
   // A parent link (Settings) is marked while one of its sub-pages is open.
@@ -415,8 +417,10 @@ async function collectionItems({ id = null, ratingKey = null, playlist = false, 
   document.querySelector(`[data-nav="${back.slice(2)}"]`)?.classList.add("active");
 
   const watched = items.filter((i) => i.watched).length;
+  // Arranging by hand works for playlists and collections in list order.
+  const canArrange = row && items.length > 1 && (playlist || row.config.order === "custom");
   const tile = (i) => `
-    <div class="item" data-search="${esc(`${i.title} ${i.year || ""}`.toLowerCase())}">
+    <div class="item" data-rk="${esc(i.ratingKey)}" data-search="${esc(`${i.title} ${i.year || ""}`.toLowerCase())}">
       <div class="item-poster">
         ${i.thumb ? `<img loading="lazy" src="/api/plex/image?path=${encodeURIComponent(i.thumb)}" alt="">` : "▦"}
         ${i.watched ? `<span class="item-watched" title="Watched">✔</span>` : ""}
@@ -455,7 +459,15 @@ async function collectionItems({ id = null, ratingKey = null, playlist = false, 
       <div class="row" style="margin-bottom:16px">
         <div class="grow"><input type="text" id="itemFilter" placeholder="Filter ${items.length} title${items.length === 1 ? "" : "s"}…"></div>
         <span class="small muted" id="itemCount">${items.length} in Plex · ${watched} watched</span>
+        ${canArrange ? `<button type="button" id="arrange">Arrange order</button>
+          <span class="arrange-tools" hidden>
+            <button type="button" class="primary" id="saveOrder">Save order</button>
+            <button type="button" id="cancelOrder">Cancel</button>
+          </span>
+          ${row.config.manual_order?.length ? `<button type="button" class="small" id="resetOrder" title="Go back to the order of the lists">Reset to list order</button>` : ""}` : ""}
       </div>
+      <p class="hint arrange-tools" hidden style="margin-top:-8px">Drag titles into the order you want, then click <strong>Save order</strong>.
+        New titles from your lists are added at the end.</p>
       ${items.length ? `<div class="items">${items.map(tile).join("")}</div>` : `<div class="card empty">This ${playlist ? "playlist" : "collection"} is empty in Plex.</div>`}`
     : `<div class="card empty">
         <p>This ${playlist ? "playlist" : "collection"} isn't in Plex right now.</p>
@@ -491,6 +503,7 @@ async function collectionItems({ id = null, ratingKey = null, playlist = false, 
     toast(r.message);
     route();
   }));
+  bindArrange(row);
   view.querySelectorAll("[data-exclude]").forEach((b) => b.onclick = () => guard(async () => {
     if (!confirm(`Remove "${b.dataset.title}" from this collection and keep it out?\n\nYou can allow it again in the collection's settings.`)) return;
     await api("POST", `/collections/${row.id}/exclude`, { id: `plex:${b.dataset.exclude}`, title: b.dataset.title });
@@ -535,6 +548,108 @@ async function collectionItems({ id = null, ratingKey = null, playlist = false, 
       e.target.disabled = false;
     }
   });
+}
+
+// Drag-and-drop ordering on the View page.
+function bindArrange(row) {
+  const grid = view.querySelector(".items");
+  const start = view.querySelector("#arrange");
+  if (!grid || !start) return;
+  let dragged = null;
+  const setMode = (on) => {
+    grid.classList.toggle("arranging", on);
+    grid.querySelectorAll(".item").forEach((el) => { el.draggable = on; el.hidden = false; });
+    view.querySelectorAll(".arrange-tools").forEach((el) => { el.hidden = !on; });
+    start.hidden = on;
+    const filter = view.querySelector("#itemFilter");
+    filter.disabled = on;
+    if (on) filter.value = "";
+  };
+  start.onclick = () => setMode(true);
+  view.querySelector("#cancelOrder").onclick = () => route();
+  grid.addEventListener("dragstart", (e) => {
+    dragged = e.target.closest(".item");
+    dragged?.classList.add("dragging");
+    e.dataTransfer.effectAllowed = "move";
+  });
+  grid.addEventListener("dragend", () => { dragged?.classList.remove("dragging"); dragged = null; });
+  grid.addEventListener("dragover", (e) => {
+    if (!dragged) return;
+    e.preventDefault();
+    const over = e.target.closest(".item");
+    if (!over || over === dragged) return;
+    const box = over.getBoundingClientRect();
+    over.parentNode.insertBefore(dragged, e.clientX > box.left + box.width / 2 ? over.nextSibling : over);
+  });
+  view.querySelector("#saveOrder").onclick = () => guard(async () => {
+    const order = [...grid.querySelectorAll(".item")].map((el) => el.dataset.rk);
+    await api("POST", `/collections/${row.id}/order`, { order });
+    toast("Order saved");
+    route();
+  });
+  view.querySelector("#resetOrder")?.addEventListener("click", () => guard(async () => {
+    if (!confirm("Go back to the order of the lists? A sync starts to put it right.")) return;
+    await api("POST", `/collections/${row.id}/order`, { order: [] });
+    toast("Back to list order; syncing");
+    route();
+  }));
+}
+
+// ---------- dashboard ----------
+
+async function dashboardPage() {
+  const d = await api("GET", "/dashboard");
+  const c = d.counts;
+  const link = (x) => x.kind === "holidays" ? "#/holidays" : `#/collections/${x.id}/items`;
+  const day = (iso) => {
+    const [y, m, dd] = iso.split("-").map(Number);
+    return new Date(y, m - 1, dd).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+  };
+  const stat = (value, label, id = "") => `<div class="stat"${id ? ` id="${id}"` : ""}><div class="stat-value">${value}</div><div class="stat-label">${label}</div></div>`;
+  view.innerHTML = `
+    <div class="page-head"><h1>Dashboard</h1></div>
+    <div class="stats">
+      ${stat(c.collections, "Collections")}
+      ${stat(c.playlists, "Playlists")}
+      ${stat(c.holidays, "Holiday collections")}
+      ${stat(c.titles.toLocaleString(), "Titles in Plex")}
+      ${stat(c.missing.toLocaleString(), "Missing from Plex")}
+      ${stat("…", "Watched", "watchedStat")}
+    </div>
+    <div class="dash">
+      <div class="card"><h2>Needs attention</h2>
+        ${d.attention.length ? `<ul class="dash-list">${d.attention.map((a) => `
+          <li><a href="${link(a)}">${esc(a.name)}</a> ${badge(a.status)}
+            <div class="small muted" title="${esc(a.message)}">${esc(a.message || (a.status === "paused" ? "Syncing is paused" : ""))}</div></li>`).join("")}</ul>`
+          : `<p class="muted small">Everything synced fine.</p>`}</div>
+      <div class="card"><h2>Coming up</h2>
+        ${d.coming.length ? `<ul class="dash-list">${d.coming.map((x) => `
+          <li><strong>${esc(day(x.date))}</strong> · <a href="${link(x)}">${esc(x.name)}</a>
+            <div class="small muted">${x.appears
+              ? (x.seasonal ? "Added to Plex and shown on the home screen" : "Shown on the home screen")
+              : (x.seasonal ? "Last day; removed from Plex after" : "Last day on the home screen")}</div></li>`).join("")}</ul>`
+          : `<p class="muted small">No calendar changes coming up.</p>`}</div>
+      <div class="card"><h2>Most missing</h2>
+        ${d.most_missing.length ? `<ul class="dash-list">${d.most_missing.map((m) => `
+          <li><a href="${link(m)}">${esc(m.name)}</a>
+            <div class="small muted">${m.missing} missing · ${m.matched} in Plex</div></li>`).join("")}</ul>`
+          : `<p class="muted small">Nothing is missing.</p>`}</div>
+      <div class="card"><h2>Recent syncs</h2>
+        ${d.recent.length ? `<ul class="dash-list">${d.recent.map((r) => `
+          <li><a href="#/collections/${r.collection_id}/items">${esc(r.collection_name)}</a> ${badge(r.status)}
+            <div class="small muted">${esc(when(r.finished || r.started))} · +${r.added} / −${r.removed}${r.missing ? ` · ${r.missing} missing` : ""}</div></li>`).join("")}</ul>
+          <p class="small"><a href="#/history">All history</a></p>`
+          : `<p class="muted small">No syncs yet.</p>`}</div>
+    </div>`;
+  try {
+    const w = await api("GET", "/dashboard/watched");
+    const el = view.querySelector("#watchedStat .stat-value");
+    if (el) el.textContent = w.total ? `${Math.round((w.watched / w.total) * 100)}%` : "—";
+    view.querySelector("#watchedStat")?.setAttribute("title", `${w.watched} of ${w.total} titles`);
+  } catch {
+    const el = view.querySelector("#watchedStat .stat-value");
+    if (el) el.textContent = "—";
+  }
 }
 
 // ---------- starter packs ----------
@@ -851,6 +966,7 @@ async function editor(id, params = new URLSearchParams()) {
         ${imageSlot(id, cfg, "poster", "Poster (2:3)")}
         ${isPlaylist ? "" : imageSlot(id, cfg, "art", "Background (16:9)")}
       </div>
+      <div id="tmdbPicker" class="tmdb-picker" hidden></div>
       <p class="hint">Chosen files are uploaded when you save. An image file takes priority over a URL. Collections built from a TMDB collection use the TMDB poster when nothing else is set.</p>
     </div>`;
 
@@ -1018,6 +1134,23 @@ async function editor(id, params = new URLSearchParams()) {
     }
   });
 
+  view.querySelector("#poster-tmdb").onclick = () => {
+    const box = view.querySelector("#tmdbPicker");
+    if (!box.hidden) { box.hidden = true; return; }
+    const franchises = cfg.sources.filter((s) => s.type === "tmdb_collection"
+      || (s.type === "tmdb_list" && s.value.includes("/collection/"))).map((s) => s.value);
+    tmdbPosterPicker(box, view.querySelector("#f-name").value.replace(/^!\d+_/, "").replace(/ Collection$/i, ""),
+      franchises, (url) => {
+        const input = view.querySelector("#poster-url");
+        input.value = url;
+        input.dispatchEvent(new Event("input"));
+        if (images.poster.file || (cfg.poster_file && !images.poster.remove)) {
+          toast("Poster URL set. Remove the poster image file to use it, since a file takes priority.");
+        } else {
+          toast("Poster chosen. It's applied in Plex at the next sync after you save.");
+        }
+      });
+  };
   for (const kind of isPlaylist ? ["poster"] : ["poster", "art"]) {
     const input = view.querySelector(`#${kind}-file`);
     const del = view.querySelector(`#${kind}-del`);
@@ -1078,7 +1211,41 @@ function imageSlot(id, cfg, kind, title) {
       <input type="file" id="${kind}-file" accept="image/jpeg,image/png,image/webp">
       <button type="button" class="small danger" id="${kind}-del" ${file ? "" : "hidden"}>Remove image file</button>
       <input type="url" id="${kind}-url" value="${esc(url)}" placeholder="…or image URL">
+      ${kind === "poster" ? `<button type="button" class="small" id="poster-tmdb">Choose from TMDB…</button>` : ""}
     </div>`;
+}
+
+// Poster choices from TMDB: the franchise's own posters, then matches for a search.
+async function tmdbPosterPicker(box, query, collections, onPick) {
+  box.hidden = false;
+  const search = async (q) => {
+    const grid = box.querySelector(".tmdb-grid");
+    grid.innerHTML = `<p class="muted small">Searching TMDB…</p>`;
+    try {
+      const params = new URLSearchParams({ query: q });
+      collections.forEach((c) => params.append("collection", c));
+      const posters = await api("GET", `/tmdb/posters?${params}`);
+      grid.innerHTML = posters.length ? posters.map((p, i) => `
+        <button type="button" class="tmdb-pick" data-pick="${i}" title="${esc(p.label)}">
+          <img loading="lazy" src="${esc(p.thumb)}" alt="" referrerpolicy="no-referrer"></button>`).join("")
+        : `<p class="muted small">No posters found. Try another search.</p>`;
+      grid.querySelectorAll("[data-pick]").forEach((b) => b.onclick = () => {
+        onPick(posters[Number(b.dataset.pick)].url);
+        box.hidden = true;
+      });
+    } catch (err) {
+      grid.innerHTML = `<p class="no small">${esc(err.message)}</p>`;
+    }
+  };
+  box.innerHTML = `
+    <div class="row"><div class="grow"><input type="text" id="tmdbQuery" value="${esc(query)}" placeholder="Search TMDB collections"></div>
+      <button type="button" class="small" id="tmdbSearch">Search</button>
+      <button type="button" class="small" id="tmdbClose">Close</button></div>
+    <div class="tmdb-grid"></div>`;
+  box.querySelector("#tmdbSearch").onclick = () => search(box.querySelector("#tmdbQuery").value);
+  box.querySelector("#tmdbQuery").onkeydown = (e) => { if (e.key === "Enter") { e.preventDefault(); search(e.target.value); } };
+  box.querySelector("#tmdbClose").onclick = () => { box.hidden = true; };
+  await search(query);
 }
 
 // ---------- history ----------

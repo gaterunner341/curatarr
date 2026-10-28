@@ -8,6 +8,7 @@ from .base import MediaRef, SourceContext, SourceError, to_int, year_of
 
 API = "https://api.themoviedb.org/3"
 IMAGE_BASE = "https://image.tmdb.org/t/p/original"
+THUMB_BASE = "https://image.tmdb.org/t/p/w342"
 DEFAULT_LIMIT = 100
 
 CHARTS = {
@@ -72,6 +73,30 @@ class TMDB:
 
     def find(self, external_id: str, source: str) -> dict:
         return self.get(f"find/{external_id}", external_source=source)
+
+    def poster_choices(self, query: str = "", collection_ids: list[int] = (), limit: int = 40) -> list[dict]:
+        """Posters to choose from: a franchise's own posters first, then search matches.
+
+        Each is {url (full size), thumb, label}.
+        """
+        found: dict[str, str] = {}
+
+        def add_images(cid: int, label: str) -> None:
+            data = self.get(f"collection/{cid}/images", include_image_language="en,null")
+            for poster in data.get("posters") or []:
+                found.setdefault(poster["file_path"], label)
+
+        for cid in collection_ids:
+            add_images(cid, "TMDB collection")
+        if query.strip():
+            results = self.get("search/collection", query=query.strip()).get("results") or []
+            for result in results[:6]:
+                if result.get("poster_path"):
+                    found.setdefault(result["poster_path"], result.get("name") or "")
+            if results and not collection_ids:
+                add_images(results[0]["id"], results[0].get("name") or "")
+        return [{"url": IMAGE_BASE + path, "thumb": THUMB_BASE + path, "label": label}
+                for path, label in list(found.items())[:limit]]
 
     def collection_poster(self, collection_id: int) -> str | None:
         data = self.get(f"collection/{collection_id}")

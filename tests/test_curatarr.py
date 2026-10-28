@@ -839,3 +839,66 @@ def test_playlist_sync_across_libraries():
     # Removing one show takes out all of its episodes.
     sync_mod.remove_titles(plex, cfg, "900", ["10"])
     assert [rk for _, rk in fake.playlists["900"]] == ["1"]
+
+
+def test_manual_order_and_calendar_changes(monkeypatch):
+    from datetime import date
+    from app import plex as plexmod, sync as sync_mod
+    cfg = CollectionConfig(name="M", sources=[Source(type="static", value="x")], manual_order=["3", "9", "1"])
+    assert sync_mod.desired_order(cfg, ["1", "2", "3"]) == ["3", "1", "2"]
+
+    sync_mod.clear_index_cache()
+    fake = FakePlex()
+    fake.collections["100"] = ["1", "2", "3"]
+    monkeypatch.setattr(plexmod, "from_settings", lambda *a, **k: plex_with(fake))
+    cid = db.create_collection({"name": "Arrange", "library": "Movies", "section_id": "1",
+                                "sources": [{"type": "static", "value": "tt0000001"}]})
+    db.update_collection_state(cid, plex_rating_key="100")
+    sync_mod.apply_manual_order(cid, ["3", "1"])
+    assert fake.collections["100"] == ["3", "1", "2"]
+    assert db.get_collection(cid)["config"]["manual_order"] == ["3", "1"]
+    # The next sync keeps the hand-made order and puts new titles after it.
+    cfg = CollectionConfig(**db.get_collection(cid)["config"])
+    sync_collection(cfg, {"plex_rating_key": "100", "plex_owned": 1}, plex_with(fake), SECTION, refs_for(1, 2, 3, 4), {})
+    assert fake.collections["100"] == ["3", "1", "2", "4"]
+
+    xmas = CollectionConfig(name="X", sources=[Source(type="static", value="x")], promote_window=True,
+                            promote_start="2000-11-25", promote_end="2000-12-26", promote_recommended=True)
+    assert sync_mod.next_calendar_change(xmas, date(2026, 10, 27)) == (date(2026, 11, 25), True)
+    assert sync_mod.next_calendar_change(xmas, date(2026, 12, 1)) == (date(2026, 12, 26), False)
+    once = CollectionConfig(name="O", sources=[Source(type="static", value="x")], promote_window=True,
+                            promote_yearly=False, promote_start="2020-01-01", promote_end="2020-01-05")
+    assert sync_mod.next_calendar_change(once, date(2026, 1, 1)) is None
+
+
+def test_dashboard_endpoint():
+    from fastapi.testclient import TestClient
+    from app.main import app
+    cid = db.create_collection({"name": "Dash", "library": "Movies", "section_id": "1", "enabled": False,
+                                "sources": [{"type": "static", "value": "tt0000001"}]})
+    db.record_run({"collection_id": cid, "collection_name": "Dash", "status": "warning", "matched": 7,
+                   "missing": [{"imdb": "tt1"}, {"imdb": "tt2"}]})
+    db.update_collection_state(cid, last_status="warning", last_message="one source failed")
+    d = TestClient(app).get("/api/dashboard").json()
+    assert d["counts"]["titles"] >= 7 and d["counts"]["missing"] >= 2
+    assert any(a["id"] == cid and a["status"] == "paused" for a in d["attention"])
+    assert any(m["id"] == cid and m["missing"] == 2 for m in d["most_missing"])
+    assert isinstance(d["recent"][0]["missing"], int)
+
+
+def test_tmdb_poster_choices():
+    from app.sources.tmdb import TMDB
+
+    def handler(request):
+        if request.url.path == "/3/collection/10/images":
+            return httpx.Response(200, json={"posters": [{"file_path": "/a.jpg"}, {"file_path": "/b.jpg"}]})
+        if request.url.path == "/3/search/collection":
+            assert request.url.params["query"] == "Star Wars"
+            return httpx.Response(200, json={"results": [{"id": 10, "name": "Star Wars", "poster_path": "/b.jpg"},
+                                                         {"id": 11, "name": "Other", "poster_path": "/c.jpg"}]})
+        return httpx.Response(404)
+    tmdb = TMDB("k" * 32, httpx.Client(transport=httpx.MockTransport(handler)))
+    choices = tmdb.poster_choices("Star Wars", [10])
+    assert [c["url"].rsplit("/", 1)[1] for c in choices] == ["a.jpg", "b.jpg", "c.jpg"]
+    assert choices[0]["thumb"].startswith("https://image.tmdb.org/t/p/w342/")
+    assert [c["url"].rsplit("/", 1)[1] for c in tmdb.poster_choices("Star Wars")] == ["b.jpg", "c.jpg", "a.jpg"]

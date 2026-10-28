@@ -1,7 +1,7 @@
 """REST API used by the web UI (and available for scripting)."""
 import logging
 import os
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 
 import httpx
@@ -14,7 +14,7 @@ from . import arr, config, db, holidays, logs, packs, plex as plexmod, plextv, s
 from .models import CollectionConfig, PreviewRequest
 from .plex import PlexError
 from .sources import SourceContext, SourceError
-from .sources.tmdb import TMDB
+from .sources.tmdb import TMDB, _first_number
 
 log = logging.getLogger(__name__)
 router = APIRouter(prefix="/api")
@@ -243,6 +243,22 @@ def plex_playlist_items(rating_key: str):
             raise HTTPException(404 if exc.status == 404 else 502, str(exc))
 
 
+@router.get("/tmdb/posters")
+def tmdb_posters(query: str = "", collection: list[str] = Query(default=[])):
+    """Poster choices from TMDB for a collection's name or TMDB franchise ids/links."""
+    ids = []
+    for value in collection:
+        try:
+            ids.append(_first_number(value, r"/collection/(\d+)"))
+        except SourceError:
+            continue
+    try:
+        with httpx.Client(timeout=20) as http:
+            return TMDB(db.get_settings().get("tmdb_api_key", ""), http).poster_choices(query, ids)
+    except SourceError as exc:
+        raise HTTPException(400, str(exc))
+
+
 @router.get("/plex/image")
 def plex_image(path: str):
     with _plex() as plex:
@@ -341,6 +357,68 @@ def enable_holiday(key: str, section_id: str = Body(..., embed=True),
     scheduler.reload_jobs()
     scheduler.run_now(collection_id)
     return _collection_out(db.get_collection(collection_id))
+
+
+@router.get("/dashboard")
+def dashboard():
+    """Overview from the database only (fast); watched counts come from /dashboard/watched."""
+    rows = db.list_collections()
+    latest = db.latest_runs()
+    today = date.today()
+    kinds = {"collections": 0, "holidays": 0, "playlists": 0}
+    attention, coming, missing_rank = [], [], []
+    titles = missing = 0
+    for r in rows:
+        cfg = r["config"]
+        kind = "playlists" if cfg.get("kind") == "playlist" else "holidays" if cfg.get("holiday") else "collections"
+        kinds[kind] += 1
+        run = latest.get(r["id"])
+        brief = {"id": r["id"], "name": cfg["name"], "kind": kind}
+        if run:
+            titles += run["matched"] or 0
+            missing += len(run["missing"])
+            if run["missing"]:
+                missing_rank.append({**brief, "missing": len(run["missing"]), "matched": run["matched"]})
+        if r.get("last_status") in ("error", "warning") or not cfg.get("enabled", True):
+            attention.append({**brief, "status": r.get("last_status") if cfg.get("enabled", True) else "paused",
+                              "message": r.get("last_message") or "", "when": r.get("last_run")})
+        try:
+            change = sync.next_calendar_change(CollectionConfig(**cfg), today)
+        except (ValidationError, ValueError):
+            change = None
+        if change:
+            day, appears = change
+            coming.append({**brief, "date": day.isoformat(), "appears": appears,
+                           "seasonal": bool(cfg.get("seasonal_only"))})
+    recent = [{k: v for k, v in run.items() if k not in ("missing", "added_items", "removed_items")}
+              | {"missing": len(run["missing"])} for run in db.list_runs(limit=10)]
+    return {
+        "counts": {**kinds, "titles": titles, "missing": missing,
+                   "enabled": sum(1 for r in rows if r["config"].get("enabled", True))},
+        "attention": attention,
+        "coming": sorted(coming, key=lambda c: c["date"])[:5],
+        "most_missing": sorted(missing_rank, key=lambda m: -m["missing"])[:5],
+        "recent": recent,
+    }
+
+
+@router.get("/dashboard/watched")
+def dashboard_watched():
+    """How much of each collection and playlist has been watched (asks Plex; slower)."""
+    out, watched, total = {}, 0, 0
+    with _plex() as plex:
+        for r in db.list_collections():
+            if not r.get("plex_rating_key"):
+                continue
+            try:
+                items = (plex.playlist_contents if r["config"].get("kind") == "playlist"
+                         else plex.collection_contents)(r["plex_rating_key"])
+            except PlexError:
+                continue
+            seen = sum(1 for i in items if i["watched"])
+            out[r["id"]] = {"watched": seen, "total": len(items)}
+            watched, total = watched + seen, total + len(items)
+    return {"watched": watched, "total": total, "collections": out}
 
 
 @router.get("/packs")
@@ -516,6 +594,21 @@ def undo_collection(collection_id: int):
         raise HTTPException(400, str(exc))
     scheduler.reload_jobs()
     return run
+
+
+@router.post("/collections/{collection_id}/order")
+def set_order(collection_id: int, body: dict = Body(...)):
+    """Save an order arranged by hand (ratingKeys); an empty list goes back to list order."""
+    if not db.get_collection(collection_id):
+        raise HTTPException(404, "Collection not found")
+    order = body.get("order") or []
+    try:
+        sync.apply_manual_order(collection_id, order)
+    except (PlexError, sync.SyncError) as exc:
+        raise HTTPException(400, str(exc))
+    if not order:         # back to list order: the next sync puts it right
+        scheduler.run_now(collection_id)
+    return _collection_out(db.get_collection(collection_id))
 
 
 @router.get("/collections/{collection_id}/last-change")

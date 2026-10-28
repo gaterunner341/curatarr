@@ -3,6 +3,21 @@
 The version shown in the web UI's sidebar matches these entries. Each
 release is also published as `ghcr.io/gaterunner341/curatarr:<version>`.
 
+## 0.10.0
+
+- **Dashboard:** a new start page, at the top of the left menu.
+  - Totals for collections, playlists, holiday collections, titles in Plex, missing titles and how much has been watched.
+  - **Needs attention:** collections with a sync error or warning, or paused ones.
+  - **Coming up:** the next home-screen calendar changes, such as when Thanksgiving appears.
+  - **Most missing:** the collections with the most titles not yet in your library.
+  - **Recent syncs.**
+- **Arrange order by hand:** on the View page of a playlist or a collection in list order, click **Arrange order** and drag the posters into place. Then click **Save order**.
+  - Plex is updated right away, and later syncs keep your order. New titles from the lists go at the end.
+  - **Reset to list order** goes back to the lists' order.
+- **Choose a poster from TMDB:** in a collection's or playlist's Artwork section, **Choose from TMDB…** shows posters for the collection's TMDB franchise, plus matches for its name.
+  - Click one to use it. You can also search for something else.
+  - It's applied in Plex at the next sync after you save.
+
 ## 0.9.0
 
 - **Playlists:** a new **Playlists** page in the left menu, below TV Shows. A playlist is built from lists just like a collection, but plays in list order, which suits watch orders such as the MCU or Star Wars.

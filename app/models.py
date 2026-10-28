@@ -95,6 +95,9 @@ class CollectionConfig(BaseModel):
     exclude: list[Exclusion] = []
     max_rating: str = ""         # content rating cap, e.g. "PG-13"; blank = no cap
     drop_unrated: bool = False   # with a cap: also leave out unrated titles
+    # Order set by dragging on the View page (rating keys). Titles not in it follow
+    # in list order. Only used with list order ("custom") and for playlists.
+    manual_order: list[str] = []
 
     @field_validator("max_rating")
     @classmethod

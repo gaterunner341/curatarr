@@ -220,6 +220,14 @@ def list_runs(collection_id: int | None = None, limit: int = 100) -> list[dict]:
     return [_decode_run(r) for r in rows]
 
 
+def latest_runs() -> dict[int, dict]:
+    """Each collection's most recent sync (undos left out), by collection id."""
+    rows = _query(
+        "SELECT * FROM runs WHERE id IN (SELECT MAX(id) FROM runs WHERE COALESCE(trigger, '') != 'undo' "
+        "GROUP BY collection_id)")
+    return {r["collection_id"]: _decode_run(r) for r in rows}
+
+
 def last_change(collection_id: int) -> dict | None:
     """The latest successful run of a collection that added or removed titles."""
     rows = _query(

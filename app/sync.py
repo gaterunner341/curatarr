@@ -236,7 +236,7 @@ def sync_collection(cfg: CollectionConfig, state: dict, plex: Plex, section: dic
     if cfg.order == "custom":
         if result.added:
             current = plex.collection_items(rk)
-        moves = reorder_moves(current, matched)
+        moves = reorder_moves(current, desired_order(cfg, matched))
         if moves:
             log.info("'%s': reordering %d item(s) to match the list", name, len(moves))
         for n, (item, after) in enumerate(moves, 1):
@@ -359,11 +359,12 @@ def sync_playlist(cfg: CollectionConfig, state: dict, plex: Plex, sections: list
 
     current = [unit for unit, _ in plex.playlist_units(existing)] if existing else []
     wanted = set(matched)
+    ordered = desired_order(cfg, matched)
     if not owned or cfg.sync_mode == "append":
         # Keep everything already there; new titles go in list order, before the extras.
-        target = matched + [rk for rk in current if rk not in wanted]
+        target = ordered + [rk for rk in current if rk not in wanted]
     else:
-        target = matched
+        target = ordered
     to_add = [rk for rk in target if rk not in set(current)]
     to_remove = [rk for rk in current if rk not in set(target)]
     result.added, result.removed = len(to_add), len(to_remove)
@@ -374,7 +375,7 @@ def sync_playlist(cfg: CollectionConfig, state: dict, plex: Plex, sections: list
 
     created = False
     if not existing:
-        existing = plex.create_playlist(name, matched)
+        existing = plex.create_playlist(name, ordered)
         created = True
         result.state.update(plex_rating_key=existing, plex_owned=1, poster_applied=None, art_applied=None)
     elif current + to_add == target and not to_remove:
@@ -405,6 +406,50 @@ def sync_playlist(cfg: CollectionConfig, state: dict, plex: Plex, sections: list
     result.messages.insert(0, f"{verb} with {len(matched)} title(s): "
                               f"+{result.added} / -{result.removed}, {len(result.missing)} missing")
     return result
+
+
+def desired_order(cfg: CollectionConfig, matched: list[str]) -> list[str]:
+    """``matched`` with the order dragged on the View page applied first."""
+    if not cfg.manual_order:
+        return matched
+    wanted = set(matched)
+    manual = [rk for rk in dict.fromkeys(cfg.manual_order) if rk in wanted]
+    placed = set(manual)
+    return manual + [rk for rk in matched if rk not in placed]
+
+
+def apply_manual_order(collection_id: int, order: list[str]) -> CollectionConfig:
+    """Save a dragged order and put the Plex collection or playlist in it right away."""
+    lock = _lock_for(collection_id)
+    if not lock.acquire(blocking=False):
+        raise SyncError("A sync for this collection is running; try again when it finishes")
+    try:
+        row = db.get_collection(collection_id)
+        if not row:
+            raise SyncError(f"Collection {collection_id} does not exist")
+        cfg = CollectionConfig(**row["config"])
+        if cfg.kind != "playlist" and cfg.order != "custom":
+            raise SyncError("Set the order to List order in the collection's settings to arrange it by hand")
+        cfg.manual_order = list(dict.fromkeys(str(rk) for rk in order))
+        db.update_collection_config(collection_id, cfg.model_dump())
+        rk = row.get("plex_rating_key")
+        if not rk or not cfg.manual_order:
+            return cfg
+        with plexmod.from_settings(db.get_settings()) as plex:
+            if cfg.kind == "playlist":
+                current = [unit for unit, _ in plex.playlist_units(rk)]
+                target = desired_order(cfg, current)
+                if target != current:
+                    plex.clear_playlist(rk)
+                    plex.add_playlist_items(rk, target)
+            else:
+                current = plex.collection_items(rk)
+                for item, after in reorder_moves(current, desired_order(cfg, current)):
+                    plex.move_item(rk, item, after)
+        log.info("'%s': order arranged by hand (%d titles)", cfg.name, len(cfg.manual_order))
+        return cfg
+    finally:
+        lock.release()
 
 
 def resolve_sections(plex: Plex, cfg: CollectionConfig) -> list[dict]:
@@ -628,6 +673,25 @@ def next_start(cfg: CollectionConfig, today: date) -> date:
     candidate = start.replace(year=today.year) if not (start.month == 2 and start.day == 29) \
         else date(today.year, 3, 1)
     return candidate if candidate > today else candidate.replace(year=today.year + 1)
+
+
+def next_calendar_change(cfg: CollectionConfig, today: date) -> tuple[date, bool] | None:
+    """(day, appears) for a calendar collection's next change, or None when there's none.
+
+    ``appears`` is True when the window opens that day and False when it closes
+    after that day.
+    """
+    if not cfg.promote_window:
+        return None
+    if not cfg.promotion_active(today):
+        opens = next_start(cfg, today)
+        return (opens, True) if opens > today else None
+    end = date.fromisoformat(cfg.promote_end)
+    if cfg.promote_yearly:
+        end = end.replace(year=today.year) if not (end.month == 2 and end.day == 29) else date(today.year, 2, 28)
+        if end < today:
+            end = end.replace(year=today.year + 1)
+    return end, False
 
 
 def remove_off_season(cfg: CollectionConfig, state: dict, plex: Plex, section: dict,
