@@ -3,6 +3,12 @@
 The version shown in the web UI's sidebar matches these entries. Each
 release is also published as `ghcr.io/gaterunner341/curatarr:<version>`.
 
+## 0.6.5
+
+- **View a collection** without opening Plex. Click a collection's name or **View** on the Movies, TV Shows or Holidays page to see the titles in it, in collection order, with posters and year. Watched titles have a check mark, and you can filter by title.
+- Curatarr collections have **Show missing titles** on that page, listing the titles on the collection's lists that aren't in the Plex library.
+- Existing Plex collections can be viewed the same way.
+
 ## 0.6.4
 
 - **History** and **Logs** are now listed under **Settings** in the left menu, as indented sub-items. Settings stays highlighted while either one is open.

@@ -66,6 +66,8 @@ async function catalog() {
 const routes = [
   [/^#\/collections\/new(?:\?(.*))?$/, (m) => editor(null, new URLSearchParams(m[1] || ""))],
   [/^#\/collections\/(\d+)$/, (m) => editor(Number(m[1]))],
+  [/^#\/collections\/(\d+)\/items$/, (m) => collectionItems({ id: Number(m[1]) })],
+  [/^#\/plex\/(\d+)(?:\?(.*))?$/, (m) => collectionItems({ ratingKey: m[1], params: new URLSearchParams(m[2] || "") })],
   [/^#\/history$/, history],
   [/^#\/logs$/, logsPage],
   [/^#\/settings$/, settings],
@@ -185,7 +187,7 @@ async function collections(kind) {
       <div class="coll${cfg.enabled ? "" : " disabled"}">
         ${poster}
         <div class="coll-body">
-          <div class="coll-title" title="${esc(cfg.name)}">${esc(cfg.name)}</div>
+          <a class="coll-title" href="#/collections/${r.id}/items" title="View ${esc(cfg.name)}">${esc(cfg.name)}</a>
           <div class="small muted">${esc(cfg.library || "?")} · ${esc(sourceSummary(cfg))}</div>
           <div class="small">${r.running ? badge("running") : badge(r.last_status)} <span class="muted">${esc(when(r.last_run))}</span></div>
           ${r.last_message ? `<div class="small muted" title="${esc(r.last_message)}" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(r.last_message)}</div>` : ""}
@@ -194,6 +196,7 @@ async function collections(kind) {
             ${promotionActive(cfg) ? `<span class="badge success">showing</span>` : `<span class="badge">hidden</span>`}</div>` : ""}
           <div class="coll-actions">
             <button class="small primary" data-run="${r.id}" ${r.running ? "disabled" : ""}>Sync now</button>
+            <a class="btn small" href="#/collections/${r.id}/items" style="padding:4px 10px;font-size:.8rem">View</a>
             <a class="btn small" href="#/collections/${r.id}" style="padding:4px 10px;font-size:.8rem">Edit</a>
             <button class="small danger" data-del="${r.id}" data-name="${esc(cfg.name)}">Delete</button>
           </div>
@@ -272,10 +275,11 @@ async function existingPlexCollections(el, kind) {
         <div class="coll existing">
           ${c.thumb ? `<img class="poster" loading="lazy" src="/api/plex/image?path=${encodeURIComponent(c.thumb)}" alt="">` : `<div class="poster">▦</div>`}
           <div class="coll-body">
-            <div class="coll-title" title="${esc(c.title)}">${esc(c.title)}</div>
+            <a class="coll-title" href="${plexView(c, kind)}" title="View ${esc(c.title)}">${esc(c.title)}</a>
             <div class="small muted">${esc(lib)} · ${c.childCount} item${c.childCount === 1 ? "" : "s"}</div>
             ${c.smart ? `<div class="small"><span class="badge">smart</span> <span class="muted">Plex keeps this one updated itself</span></div>` : ""}
             <div class="coll-actions">
+              <a class="btn small" style="padding:4px 10px;font-size:.8rem" href="${plexView(c, kind)}">View</a>
               ${c.smart ? "" : `<a class="btn small" style="padding:4px 10px;font-size:.8rem"
                 href="#/collections/new?${new URLSearchParams({ link: c.ratingKey, section: c.section_id, title: c.title, items: c.childCount })}">Sync with a list</a>`}
             </div>
@@ -285,6 +289,9 @@ async function existingPlexCollections(el, kind) {
     </details>`;
   bindFolds(el);
 }
+
+const plexView = (c, kind) => `#/plex/${c.ratingKey}?${esc(new URLSearchParams({
+  title: c.title, library: c.section_title, section: c.section_id, kind, smart: c.smart ? "1" : "0" }))}`;
 
 // Open/closed state of collapsible sections, remembered in this browser only.
 function foldOpen(key, fallback) {
@@ -301,6 +308,112 @@ function bindFolds(root) {
     e.stopPropagation();
     try { localStorage.setItem(`curatarr.fold.${d.dataset.fold}`, d.open ? "open" : "closed"); } catch { /* storage off */ }
   }));
+}
+
+// ---------- collection contents ----------
+
+// What's in a collection, shown from Plex: a Curatarr collection (id) or any
+// Plex collection (ratingKey plus title/library from the link).
+async function collectionItems({ id = null, ratingKey = null, params = new URLSearchParams() }) {
+  let row = null, title, library, back, inPlex = true, items;
+  if (id) {
+    const [r, contents, libs] = await Promise.all([
+      api("GET", `/collections/${id}`),
+      api("GET", `/collections/${id}/items`),
+      libraries().catch(() => null),
+    ]);
+    row = r;
+    ({ in_plex: inPlex, items } = contents);
+    title = row.config.name;
+    library = row.config.library;
+    back = row.config.holiday ? "#/holidays" : (KINDS[libs && collectionKind(row.config, libs)] || KINDS.movie).hash;
+  } else {
+    items = await api("GET", `/plex/collections/${ratingKey}/items`);
+    title = params.get("title") || "Plex collection";
+    library = params.get("library") || "";
+    back = (KINDS[params.get("kind")] || KINDS.movie).hash;
+  }
+  // Keep the page the collection came from highlighted in the menu.
+  document.querySelector(`[data-nav="${back.slice(2)}"]`)?.classList.add("active");
+
+  const watched = items.filter((i) => i.watched).length;
+  const tile = (i) => `
+    <div class="item" data-search="${esc(`${i.title} ${i.year || ""}`.toLowerCase())}">
+      <div class="item-poster">
+        ${i.thumb ? `<img loading="lazy" src="/api/plex/image?path=${encodeURIComponent(i.thumb)}" alt="">` : "▦"}
+        ${i.watched ? `<span class="item-watched" title="Watched">✔</span>` : ""}
+      </div>
+      <div class="item-title" title="${esc(i.title)}">${esc(i.title)}</div>
+      <div class="small muted">${esc(i.year || "")}${i.episodes ? ` · ${i.episodes} episode${i.episodes === 1 ? "" : "s"}` : ""}</div>
+    </div>`;
+
+  view.innerHTML = `
+    <p class="small" style="margin:0 0 8px"><a href="${back}">← Back</a></p>
+    <div class="page-head">
+      <h1>${esc(title)}</h1>
+      <span class="muted">${esc(library)}</span>
+      <div class="actions">
+        ${row ? `<button id="showMissing">Show missing titles</button>
+          <button class="primary" id="runNow" ${row.running ? "disabled" : ""}>Sync now</button>
+          <a class="btn" href="#/collections/${row.id}">Edit</a>` : ""}
+        ${!row && params.get("smart") !== "1" ? `<a class="btn primary"
+          href="#/collections/new?${new URLSearchParams({ link: ratingKey, section: params.get("section") || "", title, items: items.length })}">Sync with a list</a>` : ""}
+      </div>
+    </div>
+    ${row?.last_message ? `<p class="small muted" style="margin-top:-8px">${badge(row.last_status)} ${esc(row.last_message)}</p>` : ""}
+    <div id="missingOut"></div>
+    ${inPlex ? `
+      <div class="row" style="margin-bottom:16px">
+        <div class="grow"><input type="text" id="itemFilter" placeholder="Filter ${items.length} title${items.length === 1 ? "" : "s"}…"></div>
+        <span class="small muted" id="itemCount">${items.length} in Plex · ${watched} watched</span>
+      </div>
+      ${items.length ? `<div class="items">${items.map(tile).join("")}</div>` : `<div class="card empty">This collection is empty in Plex.</div>`}`
+    : `<div class="card empty">
+        <p>This collection isn't in Plex right now.</p>
+        <p class="small">${row?.config.seasonal_only ? "It's only in Plex during its dates." : "It's created in Plex on its next sync."}</p>
+      </div>`}`;
+
+  const filter = view.querySelector("#itemFilter");
+  if (filter) filter.oninput = () => {
+    const q = filter.value.trim().toLowerCase();
+    let shown = 0;
+    view.querySelectorAll(".item").forEach((el) => {
+      el.hidden = q && !el.dataset.search.includes(q);
+      if (!el.hidden) shown++;
+    });
+    view.querySelector("#itemCount").textContent = q ? `${shown} of ${items.length} shown` : `${items.length} in Plex · ${watched} watched`;
+  };
+  if (!row) return;
+  view.querySelector("#runNow").onclick = (e) => guard(async () => {
+    e.target.disabled = true;
+    await api("POST", `/collections/${row.id}/run`);
+    toast("Sync started");
+  });
+  // Titles from the lists that aren't in the Plex library (fetched on demand: lists can be slow).
+  view.querySelector("#showMissing").onclick = (e) => guard(async () => {
+    const out = view.querySelector("#missingOut");
+    e.target.disabled = true;
+    out.innerHTML = `<p class="muted">Fetching lists and matching against Plex…</p>`;
+    try {
+      const cfg = row.config;
+      const r = await api("POST", "/preview", { section_id: cfg.section_id, library: cfg.library, sources: cfg.sources, item_limit: cfg.item_limit });
+      const missing = r.items.filter((i) => !i.in_plex);
+      out.innerHTML = `
+        <details class="card" open>
+          <summary><strong>${missing.length}</strong> of ${r.total} list titles aren't in ${esc(r.library.title)}</summary>
+          ${r.errors.map((err) => `<p class="no small">${esc(err)}</p>`).join("")}
+          ${missing.length ? `<div class="table-wrap" style="max-height:320px;overflow:auto;margin-top:10px"><table>
+            <thead><tr><th>Title</th><th>Year</th><th>IDs</th></tr></thead>
+            <tbody>${missing.map((i) => `<tr><td>${esc(i.title || "—")}</td><td>${esc(i.year || "")}</td>
+              <td class="small muted">${[i.imdb, i.tmdb && `tmdb:${i.tmdb}`, i.tvdb && `tvdb:${i.tvdb}`].filter(Boolean).map(esc).join(" · ")}</td></tr>`).join("")}
+            </tbody></table></div>` : ""}
+        </details>`;
+    } catch (err) {
+      out.innerHTML = `<p class="no">${esc(err.message)}</p>`;
+    } finally {
+      e.target.disabled = false;
+    }
+  });
 }
 
 // ---------- collection editor ----------
@@ -751,6 +864,7 @@ async function holidaysPage() {
               ${coll.last_message ? `<div class="small muted" title="${esc(coll.last_message)}" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(coll.last_message)}</div>` : ""}
               <div class="coll-actions">
                 <button class="small primary" data-run="${coll.id}" ${coll.running ? "disabled" : ""}>Sync now</button>
+                <a class="btn small" href="#/collections/${coll.id}/items" style="padding:4px 10px;font-size:.8rem">View</a>
                 <a class="btn small" href="#/collections/${coll.id}" style="padding:4px 10px;font-size:.8rem">Edit dates &amp; settings</a>
               </div>`
             : `<div class="small muted">${h.available ? "Tick to create it in this library." : "Lists not added yet."}</div>`}

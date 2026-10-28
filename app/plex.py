@@ -259,6 +259,18 @@ class Plex:
         items = self._paged(f"/library/collections/{rating_key}/items")
         return [str(m["ratingKey"]) for m in items]
 
+    def collection_contents(self, rating_key: str) -> list[dict]:
+        """The titles in a collection, in collection order, for display."""
+        result = []
+        for m in self._paged(f"/library/collections/{rating_key}/items"):
+            episodes = int(m.get("leafCount") or 0)
+            # Shows are watched when every episode is; movies when played at least once.
+            watched = (int(m.get("viewedLeafCount") or 0) >= episodes) if episodes else bool(m.get("viewCount"))
+            result.append({"ratingKey": str(m["ratingKey"]), "title": m.get("title"),
+                           "year": m.get("year"), "type": m.get("type"), "thumb": m.get("thumb"),
+                           "episodes": episodes or None, "watched": watched})
+        return result
+
     def create_collection(self, section_id: str, section_type: str, title: str,
                           rating_keys: list[str]) -> str:
         first, rest = rating_keys[:BATCH_SIZE], rating_keys[BATCH_SIZE:]

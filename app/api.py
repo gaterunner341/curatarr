@@ -194,6 +194,15 @@ def plex_all_collections():
     return result
 
 
+@router.get("/plex/collections/{rating_key}/items")
+def plex_collection_items(rating_key: str):
+    with _plex() as plex:
+        try:
+            return plex.collection_contents(rating_key)
+        except PlexError as exc:
+            raise HTTPException(404 if exc.status == 404 else 502, str(exc))
+
+
 @router.get("/plex/image")
 def plex_image(path: str):
     with _plex() as plex:
@@ -344,6 +353,23 @@ def delete_collection(collection_id: int, remove_from_plex: bool = False):
     db.delete_collection(collection_id)
     scheduler.reload_jobs()
     return {"deleted": True, "message": message}
+
+
+@router.get("/collections/{collection_id}/items")
+def collection_items(collection_id: int):
+    """What's in a Curatarr collection's Plex collection right now."""
+    row = db.get_collection(collection_id)
+    if not row:
+        raise HTTPException(404, "Collection not found")
+    if not row.get("plex_rating_key"):
+        return {"in_plex": False, "items": []}
+    with _plex() as plex:
+        try:
+            return {"in_plex": True, "items": plex.collection_contents(row["plex_rating_key"])}
+        except PlexError as exc:
+            if exc.status == 404:    # deleted in Plex, or removed off season
+                return {"in_plex": False, "items": []}
+            raise HTTPException(502, str(exc))
 
 
 @router.post("/collections/{collection_id}/own")

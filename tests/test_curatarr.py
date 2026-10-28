@@ -584,3 +584,32 @@ def test_calendar_job_creates_and_removes_seasonal_collections(monkeypatch):
     calls.clear()
     sync_mod.apply_home_calendars(date(2026, 11, 5))     # out of season
     assert calls == [(off_season_present, "calendar")]
+
+
+def test_collection_contents_and_items_endpoint(monkeypatch):
+    from contextlib import nullcontext
+    from fastapi.testclient import TestClient
+    from app import api as api_mod, db
+    from app.main import app
+
+    def handler(request):
+        assert request.url.path == "/library/collections/7/items"
+        return httpx.Response(200, json={"MediaContainer": {"totalSize": 3, "Metadata": [
+            {"ratingKey": 1, "title": "Seen", "year": 1999, "type": "movie", "viewCount": 2, "thumb": "/library/metadata/1/thumb/1"},
+            {"ratingKey": 2, "title": "Unseen", "year": 2001, "type": "movie"},
+            {"ratingKey": 3, "title": "Show", "type": "show", "leafCount": 10, "viewedLeafCount": 4},
+        ]}})
+    plex = Plex("http://plex", "token", client=httpx.Client(transport=httpx.MockTransport(handler)))
+    items = plex.collection_contents("7")
+    assert [(i["title"], i["watched"], i["episodes"]) for i in items] == [
+        ("Seen", True, None), ("Unseen", False, None), ("Show", False, 10)]
+
+    monkeypatch.setattr(api_mod, "_plex", lambda: nullcontext(plex))
+    client = TestClient(app)
+    cid = db.create_collection({"name": "View me", "library": "Movies", "section_id": "1",
+                                "sources": [{"type": "static", "value": "tt0000001"}]})
+    assert client.get(f"/api/collections/{cid}/items").json() == {"in_plex": False, "items": []}
+    db.update_collection_state(cid, plex_rating_key="7")
+    r = client.get(f"/api/collections/{cid}/items").json()
+    assert r["in_plex"] and len(r["items"]) == 3
+    assert len(client.get("/api/plex/collections/7/items").json()) == 3
