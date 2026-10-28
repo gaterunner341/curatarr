@@ -741,3 +741,101 @@ def test_starter_packs(monkeypatch):
     assert client.post("/api/packs", json={"section_id": "7", "keys": ["networks.hbo-originals"]}).status_code == 422
     pixar = next(r for r in db.list_collections() if r["config"]["name"] == "Pixar Collection")["config"]
     assert pixar["sync_mode"] == "append" and pixar["order"] == "release" and pixar["section_id"] == "7"
+
+
+class FakePlaylistPlex(httpx.BaseTransport):
+    """Plex playlists: a show added to a playlist becomes its episodes."""
+
+    def __init__(self):
+        self.movies = {"1": "imdb://tt0000001", "2": "imdb://tt0000002", "3": "imdb://tt0000003"}
+        self.shows = {"10": "tvdb://100", "20": "tvdb://200"}
+        self.episodes = {"10": ["101", "102"], "20": ["201"]}
+        self.playlists: dict[str, list[tuple[str, str]]] = {}     # id -> [(itemID, ratingKey)]
+        self.next_item = 1
+        self.calls: list[str] = []
+
+    def _expand(self, rks):
+        out = []
+        for rk in rks:
+            for real in self.episodes.get(rk, [rk]):
+                out.append((str(self.next_item), real))
+                self.next_item += 1
+        return out
+
+    def handle_request(self, request):
+        path, method, q = request.url.path, request.method, request.url.params
+        self.calls.append(f"{method} {path}")
+        mc = lambda body: httpx.Response(200, json={"MediaContainer": body})  # noqa: E731
+        parts = path.strip("/").split("/")
+        if path == "/identity":
+            return mc({"machineIdentifier": "abc"})
+        if path in ("/library/sections/1/all", "/library/sections/2/all"):
+            lib = self.movies if path == "/library/sections/1/all" else self.shows
+            items = [{"ratingKey": rk, "title": f"T{rk}", "Guid": [{"id": g}]} for rk, g in lib.items()]
+            return mc({"Metadata": items, "totalSize": len(items)})
+        if path == "/playlists" and method == "GET":
+            return mc({"Metadata": [{"ratingKey": k, "title": "Watch order", "leafCount": len(v)}
+                                    for k, v in self.playlists.items()]})
+        if path == "/playlists" and method == "POST":
+            self.playlists["900"] = self._expand(q["uri"].rsplit("/", 1)[1].split(","))
+            return mc({"Metadata": [{"ratingKey": "900"}]})
+        if parts[0] == "playlists" and len(parts) >= 2:
+            pid = parts[1]
+            if pid not in self.playlists:
+                return httpx.Response(404, text="Not Found")
+            items = self.playlists[pid]
+            if len(parts) == 2:
+                if method == "DELETE":
+                    del self.playlists[pid]
+                return mc({"Metadata": [{"ratingKey": pid}]})
+            if len(parts) == 3 and method == "GET":
+                meta = []
+                for item_id, rk in items:
+                    show = next((s for s, eps in self.episodes.items() if rk in eps), None)
+                    meta.append({"ratingKey": rk, "playlistItemID": item_id, "title": f"T{rk}",
+                                 **({"type": "episode", "grandparentRatingKey": show, "grandparentTitle": f"T{show}"}
+                                    if show else {"type": "movie"})})
+                return mc({"Metadata": meta, "totalSize": len(meta)})
+            if len(parts) == 3 and method == "PUT":
+                items.extend(self._expand(q["uri"].rsplit("/", 1)[1].split(",")))
+            elif len(parts) == 3 and method == "DELETE":
+                items.clear()
+            elif len(parts) == 4 and method == "DELETE":
+                self.playlists[pid] = [i for i in items if i[0] != parts[3]]
+            return mc({})
+        return mc({})
+
+
+def test_playlist_sync_across_libraries():
+    from app import sync as sync_mod
+    sync_mod.clear_index_cache()
+    fake = FakePlaylistPlex()
+    plex = Plex("http://plexpl", "token", client=httpx.Client(transport=fake))
+    movies, shows = {"id": "1", "title": "Movies", "type": "movie"}, {"id": "2", "title": "TV", "type": "show"}
+    cfg = CollectionConfig(name="Watch order", kind="playlist", section_ids=["1", "2"], libraries=["Movies", "TV"],
+                           sources=[Source(type="static", value="x")])
+    assert cfg.section_id == "1" and cfg.library == "Movies" and not cfg.promote_window
+    refs = [MediaRef("movie", imdb="tt0000002"), MediaRef("show", tvdb=10 * 10), MediaRef("movie", imdb="tt0000001"),
+            MediaRef("movie", imdb="tt0000009")]
+    first = sync_mod.sync_playlist(cfg, {}, plex, [movies, shows], refs, {})
+    assert [rk for _, rk in fake.playlists["900"]] == ["2", "101", "102", "1"]
+    assert first.added == 3 and len(first.missing) == 1 and first.state["plex_owned"] == 1
+    assert plex.playlist_units("900") == [("2", ["1"]), ("10", ["2", "3"]), ("1", ["4"])]
+    view = plex.playlist_contents("900")
+    assert [(v["title"], v["type"], v["episodes"]) for v in view] == [("T2", "movie", None), ("T10", "show", 2), ("T1", "movie", None)]
+
+    # Appending at the end only adds; no rebuild.
+    fake.calls.clear()
+    second = sync_mod.sync_playlist(cfg, first.state, plex, [movies, shows], refs[:3] + [MediaRef("show", tvdb=200)], {})
+    assert second.added == 1 and "DELETE /playlists/900/items" not in fake.calls
+    assert [rk for _, rk in fake.playlists["900"]][-1] == "201"
+
+    # A new order or a removal rebuilds the playlist in list order.
+    third = sync_mod.sync_playlist(cfg, second.state, plex, [movies, shows],
+                                   [MediaRef("movie", imdb="tt0000001"), MediaRef("show", tvdb=100)], {})
+    assert [rk for _, rk in fake.playlists["900"]] == ["1", "101", "102"]
+    assert third.removed == 2 and {i["rk"] for i in third.removed_items} == {"2", "20"}
+
+    # Removing one show takes out all of its episodes.
+    sync_mod.remove_titles(plex, cfg, "900", ["10"])
+    assert [rk for _, rk in fake.playlists["900"]] == ["1"]

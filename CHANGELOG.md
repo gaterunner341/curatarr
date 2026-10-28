@@ -3,6 +3,16 @@
 The version shown in the web UI's sidebar matches these entries. Each
 release is also published as `ghcr.io/gaterunner341/curatarr:<version>`.
 
+## 0.9.0
+
+- **Playlists:** a new **Playlists** page in the left menu, below TV Shows. A playlist is built from lists just like a collection, but plays in list order, which suits watch orders such as the MCU or Star Wars.
+  - A playlist can take titles from several libraries at once, for example movies and TV together. Tick the libraries in the editor.
+  - A TV show in a playlist brings all of its episodes, in order.
+  - When titles are removed or the list order changes, Curatarr rebuilds the playlist in list order. New titles at the end are simply added.
+  - Playlists belong to the Plex account Curatarr signed in with.
+  - Exclusions, the content-rating cap, Show missing titles, Add to Radarr/Sonarr, History details and Undo all work for playlists.
+- **Existing Plex playlists** are listed below yours, with **View** and **Sync with a list**, the same as existing collections.
+
 ## 0.8.0
 
 - **Plex library filter:** a new list source that picks titles from the collection's own Plex library instead of an outside list.

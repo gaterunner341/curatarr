@@ -56,8 +56,12 @@ def rating_level(rating: str | None) -> int | None:
 
 class CollectionConfig(BaseModel):
     name: str = Field(min_length=1, max_length=200)
+    kind: Literal["collection", "playlist"] = "collection"
     library: str = ""            # Plex library title (portable across servers)
     section_id: str = ""         # Plex library section id (preferred when valid)
+    # Playlists can draw from several libraries (movies and TV together).
+    libraries: list[str] = []
+    section_ids: list[str] = []
     sources: list[Source] = Field(min_length=1)
     sync_mode: Literal["sync", "append"] = "sync"
     order: CollectionOrder = "custom"
@@ -111,6 +115,19 @@ class CollectionConfig(BaseModel):
         return [label.strip() for label in v if label and label.strip()]
 
     @model_validator(mode="after")
+    def check_playlist(self) -> "CollectionConfig":
+        if self.kind == "playlist":
+            if not self.section_ids and self.section_id:
+                self.section_ids, self.libraries = [self.section_id], [self.library]
+            if self.section_ids:     # the first library stands in where one is expected
+                self.section_id = self.section_ids[0]
+                self.library = self.libraries[0] if self.libraries else self.library
+            # Home screen spots and seasons are collection features.
+            self.promote_home = self.promote_shared = self.promote_recommended = False
+            self.promote_window = self.seasonal_only = False
+        return self
+
+    @model_validator(mode="after")
     def check_window(self) -> "CollectionConfig":
         if self.promote_window:
             try:
@@ -159,5 +176,6 @@ class CollectionConfig(BaseModel):
 class PreviewRequest(BaseModel):
     section_id: str = ""
     library: str = ""
+    section_ids: list[str] = []      # a playlist's libraries
     sources: list[Source] = Field(min_length=1)
     item_limit: int = 0

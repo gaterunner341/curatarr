@@ -192,7 +192,7 @@ def plex_filters(section_id: str):
 @router.get("/plex/collections")
 def plex_all_collections():
     """Every collection in Plex, marked with the Curatarr collection that manages it (if any)."""
-    rows = db.list_collections()
+    rows = [r for r in db.list_collections() if r["config"].get("kind", "collection") == "collection"]
     by_key = {str(r["plex_rating_key"]): r["id"] for r in rows if r.get("plex_rating_key")}
     by_title = {(str(r["config"].get("section_id")), r["config"]["name"].strip().lower()): r["id"]
                 for r in rows}
@@ -216,6 +216,29 @@ def plex_collection_items(rating_key: str):
     with _plex() as plex:
         try:
             return plex.collection_contents(rating_key)
+        except PlexError as exc:
+            raise HTTPException(404 if exc.status == 404 else 502, str(exc))
+
+
+@router.get("/plex/playlists")
+def plex_all_playlists():
+    """Video playlists of the Plex account Curatarr uses, marked when Curatarr manages one."""
+    rows = [r for r in db.list_collections() if r["config"].get("kind") == "playlist"]
+    by_key = {str(r["plex_rating_key"]): r["id"] for r in rows if r.get("plex_rating_key")}
+    by_title = {r["config"]["name"].strip().lower(): r["id"] for r in rows}
+    with _plex() as plex:
+        try:
+            return [{**p, "managed_id": by_key.get(p["ratingKey"]) or by_title.get((p["title"] or "").strip().lower())}
+                    for p in plex.playlists()]
+        except PlexError as exc:
+            raise HTTPException(502, str(exc))
+
+
+@router.get("/plex/playlists/{rating_key}/items")
+def plex_playlist_items(rating_key: str):
+    with _plex() as plex:
+        try:
+            return plex.playlist_contents(rating_key)
         except PlexError as exc:
             raise HTTPException(404 if exc.status == 404 else 502, str(exc))
 
@@ -403,9 +426,12 @@ def delete_collection(collection_id: int, remove_from_plex: bool = False):
     if remove_from_plex and row.get("plex_rating_key"):
         try:
             with _plex() as plex:
-                section = sync.resolve_section(plex, row["config"].get("section_id"),
-                                               row["config"].get("library"))
-                plex.delete_collection(section["id"], row["plex_rating_key"])
+                if row["config"].get("kind") == "playlist":
+                    plex.delete_playlist(row["plex_rating_key"])
+                else:
+                    section = sync.resolve_section(plex, row["config"].get("section_id"),
+                                                   row["config"].get("library"))
+                    plex.delete_collection(section["id"], row["plex_rating_key"])
         except (PlexError, sync.SyncError) as exc:
             message = f"Removed from Curatarr, but Plex deletion failed: {exc}"
     for kind in ("poster_file", "art_file"):
@@ -426,7 +452,8 @@ def collection_items(collection_id: int):
         return {"in_plex": False, "items": []}
     with _plex() as plex:
         try:
-            return {"in_plex": True, "items": plex.collection_contents(row["plex_rating_key"])}
+            contents = plex.playlist_contents if row["config"].get("kind") == "playlist"                 else plex.collection_contents
+            return {"in_plex": True, "items": contents(row["plex_rating_key"])}
         except PlexError as exc:
             if exc.status == 404:    # deleted in Plex, or removed off season
                 return {"in_plex": False, "items": []}
@@ -450,7 +477,7 @@ def exclude_title(collection_id: int, body: dict = Body(...)):
     if ident.startswith("plex:") and row.get("plex_rating_key"):
         with _plex() as plex:
             try:
-                plex.remove_item(row["plex_rating_key"], ident[5:])
+                sync.remove_titles(plex, CollectionConfig(**cfg), row["plex_rating_key"], [ident[5:]])
             except PlexError as exc:
                 raise HTTPException(502, f"Excluded, but removing it from Plex failed: {exc}")
     return _collection_out(db.get_collection(collection_id))
@@ -576,7 +603,7 @@ def delete_image(collection_id: int, kind: str):
 @router.post("/preview")
 def preview(req: PreviewRequest):
     try:
-        return sync.preview(req.section_id, req.library, req.sources, req.item_limit)
+        return sync.preview(req.section_id, req.library, req.sources, req.item_limit, req.section_ids)
     except (PlexError, sync.SyncError) as exc:
         raise HTTPException(400, str(exc))
 
@@ -588,7 +615,7 @@ def runs(collection_id: int | None = None, limit: int = Query(100, le=1000)):
 
 # --- YAML import / export -----------------------------------------------------
 
-EXPORT_EXCLUDE = {"section_id", "poster_file", "art_file"}
+EXPORT_EXCLUDE = {"section_id", "section_ids", "poster_file", "art_file"}
 
 
 def export_yaml() -> str:
@@ -629,7 +656,7 @@ def import_yaml(text: str, overwrite: bool = True) -> dict:
                 row = existing[key]
                 cfg = model.model_dump()
                 for field in EXPORT_EXCLUDE:
-                    cfg[field] = cfg[field] or row["config"].get(field, "")
+                    cfg[field] = cfg[field] or row["config"].get(field, cfg[field])
                 db.update_collection_config(row["id"], cfg)
                 updated += 1
         else:

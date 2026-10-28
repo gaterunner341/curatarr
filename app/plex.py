@@ -243,7 +243,7 @@ class Plex:
 
     def image(self, path: str) -> tuple[bytes, str]:
         """Fetch artwork (e.g. a collection thumb) so the browser never needs the token."""
-        if not path.startswith("/library/"):
+        if not path.startswith(("/library/", "/playlists/")):
             raise PlexError("Only library artwork can be fetched")
         try:
             resp = self.http.get(self.url + path, headers={**self.headers, "Accept": "image/*"})
@@ -289,6 +289,96 @@ class Plex:
                            "year": m.get("year"), "type": m.get("type"), "thumb": m.get("thumb"),
                            "episodes": episodes or None, "watched": watched})
         return result
+
+    # --- playlists ------------------------------------------------------------
+    # A show added to a playlist becomes all of its episodes, so playlist contents
+    # are handled as "units": a movie, or a show with its episodes.
+
+    def playlists(self) -> list[dict]:
+        data = self._request("GET", "/playlists", params={"playlistType": "video"})
+        return [{"ratingKey": str(m["ratingKey"]), "title": m.get("title"),
+                 "childCount": int(m.get("leafCount", 0) or 0), "smart": bool(int(m.get("smart", 0) or 0)),
+                 "thumb": m.get("composite") or m.get("thumb")}
+                for m in data.get("Metadata", [])]
+
+    def find_playlist(self, title: str) -> str | None:
+        wanted = title.strip().lower()
+        for p in self.playlists():
+            if (p["title"] or "").strip().lower() == wanted and not p["smart"]:
+                return p["ratingKey"]
+        return None
+
+    def playlist_exists(self, rating_key: str) -> bool:
+        try:
+            return bool(self._request("GET", f"/playlists/{rating_key}").get("Metadata"))
+        except PlexError as exc:
+            if exc.status == 404:
+                return False
+            raise
+
+    def _playlist_raw(self, rating_key: str) -> list[dict]:
+        return self._paged(f"/playlists/{rating_key}/items")
+
+    @staticmethod
+    def _unit_key(m: dict) -> str:
+        return str(m.get("grandparentRatingKey") or m["ratingKey"]) if m.get("type") == "episode" \
+            else str(m["ratingKey"])
+
+    def playlist_units(self, rating_key: str) -> list[tuple[str, list[str]]]:
+        """[(movie or show ratingKey, [playlistItemIDs])] in playlist order."""
+        units: dict[str, list[str]] = {}
+        for m in self._playlist_raw(rating_key):
+            units.setdefault(self._unit_key(m), []).append(str(m.get("playlistItemID")))
+        return list(units.items())
+
+    def playlist_contents(self, rating_key: str) -> list[dict]:
+        """Playlist titles for display, with a show's episodes grouped under the show."""
+        units: dict[str, dict] = {}
+        for m in self._playlist_raw(rating_key):
+            key = self._unit_key(m)
+            if m.get("type") == "episode":
+                unit = units.setdefault(key, {
+                    "ratingKey": key, "title": m.get("grandparentTitle"), "year": None, "type": "show",
+                    "thumb": m.get("grandparentThumb"), "episodes": 0, "watched": True})
+                unit["episodes"] += 1
+                unit["watched"] = unit["watched"] and bool(m.get("viewCount"))
+            else:
+                units[key] = {"ratingKey": key, "title": m.get("title"), "year": m.get("year"),
+                              "type": m.get("type"), "thumb": m.get("thumb"), "episodes": None,
+                              "watched": bool(m.get("viewCount"))}
+        return list(units.values())
+
+    def create_playlist(self, title: str, rating_keys: list[str]) -> str:
+        first, rest = rating_keys[:BATCH_SIZE], rating_keys[BATCH_SIZE:]
+        data = self._request("POST", "/playlists", params={
+            "type": "video", "title": title, "smart": 0, "uri": self.items_uri(first)})
+        meta = data.get("Metadata") or []
+        if not meta:
+            raise PlexError(f"Plex did not return the new playlist '{title}'")
+        rk = str(meta[0]["ratingKey"])
+        if rest:
+            self.add_playlist_items(rk, rest)
+        return rk
+
+    def add_playlist_items(self, rating_key: str, rating_keys: list[str]) -> None:
+        for i in range(0, len(rating_keys), BATCH_SIZE):
+            self._request("PUT", f"/playlists/{rating_key}/items",
+                          params={"uri": self.items_uri(rating_keys[i:i + BATCH_SIZE])})
+
+    def remove_playlist_items(self, rating_key: str, playlist_item_ids: list[str]) -> None:
+        for item_id in playlist_item_ids:
+            self._request("DELETE", f"/playlists/{rating_key}/items/{item_id}")
+
+    def clear_playlist(self, rating_key: str) -> None:
+        self._request("DELETE", f"/playlists/{rating_key}/items")
+
+    def edit_playlist(self, rating_key: str, title: str | None = None, summary: str | None = None) -> None:
+        params = {k: v for k, v in (("title", title), ("summary", summary)) if v is not None}
+        if params:
+            self._request("PUT", f"/playlists/{rating_key}", params=params)
+
+    def delete_playlist(self, rating_key: str) -> None:
+        self._request("DELETE", f"/playlists/{rating_key}")
 
     def create_collection(self, section_id: str, section_type: str, title: str,
                           rating_keys: list[str]) -> str:

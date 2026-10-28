@@ -105,7 +105,8 @@ def resolve(sources, ctx: SourceContext, item_limit: int = 0) -> tuple[list[Medi
             errors.append(f"{source.type}: {exc}")
             continue
         for ref in refs:
-            if ref.media_type and ref.media_type != ctx.media_type:
+            # No library type (a playlist over movies and TV) keeps every type.
+            if ref.media_type and ctx.media_type and ref.media_type != ctx.media_type:
                 continue
             ref.media_type = ref.media_type or ctx.media_type
             key = ref.key()

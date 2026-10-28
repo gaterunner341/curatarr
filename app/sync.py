@@ -147,28 +147,9 @@ def sync_collection(cfg: CollectionConfig, state: dict, plex: Plex, section: dic
     log.info("'%s': library index has %d item(s) (%.1fs)", name, len(index),
              time.monotonic() - started)
 
-    excluded_ids = {e.id for e in cfg.exclude}
-    blocked = {index.lookup(e.id) for e in cfg.exclude} - {None}
-    matched: list[str] = []
-    seen: set[str] = set()
-    over_rating = 0
-    for ref in refs:
-        if excluded_ids & ref_ids(ref):
-            continue
-        rk = index.match(ref)
-        if rk is None:
-            result.missing.append(ref.to_dict())
-        elif rk in blocked or rk in seen:
-            continue
-        elif not cfg.allows_rating(index.ratings.get(rk)):
-            over_rating += 1
-        else:
-            seen.add(rk)
-            matched.append(rk)
-    result.matched = len(matched)
-    if over_rating:
-        result.messages.append(f"{over_rating} title(s) left out by the {cfg.max_rating} rating cap")
-    titled = lambda rks: [{"rk": rk, "title": index.titles.get(rk, "")} for rk in rks]  # noqa: E731
+    matched, titles = match_refs(cfg, refs, [(section, index)], result)
+    seen = set(matched)
+    titled = lambda rks: [{"rk": rk, "title": titles.get(rk, "")} for rk in rks]  # noqa: E731
 
     existing = state.get("plex_rating_key")
     # Curatarr only removes titles from (or deletes) Plex collections it created or that
@@ -298,6 +279,165 @@ def sync_collection(cfg: CollectionConfig, state: dict, plex: Plex, section: dic
     return result
 
 
+def match_refs(cfg: CollectionConfig, refs: list[MediaRef],
+               indexes: list[tuple[dict, LibraryIndex]], result: SyncResult) -> tuple[list[str], dict]:
+    """Rating keys for ``refs`` in list order, after exclusions and the rating cap.
+
+    Titles not in any library are added to ``result.missing``. Returns the keys
+    and a rating key -> title map. A title is looked up in the libraries of its
+    own type (all of them when the type is unknown).
+    """
+    excluded_ids = {e.id for e in cfg.exclude}
+    blocked = {index.lookup(e.id) for _, index in indexes for e in cfg.exclude} - {None}
+    matched: list[str] = []
+    seen: set[str] = set()
+    titles: dict[str, str] = {}
+    over_rating = 0
+    for ref in refs:
+        if excluded_ids & ref_ids(ref):
+            continue
+        rk = index = None
+        for section, candidate in indexes:
+            if ref.media_type and section["type"] != ref.media_type:
+                continue
+            rk = candidate.match(ref)
+            if rk:
+                index = candidate
+                break
+        if rk is None:
+            result.missing.append(ref.to_dict())
+        elif rk in blocked or rk in seen:
+            continue
+        elif not cfg.allows_rating(index.ratings.get(rk)):
+            over_rating += 1
+        else:
+            seen.add(rk)
+            matched.append(rk)
+            titles[rk] = index.titles.get(rk, "")
+    result.matched = len(matched)
+    if over_rating:
+        result.messages.append(f"{over_rating} title(s) left out by the {cfg.max_rating} rating cap")
+    return matched, titles
+
+
+def sync_playlist(cfg: CollectionConfig, state: dict, plex: Plex, sections: list[dict],
+                  refs: list[MediaRef], settings: dict, dry_run: bool = False) -> SyncResult:
+    """Apply ``refs`` to a Plex playlist, in list order (playlists are watch orders).
+
+    A show in a playlist is all of its episodes; each movie or show is handled as
+    one unit. When titles must be removed or the order is wrong, the playlist is
+    rebuilt (cleared and refilled), which takes far fewer calls than moving items.
+    """
+    result = SyncResult(state=dict(state))
+    name = cfg.name
+    indexes = [(s, library_index(plex, s)) for s in sections]
+    matched, titles = match_refs(cfg, refs, indexes, result)
+    titled = lambda rks: [{"rk": rk, "title": titles.get(rk, "")} for rk in rks]  # noqa: E731
+
+    existing = state.get("plex_rating_key")
+    owned = state.get("plex_owned")
+    owned = True if owned is None else bool(owned)
+    if existing and not plex.playlist_exists(existing):
+        existing = None
+    if not existing:
+        existing = plex.find_playlist(name)
+        owned = False
+    result.state["plex_rating_key"] = existing
+    result.state["plex_owned"] = int(owned) if existing else None
+    log.info("'%s': %d matched in Plex, %d missing; %s", name, len(matched), len(result.missing),
+             f"updating playlist {existing}" if existing else "no playlist yet")
+
+    if len(matched) < max(cfg.min_items, 1):
+        if existing and owned and cfg.delete_below_min and not dry_run:
+            plex.delete_playlist(existing)
+            result.state.update(plex_rating_key=None, poster_applied=None, art_applied=None)
+            result.messages.append(f"Deleted: only {len(matched)} item(s) matched (minimum {cfg.min_items})")
+        else:
+            result.messages.append(f"Skipped: {len(matched)} item(s) matched (minimum {max(cfg.min_items, 1)})")
+        result.status = "skipped"
+        return result
+
+    current = [unit for unit, _ in plex.playlist_units(existing)] if existing else []
+    wanted = set(matched)
+    if not owned or cfg.sync_mode == "append":
+        # Keep everything already there; new titles go in list order, before the extras.
+        target = matched + [rk for rk in current if rk not in wanted]
+    else:
+        target = matched
+    to_add = [rk for rk in target if rk not in set(current)]
+    to_remove = [rk for rk in current if rk not in set(target)]
+    result.added, result.removed = len(to_add), len(to_remove)
+    result.added_items, result.removed_items = titled(to_add), titled(to_remove)
+    if dry_run:
+        result.messages.append("Dry run: no changes were made")
+        return result
+
+    created = False
+    if not existing:
+        existing = plex.create_playlist(name, matched)
+        created = True
+        result.state.update(plex_rating_key=existing, plex_owned=1, poster_applied=None, art_applied=None)
+    elif current + to_add == target and not to_remove:
+        if to_add:
+            plex.add_playlist_items(existing, to_add)
+    elif owned:
+        log.info("'%s': rebuilding playlist %s in list order", name, existing)
+        plex.clear_playlist(existing)
+        plex.add_playlist_items(existing, target)
+    else:
+        if to_add:
+            plex.add_playlist_items(existing, to_add)
+        result.messages.append("This playlist already existed, so Curatarr only adds to it "
+                               "(see its settings to let it remove titles and set the order too)")
+    log.info("'%s': %s playlist %s: +%d / -%d", name, "created" if created else "updated",
+             existing, result.added, result.removed)
+
+    if cfg.summary or not created:
+        plex.edit_playlist(existing, summary=cfg.summary)
+    stamp, data, url = image_stamp(cfg, "poster")
+    if stamp and stamp != result.state.get("poster_applied"):
+        try:
+            plex.upload_image(existing, "poster", data=data, url=url)
+            result.state["poster_applied"] = stamp
+        except PlexError as exc:
+            result.warn(f"Could not upload poster: {exc}")
+    verb = "Created" if created else "Updated"
+    result.messages.insert(0, f"{verb} with {len(matched)} title(s): "
+                              f"+{result.added} / -{result.removed}, {len(result.missing)} missing")
+    return result
+
+
+def resolve_sections(plex: Plex, cfg: CollectionConfig) -> list[dict]:
+    """The Plex libraries a collection (one) or playlist (one or more) uses."""
+    if cfg.kind != "playlist" or not (cfg.section_ids or cfg.libraries):
+        return [resolve_section(plex, cfg.section_id, cfg.library)]
+    # Imported playlists have library names only; ids are per server.
+    count = max(len(cfg.section_ids), len(cfg.libraries))
+    ids = cfg.section_ids + [""] * (count - len(cfg.section_ids))
+    names = cfg.libraries + [""] * (count - len(cfg.libraries))
+    return [resolve_section(plex, sid, lib) for sid, lib in zip(ids, names)]
+
+
+def current_titles(plex: Plex, cfg: CollectionConfig, rk: str) -> list[str]:
+    """Movie and show rating keys in a Plex collection or playlist, in order."""
+    if cfg.kind == "playlist":
+        return [unit for unit, _ in plex.playlist_units(rk)]
+    return plex.collection_items(rk)
+
+
+def remove_titles(plex: Plex, cfg: CollectionConfig, rk: str, titles: list[str]) -> None:
+    """Take movies or shows out of a Plex collection or playlist."""
+    if not titles:
+        return
+    if cfg.kind == "playlist":
+        drop = set(titles)
+        plex.remove_playlist_items(rk, [i for unit, items in plex.playlist_units(rk)
+                                        if unit in drop for i in items])
+        return
+    for title in titles:
+        plex.remove_item(rk, title)
+
+
 def ref_ids(ref: MediaRef) -> set[str]:
     """The exclusion ids a list title can be matched by."""
     ids = {ref.imdb} if ref.imdb else set()
@@ -327,13 +467,13 @@ def undo_last_sync(collection_id: int) -> dict:
         cfg = CollectionConfig(**row["config"])
         settings = db.get_settings()
         with plexmod.from_settings(settings) as plex:
-            current = set(plex.collection_items(rk))
+            current = set(current_titles(plex, cfg, rk))
             take_out = [i for i in last["added_items"] if i["rk"] in current]
             put_back = [i for i in last["removed_items"] if i["rk"] not in current]
-            for item in take_out:
-                plex.remove_item(rk, item["rk"])
+            remove_titles(plex, cfg, rk, [i["rk"] for i in take_out])
             if put_back:
-                plex.add_items(rk, [i["rk"] for i in put_back])
+                (plex.add_playlist_items if cfg.kind == "playlist" else plex.add_items)(
+                    rk, [i["rk"] for i in put_back])
         cfg.enabled = False      # otherwise the next scheduled sync would redo it
         db.update_collection_config(collection_id, cfg.model_dump())
         message = (f"Undid the last change: took out {len(take_out)} title(s), "
@@ -397,8 +537,14 @@ def _run_collection(collection_id: int, trigger: str, dry_run: bool) -> dict:
     log.info("Syncing collection '%s' (%s)", cfg.name, trigger)
     try:
         with plexmod.from_settings(settings) as plex, httpx.Client(timeout=30) as http:
-            section = resolve_section(plex, cfg.section_id, cfg.library)
-            if section["id"] != cfg.section_id or section["title"] != cfg.library:
+            sections = resolve_sections(plex, cfg)
+            section = sections[0]
+            ids, titles = [s["id"] for s in sections], [s["title"] for s in sections]
+            if cfg.kind == "playlist" and (ids != cfg.section_ids or titles != cfg.libraries):
+                cfg.section_ids, cfg.libraries = ids, titles
+                cfg.section_id, cfg.library = ids[0], titles[0]
+                db.update_collection_config(collection_id, cfg.model_dump())
+            elif section["id"] != cfg.section_id or section["title"] != cfg.library:
                 cfg.section_id, cfg.library = section["id"], section["title"]
                 db.update_collection_config(collection_id, cfg.model_dump())
             state = {k: row.get(k) for k in STATE_KEYS}
@@ -407,10 +553,15 @@ def _run_collection(collection_id: int, trigger: str, dry_run: bool) -> dict:
                 result = remove_off_season(cfg, state, plex, section, dry_run=dry_run)
                 source_errors = []
             else:
-                ctx = SourceContext(settings=settings, http=http, media_type=section["type"],
-                                    plex=plex, section=section)
-                log.info("'%s': library '%s' (id %s, %s), %d source(s)", cfg.name, section["title"],
-                         section["id"], section["type"], len(cfg.sources))
+                types = {s["type"] for s in sections}
+                # A playlist over movies and TV takes titles of both types.
+                ctx = SourceContext(settings=settings, http=http,
+                                    media_type=section["type"] if len(types) == 1 else None,
+                                    plex=plex, section=section if len(sections) == 1 else None)
+                log.info("'%s': %s %s, %d source(s)", cfg.name,
+                         "libraries" if len(sections) > 1 else "library",
+                         ", ".join(f"'{s['title']}' (id {s['id']}, {s['type']})" for s in sections),
+                         len(cfg.sources))
                 refs, source_errors = resolve(cfg.sources, ctx, cfg.item_limit)
                 run["source_count"] = len(refs)
                 for err in source_errors:
@@ -418,15 +569,25 @@ def _run_collection(collection_id: int, trigger: str, dry_run: bool) -> dict:
                 log.info("'%s': %d title(s) from lists", cfg.name, len(refs))
                 if source_errors and not refs:
                     raise SyncError("; ".join(source_errors))
-                result = sync_collection(cfg, state, plex, section, refs, settings, dry_run=dry_run)
+                if cfg.kind == "playlist":
+                    result = sync_playlist(cfg, state, plex, sections, refs, settings, dry_run=dry_run)
+                else:
+                    result = sync_collection(cfg, state, plex, section, refs, settings, dry_run=dry_run)
             for err in source_errors:
                 result.warn(err)
             if cfg.request_missing and result.missing and not dry_run:
-                missing_refs = [MediaRef(**m) for m in result.missing]
-                result.requested, arr_errors, limited = arr.request_missing(
-                    section["type"], missing_refs, settings, http)
-                for err in arr_errors:
-                    result.warn(err)
+                by_type: dict[str, list[MediaRef]] = {}
+                for m in result.missing:
+                    ref = MediaRef(**m)
+                    kind = ref.media_type if ref.media_type in types else section["type"]
+                    by_type.setdefault(kind, []).append(ref)
+                limited = False
+                for kind, missing_refs in by_type.items():
+                    requested, arr_errors, hit_limit = arr.request_missing(kind, missing_refs, settings, http)
+                    result.requested += requested
+                    limited = limited or hit_limit
+                    for err in arr_errors:
+                        result.warn(err)
                 if result.requested:
                     result.messages.append(f"Requested {result.requested} missing title(s)"
                                            + (" (per-sync limit reached; more next sync)" if limited else ""))
@@ -540,18 +701,33 @@ def apply_home_calendars(today: date | None = None) -> int:
     return updated
 
 
-def preview(section_id: str, library: str, sources, item_limit: int = 0) -> dict:
-    """Fetch lists and report which titles are already in Plex, without changing anything."""
+def preview(section_id: str, library: str, sources, item_limit: int = 0,
+            section_ids: list[str] | None = None) -> dict:
+    """Fetch lists and report which titles are already in Plex, without changing anything.
+
+    ``section_ids`` (a playlist's libraries) matches against several libraries at once.
+    """
     settings = db.get_settings()
     with plexmod.from_settings(settings) as plex, httpx.Client(timeout=30) as http:
-        section = resolve_section(plex, section_id, library)
-        refs, errors = resolve(sources, SourceContext(settings, http, section["type"], plex, section),
-                               item_limit)
-        index = library_index(plex, section, refresh=True)
+        sections = [resolve_section(plex, sid, "") for sid in section_ids] if section_ids             else [resolve_section(plex, section_id, library)]
+        types = {s["type"] for s in sections}
+        ctx = SourceContext(settings, http, sections[0]["type"] if len(types) == 1 else None, plex,
+                            sections[0] if len(sections) == 1 else None)
+        refs, errors = resolve(sources, ctx, item_limit)
+        indexes = [(s, library_index(plex, s, refresh=True)) for s in sections]
         items = []
         for ref in refs:
-            rk = index.match(ref)
-            items.append({**ref.to_dict(), "in_plex": rk is not None, "rating_key": rk,
-                          "plex_title": index.titles.get(rk) if rk else None})
-    return {"library": section, "items": items, "errors": errors,
+            rk = title = None
+            for section, index in indexes:
+                if ref.media_type and section["type"] != ref.media_type:
+                    continue
+                rk = index.match(ref)
+                if rk:
+                    title = index.titles.get(rk)
+                    break
+            items.append({**ref.to_dict(), "in_plex": rk is not None, "rating_key": rk, "plex_title": title})
+    library = sections[0] if len(sections) == 1 else {
+        "id": ",".join(s["id"] for s in sections), "title": " + ".join(s["title"] for s in sections),
+        "type": sections[0]["type"] if len(types) == 1 else None}
+    return {"library": library, "items": items, "errors": errors,
             "matched": sum(1 for i in items if i["in_plex"]), "total": len(items)}

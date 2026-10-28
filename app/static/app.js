@@ -68,6 +68,8 @@ const routes = [
   [/^#\/collections\/(\d+)$/, (m) => editor(Number(m[1]))],
   [/^#\/collections\/(\d+)\/items$/, (m) => collectionItems({ id: Number(m[1]) })],
   [/^#\/plex\/(\d+)(?:\?(.*))?$/, (m) => collectionItems({ ratingKey: m[1], params: new URLSearchParams(m[2] || "") })],
+  [/^#\/plex-playlist\/(\d+)(?:\?(.*))?$/, (m) => collectionItems({ ratingKey: m[1], playlist: true, params: new URLSearchParams(m[2] || "") })],
+  [/^#\/playlists$/, playlistsPage],
   [/^#\/history$/, history],
   [/^#\/logs$/, logsPage],
   [/^#\/settings$/, settings],
@@ -168,6 +170,34 @@ function collectionKind(cfg, libs) {
   return lib?.type || null;
 }
 
+// A Curatarr collection or playlist card, with Sync now / View / Edit / Delete.
+function collectionCard(r) {
+  const cfg = r.config;
+  const poster = cfg.poster_file
+    ? `<img class="poster" src="/api/collections/${r.id}/image/poster?v=${encodeURIComponent(r.poster_applied || cfg.poster_file)}" alt="">`
+    : (cfg.poster_url ? `<img class="poster" src="${esc(cfg.poster_url)}" alt="" referrerpolicy="no-referrer">` : `<div class="poster">▦</div>`);
+  const where = cfg.kind === "playlist" && cfg.libraries?.length ? cfg.libraries.join(" + ") : cfg.library;
+  return `
+    <div class="coll${cfg.enabled ? "" : " disabled"}">
+      ${poster}
+      <div class="coll-body">
+        <a class="coll-title" href="#/collections/${r.id}/items" title="View ${esc(cfg.name)}">${esc(cfg.name)}</a>
+        <div class="small muted">${esc(where || "?")} · ${esc(sourceSummary(cfg))}</div>
+        <div class="small">${r.running ? badge("running") : badge(r.last_status)} <span class="muted">${esc(when(r.last_run))}</span></div>
+        ${r.last_message ? `<div class="small muted" title="${esc(r.last_message)}" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(r.last_message)}</div>` : ""}
+        <div class="small muted">Next: ${cfg.enabled ? esc(when(r.next_run)) : "disabled"}</div>
+        ${cfg.promote_window ? `<div class="small muted">Home screen: ${esc(windowText(cfg))}
+          ${promotionActive(cfg) ? `<span class="badge success">showing</span>` : `<span class="badge">hidden</span>`}</div>` : ""}
+        <div class="coll-actions">
+          <button class="small primary" data-run="${r.id}" ${r.running ? "disabled" : ""}>Sync now</button>
+          <a class="btn small" href="#/collections/${r.id}/items" style="padding:4px 10px;font-size:.8rem">View</a>
+          <a class="btn small" href="#/collections/${r.id}" style="padding:4px 10px;font-size:.8rem">Edit</a>
+          <button class="small danger" data-del="${r.id}" data-name="${esc(cfg.name)}">Delete</button>
+        </div>
+      </div>
+    </div>`;
+}
+
 async function collections(kind) {
   await catalog();
   const [allRows, libs] = await Promise.all([
@@ -175,35 +205,11 @@ async function collections(kind) {
     libraries().catch(() => null),
   ]);
   // Without Plex the library types are unknown, so show everything rather than hide collections.
-  // Holiday collections live on the Holidays page.
-  const regular = allRows.filter((r) => !r.config.holiday);
+  // Holiday collections live on the Holidays page, playlists on the Playlists page.
+  const regular = allRows.filter((r) => !r.config.holiday && r.config.kind !== "playlist");
   const rows = libs ? regular.filter((r) => collectionKind(r.config, libs) === kind) : regular;
   const meta = KINDS[kind];
-  const cards = rows.map((r) => {
-    const cfg = r.config;
-    const poster = cfg.poster_file
-      ? `<img class="poster" src="/api/collections/${r.id}/image/poster?v=${encodeURIComponent(r.poster_applied || cfg.poster_file)}" alt="">`
-      : (cfg.poster_url ? `<img class="poster" src="${esc(cfg.poster_url)}" alt="" referrerpolicy="no-referrer">` : `<div class="poster">▦</div>`);
-    return `
-      <div class="coll${cfg.enabled ? "" : " disabled"}">
-        ${poster}
-        <div class="coll-body">
-          <a class="coll-title" href="#/collections/${r.id}/items" title="View ${esc(cfg.name)}">${esc(cfg.name)}</a>
-          <div class="small muted">${esc(cfg.library || "?")} · ${esc(sourceSummary(cfg))}</div>
-          <div class="small">${r.running ? badge("running") : badge(r.last_status)} <span class="muted">${esc(when(r.last_run))}</span></div>
-          ${r.last_message ? `<div class="small muted" title="${esc(r.last_message)}" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(r.last_message)}</div>` : ""}
-          <div class="small muted">Next: ${cfg.enabled ? esc(when(r.next_run)) : "disabled"}</div>
-          ${cfg.promote_window ? `<div class="small muted">Home screen: ${esc(windowText(cfg))}
-            ${promotionActive(cfg) ? `<span class="badge success">showing</span>` : `<span class="badge">hidden</span>`}</div>` : ""}
-          <div class="coll-actions">
-            <button class="small primary" data-run="${r.id}" ${r.running ? "disabled" : ""}>Sync now</button>
-            <a class="btn small" href="#/collections/${r.id}/items" style="padding:4px 10px;font-size:.8rem">View</a>
-            <a class="btn small" href="#/collections/${r.id}" style="padding:4px 10px;font-size:.8rem">Edit</a>
-            <button class="small danger" data-del="${r.id}" data-name="${esc(cfg.name)}">Delete</button>
-          </div>
-        </div>
-      </div>`;
-  }).join("");
+  const cards = rows.map(collectionCard).join("");
 
   view.innerHTML = `
     <div class="page-head">
@@ -233,6 +239,11 @@ async function collections(kind) {
     toast(`Syncing ${enabled.length} collection(s)`);
     setTimeout(route, 1500);
   }));
+  bindCardActions("collection");
+  if (rows.some((r) => r.running)) refreshTimer = setInterval(route, 4000);
+}
+
+function bindCardActions(noun) {
   view.querySelectorAll("[data-run]").forEach((b) => b.onclick = () => guard(async () => {
     b.disabled = true;
     await api("POST", `/collections/${b.dataset.run}/run`);
@@ -241,12 +252,11 @@ async function collections(kind) {
   }));
   view.querySelectorAll("[data-del]").forEach((b) => b.onclick = () => guard(async () => {
     if (!confirm(`Delete "${b.dataset.name}" from Curatarr?`)) return;
-    const fromPlex = confirm("Also delete the collection from Plex?\n\nOK = delete it in Plex too, Cancel = keep it in Plex.");
+    const fromPlex = confirm(`Also delete the ${noun} from Plex?\n\nOK = delete it in Plex too, Cancel = keep it in Plex.`);
     const r = await api("DELETE", `/collections/${b.dataset.del}?remove_from_plex=${fromPlex}`);
-    toast(r.message || "Collection deleted", !!r.message);
+    toast(r.message || `${noun[0].toUpperCase()}${noun.slice(1)} deleted`, !!r.message);
     route();
   }));
-  if (rows.some((r) => r.running)) refreshTimer = setInterval(route, 4000);
 }
 
 // Collections that exist in Plex but aren't managed by Curatarr yet. Cached
@@ -295,6 +305,68 @@ async function existingPlexCollections(el, kind) {
 const plexView = (c, kind) => `#/plex/${c.ratingKey}?${esc(new URLSearchParams({
   title: c.title, library: c.section_title, section: c.section_id, kind, smart: c.smart ? "1" : "0" }))}`;
 
+// ---------- playlists ----------
+
+async function playlistsPage() {
+  await catalog();
+  const rows = (await api("GET", "/collections")).filter((r) => r.config.kind === "playlist");
+  view.innerHTML = `
+    <div class="page-head">
+      <h1>Playlists</h1>
+      <div class="actions">
+        ${rows.length ? `<button id="runAll">Sync all</button>` : ""}
+        <a class="btn primary" href="#/collections/new?kind=playlist">+ New playlist</a>
+      </div>
+    </div>
+    <p class="hint" style="margin-top:-8px">Playlists play in list order, which suits watch orders such as the MCU.
+      They can mix movies and TV shows, and a show brings all of its episodes. Playlists belong to the Plex account Curatarr signed in with.</p>
+    ${rows.length ? `<div class="collections">${rows.map(collectionCard).join("")}</div>` : `
+      <div class="card empty">
+        <p>No playlists yet.</p>
+        <p class="small">Create one from a TMDB, Trakt, MDBList or IMDb list, or use <strong>Sync with a list</strong> on one of your existing Plex playlists below.</p>
+        <a class="btn primary" href="#/collections/new?kind=playlist">Create a playlist</a>
+      </div>`}
+    <section id="plexExisting" style="margin-top:32px"></section>`;
+  bindCardActions("playlist");
+  view.querySelector("#runAll")?.addEventListener("click", () => guard(async () => {
+    const enabled = rows.filter((r) => r.config.enabled && !r.running);
+    for (const r of enabled) await api("POST", `/collections/${r.id}/run`);
+    toast(`Syncing ${enabled.length} playlist(s)`);
+    setTimeout(route, 1500);
+  }));
+  if (rows.some((r) => r.running)) refreshTimer = setInterval(route, 4000);
+
+  const el = view.querySelector("#plexExisting");
+  let playlists;
+  try {
+    playlists = (await api("GET", "/plex/playlists")).filter((p) => !p.managed_id);
+  } catch (err) {
+    el.innerHTML = `<h2>Existing Plex playlists</h2><p class="muted small">Could not load playlists from Plex: ${esc(err.message)}</p>`;
+    return;
+  }
+  if (!playlists.length) return;
+  const viewLink = (p) => `#/plex-playlist/${p.ratingKey}?${esc(new URLSearchParams({ title: p.title, smart: p.smart ? "1" : "0" }))}`;
+  el.innerHTML = `
+    <details class="fold" data-fold="playlists.existing" ${foldOpen("playlists.existing", false) ? "open" : ""}>
+    <summary class="fold-head"><h2>Existing Plex playlists</h2><span class="muted small">${playlists.length}</span></summary>
+    <div class="collections" style="margin-top:10px">${playlists.map((p) => `
+      <div class="coll existing">
+        ${p.thumb ? `<img class="poster" loading="lazy" src="/api/plex/image?path=${encodeURIComponent(p.thumb)}" alt="">` : `<div class="poster">▦</div>`}
+        <div class="coll-body">
+          <a class="coll-title" href="${viewLink(p)}" title="View ${esc(p.title)}">${esc(p.title)}</a>
+          <div class="small muted">${p.childCount} item${p.childCount === 1 ? "" : "s"}</div>
+          ${p.smart ? `<div class="small"><span class="badge">smart</span> <span class="muted">Plex keeps this one updated itself</span></div>` : ""}
+          <div class="coll-actions">
+            <a class="btn small" style="padding:4px 10px;font-size:.8rem" href="${viewLink(p)}">View</a>
+            ${p.smart ? "" : `<a class="btn small" style="padding:4px 10px;font-size:.8rem"
+              href="#/collections/new?${esc(new URLSearchParams({ kind: "playlist", link: p.ratingKey, title: p.title, items: p.childCount }))}">Sync with a list</a>`}
+          </div>
+        </div>
+      </div>`).join("")}
+    </div></details>`;
+  bindFolds(el);
+}
+
 // Open/closed state of collapsible sections, remembered in this browser only.
 function foldOpen(key, fallback) {
   try {
@@ -316,7 +388,7 @@ function bindFolds(root) {
 
 // What's in a collection, shown from Plex: a Curatarr collection (id) or any
 // Plex collection (ratingKey plus title/library from the link).
-async function collectionItems({ id = null, ratingKey = null, params = new URLSearchParams() }) {
+async function collectionItems({ id = null, ratingKey = null, playlist = false, params = new URLSearchParams() }) {
   let row = null, title, library, back, inPlex = true, items, change = null;
   if (id) {
     const [r, contents, libs, last] = await Promise.all([
@@ -329,13 +401,15 @@ async function collectionItems({ id = null, ratingKey = null, params = new URLSe
     change = last;
     ({ in_plex: inPlex, items } = contents);
     title = row.config.name;
-    library = row.config.library;
-    back = row.config.holiday ? "#/holidays" : (KINDS[libs && collectionKind(row.config, libs)] || KINDS.movie).hash;
+    playlist = row.config.kind === "playlist";
+    library = playlist && row.config.libraries?.length ? row.config.libraries.join(" + ") : row.config.library;
+    back = row.config.holiday ? "#/holidays" : playlist ? "#/playlists"
+      : (KINDS[libs && collectionKind(row.config, libs)] || KINDS.movie).hash;
   } else {
-    items = await api("GET", `/plex/collections/${ratingKey}/items`);
-    title = params.get("title") || "Plex collection";
+    items = await api("GET", `/plex/${playlist ? "playlists" : "collections"}/${ratingKey}/items`);
+    title = params.get("title") || (playlist ? "Plex playlist" : "Plex collection");
     library = params.get("library") || "";
-    back = (KINDS[params.get("kind")] || KINDS.movie).hash;
+    back = playlist ? "#/playlists" : (KINDS[params.get("kind")] || KINDS.movie).hash;
   }
   // Keep the page the collection came from highlighted in the menu.
   document.querySelector(`[data-nav="${back.slice(2)}"]`)?.classList.add("active");
@@ -363,7 +437,8 @@ async function collectionItems({ id = null, ratingKey = null, params = new URLSe
           <button class="primary" id="runNow" ${row.running ? "disabled" : ""}>Sync now</button>
           <a class="btn" href="#/collections/${row.id}">Edit</a>` : ""}
         ${!row && params.get("smart") !== "1" ? `<a class="btn primary"
-          href="#/collections/new?${new URLSearchParams({ link: ratingKey, section: params.get("section") || "", title, items: items.length })}">Sync with a list</a>` : ""}
+          href="#/collections/new?${esc(new URLSearchParams(playlist ? { kind: "playlist", link: ratingKey, title, items: items.length }
+            : { link: ratingKey, section: params.get("section") || "", title, items: items.length }))}">Sync with a list</a>` : ""}
       </div>
     </div>
     ${row?.last_message ? `<p class="small muted" style="margin-top:-8px">${badge(row.last_status)} ${esc(row.last_message)}</p>` : ""}
@@ -381,9 +456,9 @@ async function collectionItems({ id = null, ratingKey = null, params = new URLSe
         <div class="grow"><input type="text" id="itemFilter" placeholder="Filter ${items.length} title${items.length === 1 ? "" : "s"}…"></div>
         <span class="small muted" id="itemCount">${items.length} in Plex · ${watched} watched</span>
       </div>
-      ${items.length ? `<div class="items">${items.map(tile).join("")}</div>` : `<div class="card empty">This collection is empty in Plex.</div>`}`
+      ${items.length ? `<div class="items">${items.map(tile).join("")}</div>` : `<div class="card empty">This ${playlist ? "playlist" : "collection"} is empty in Plex.</div>`}`
     : `<div class="card empty">
-        <p>This collection isn't in Plex right now.</p>
+        <p>This ${playlist ? "playlist" : "collection"} isn't in Plex right now.</p>
         <p class="small">${row?.config.seasonal_only ? "It's only in Plex during its dates." : "It's created in Plex on its next sync."}</p>
       </div>`}`;
 
@@ -429,9 +504,9 @@ async function collectionItems({ id = null, ratingKey = null, params = new URLSe
     out.innerHTML = `<p class="muted">Fetching lists and matching against Plex…</p>`;
     try {
       const cfg = row.config;
-      const r = await api("POST", "/preview", { section_id: cfg.section_id, library: cfg.library, sources: cfg.sources, item_limit: cfg.item_limit });
+      const r = await api("POST", "/preview", { section_id: cfg.section_id, library: cfg.library, section_ids: cfg.section_ids || [], sources: cfg.sources, item_limit: cfg.item_limit });
       const missing = r.items.filter((i) => !i.in_plex);
-      const service = r.library.type === "show" ? "Sonarr" : "Radarr";
+      const service = (i) => ((r.library.type || i.media_type) === "show" ? "Sonarr" : "Radarr");
       out.innerHTML = `
         <details class="card" open>
           <summary><strong>${missing.length}</strong> of ${r.total} list titles aren't in ${esc(r.library.title)}</summary>
@@ -440,14 +515,15 @@ async function collectionItems({ id = null, ratingKey = null, params = new URLSe
             <thead><tr><th>Title</th><th>Year</th><th>IDs</th><th></th></tr></thead>
             <tbody>${missing.map((i, n) => `<tr><td>${esc(i.title || "—")}</td><td>${esc(i.year || "")}</td>
               <td class="small muted">${[i.imdb, i.tmdb && `tmdb:${i.tmdb}`, i.tvdb && `tvdb:${i.tvdb}`].filter(Boolean).map(esc).join(" · ")}</td>
-              <td><button type="button" class="small" data-request="${n}">Add to ${service}</button></td></tr>`).join("")}
+              <td><button type="button" class="small" data-request="${n}">Add to ${service(i)}</button></td></tr>`).join("")}
             </tbody></table></div>` : ""}
         </details>`;
       out.querySelectorAll("[data-request]").forEach((b) => b.onclick = () => guard(async () => {
         b.disabled = true;
         try {
-          const res = await api("POST", `/collections/${row.id}/request`, { ...missing[Number(b.dataset.request)], media_type: r.library.type });
-          b.textContent = res.status === "added" ? "Added ✓" : `Already in ${service}`;
+          const item = missing[Number(b.dataset.request)];
+          const res = await api("POST", `/collections/${row.id}/request`, { ...item, media_type: r.library.type || item.media_type });
+          b.textContent = res.status === "added" ? "Added ✓" : `Already in ${service(item)}`;
         } catch (err) {
           b.disabled = false;
           throw err;
@@ -568,7 +644,7 @@ const PLEX_SORTS = [
 // Builds a Plex filter query (genre=12&year>>=1980…) from form fields.
 async function openFilterBuilder(box, src, sectionId, onApply) {
   if (!box.hidden) { box.hidden = true; return; }
-  if (!sectionId) return toast("Pick a Plex library first", true);
+  if (!sectionId) return toast("Pick one Plex library first (a Plex filter works on a single library)", true);
   box.hidden = false;
   box.innerHTML = `<p class="muted small">Loading library filters…</p>`;
   let f;
@@ -620,12 +696,20 @@ async function editor(id, params = new URLSearchParams()) {
   const cfg = { ...DEFAULTS, ...(row?.config || {}) };
   cfg.sources = cfg.sources.map((s) => ({ ...s }));
   cfg.exclude = [...cfg.exclude];
+  if (!id && params.get("kind") === "playlist") cfg.kind = "playlist";
+  const isPlaylist = cfg.kind === "playlist";
+  const noun = isPlaylist ? "playlist" : "collection";
+  cfg.section_ids = [...(cfg.section_ids || [])];
+  if (isPlaylist && !id && !cfg.section_ids.length) {
+    // New playlists start with every movie and TV library ticked.
+    cfg.section_ids = libs.map((l) => l.id);
+  }
   // Linking an existing Plex collection: keep its name and library, and default
   // to append so the titles already in it are not removed.
   const link = !id && params.get("link");
   if (link) {
-    Object.assign(cfg, { name: params.get("title") || "", section_id: params.get("section") || "",
-                         sync_mode: "append" });
+    Object.assign(cfg, { name: params.get("title") || "", sync_mode: "append" });
+    if (params.get("section")) cfg.section_id = params.get("section");
   }
   // "+ New collection" on the Movies / TV page starts on a library of that type.
   if (!id && !link && params.get("type")) {
@@ -634,11 +718,17 @@ async function editor(id, params = new URLSearchParams()) {
   const kind = collectionKind(cfg, libs) || params.get("type") || "movie";
   const backHash = () => {
     if (cfg.holiday) return "#/holidays";
+    if (isPlaylist) return "#/playlists";
     const opt = view.querySelector("#f-lib")?.selectedOptions[0];
     return KINDS[opt?.dataset.type || kind].hash;
   };
-  document.querySelectorAll("[data-nav]").forEach((a) =>
-    a.classList.toggle("active", a.getAttribute("href") === (cfg.holiday ? "#/holidays" : KINDS[kind].hash)));
+  document.querySelectorAll("[data-nav]").forEach((a) => a.classList.toggle("active",
+    a.getAttribute("href") === (cfg.holiday ? "#/holidays" : isPlaylist ? "#/playlists" : KINDS[kind].hash)));
+  // Libraries picked for the lists: one for a collection, any number for a playlist.
+  const pickedLibs = () => isPlaylist
+    ? [...view.querySelectorAll("[data-lib]:checked")].map((b) => ({ id: b.value, title: b.dataset.title, type: b.dataset.type }))
+    : [view.querySelector("#f-lib").selectedOptions[0]].filter(Boolean)
+      .map((o) => ({ id: o.value, title: o.dataset.title || "", type: o.dataset.type }));
   const settings = await api("GET", "/settings").catch(() => ({ values: {} }));
   const defaultSchedule = settings.values.default_schedule || "";
   // Image files picked in the form; uploaded (or removed) when the collection is saved.
@@ -649,7 +739,7 @@ async function editor(id, params = new URLSearchParams()) {
 
   view.innerHTML = `
     <div class="page-head">
-      <h1>${id ? esc(cfg.name) : link ? `Sync “${esc(cfg.name)}”` : "New collection"}</h1>
+      <h1>${id ? esc(cfg.name) : link ? `Sync “${esc(cfg.name)}”` : `New ${noun}`}</h1>
       <div class="actions">
         ${id ? `<button id="dryRun">Dry run</button>` : ""}
         <button id="save">Save</button>
@@ -658,13 +748,13 @@ async function editor(id, params = new URLSearchParams()) {
     </div>
 
     ${link ? `<div class="notice">
-      Linking to the existing Plex collection <strong>${esc(cfg.name)}</strong> (${esc(params.get("items") || "0")} items).
+      Linking to the existing Plex ${noun} <strong>${esc(cfg.name)}</strong> (${esc(params.get("items") || "0")} items).
       Add the lists it should follow below. <strong>Append</strong> mode is selected so the titles already in it stay;
       switch to <strong>Sync</strong> only if you want Curatarr to remove anything that isn't on your lists.
     </div>` : ""}
 
     ${row && row.plex_owned === 0 ? `<div class="notice">
-      A Plex collection named <strong>${esc(cfg.name)}</strong> already existed, so Curatarr is using it but only
+      A Plex ${noun} named <strong>${esc(cfg.name)}</strong> already existed, so Curatarr is using it but only
       <strong>adds</strong> titles — it never removes titles from it or deletes it.
       <div style="margin-top:8px"><button type="button" class="small" id="ownIt">Let Curatarr remove titles too</button></div>
     </div>` : ""}
@@ -672,9 +762,13 @@ async function editor(id, params = new URLSearchParams()) {
     <div class="card">
       <h2>Basics</h2>
       <div class="grid">
-        <div><label for="f-name">Collection name</label><input type="text" id="f-name" value="${esc(cfg.name)}" placeholder="IMDb Top 250" ${link ? "readonly" : ""}></div>
-        <div><label for="f-lib">Plex library</label>
-          <select id="f-lib" ${link ? "disabled" : ""}>${libOptions || `<option value="${esc(cfg.section_id)}" data-title="${esc(cfg.library)}">${esc(cfg.library || "Connect Plex first")}</option>`}</select></div>
+        <div><label for="f-name">${isPlaylist ? "Playlist" : "Collection"} name</label><input type="text" id="f-name" value="${esc(cfg.name)}" placeholder="${isPlaylist ? "MCU in order" : "IMDb Top 250"}" ${link ? "readonly" : ""}></div>
+        ${isPlaylist ? `<div><label>Libraries to take titles from</label>${libs.map((l) => `
+          <label class="check"><input type="checkbox" data-lib value="${esc(l.id)}" data-title="${esc(l.title)}" data-type="${esc(l.type)}"
+            ${cfg.section_ids.includes(l.id) ? "checked" : ""}> ${esc(l.title)} (${l.type === "show" ? "TV" : "Movies"})</label>`).join("")
+            || `<p class="muted small">Connect Plex first.</p>`}</div>`
+        : `<div><label for="f-lib">Plex library</label>
+          <select id="f-lib" ${link ? "disabled" : ""}>${libOptions || `<option value="${esc(cfg.section_id)}" data-title="${esc(cfg.library)}">${esc(cfg.library || "Connect Plex first")}</option>`}</select></div>`}
         <div><label class="check"><input type="checkbox" id="f-enabled" ${cfg.enabled ? "checked" : ""}> Enabled (sync on schedule)</label></div>
       </div>
     </div>
@@ -698,7 +792,7 @@ async function editor(id, params = new URLSearchParams()) {
             <option value="sync" ${cfg.sync_mode === "sync" ? "selected" : ""}>Sync: add new and remove titles no longer listed</option>
             <option value="append" ${cfg.sync_mode === "append" ? "selected" : ""}>Append: only add titles</option>
           </select></div>
-        <div><label for="f-order">Order in Plex</label>
+        <div ${isPlaylist ? "hidden" : ""}><label for="f-order">Order in Plex</label>
           <select id="f-order">
             <option value="custom" ${cfg.order === "custom" ? "selected" : ""}>List order</option>
             <option value="release" ${cfg.order === "release" ? "selected" : ""}>Release date</option>
@@ -706,7 +800,7 @@ async function editor(id, params = new URLSearchParams()) {
           </select></div>
         <div><label for="f-limit">Max items (0 = no limit)</label><input type="number" id="f-limit" min="0" value="${cfg.item_limit}"></div>
         <div><label for="f-min">Minimum matched items</label><input type="number" id="f-min" min="0" value="${cfg.min_items}">
-          <label class="check"><input type="checkbox" id="f-delmin" ${cfg.delete_below_min ? "checked" : ""}> Delete the Plex collection when below minimum</label></div>
+          <label class="check"><input type="checkbox" id="f-delmin" ${cfg.delete_below_min ? "checked" : ""}> Delete the Plex ${noun} when below minimum</label></div>
         <div><label for="f-schedule">Schedule (cron)</label><input type="text" id="f-schedule" value="${esc(cfg.schedule)}" placeholder="${esc(defaultSchedule)} (default)">
           <div class="hint">Five-field cron, e.g. <code>0 */6 * * *</code> for every 6 hours.</div></div>
         <div><label class="check"><input type="checkbox" id="f-request" ${cfg.request_missing ? "checked" : ""}> Send missing titles to Radarr / Sonarr</label></div>
@@ -717,7 +811,7 @@ async function editor(id, params = new URLSearchParams()) {
           </select>
           <label class="check"><input type="checkbox" id="f-unrated" ${cfg.drop_unrated ? "checked" : ""}> Also leave out unrated titles</label></div>
         <div class="full"><label>Excluded titles</label><div id="excluded"></div>
-          <div class="hint">Excluded titles are never added, even when a list has them. Exclude a title from the collection's <strong>View</strong> page.</div></div>
+          <div class="hint">Excluded titles are never added, even when a list has them. Exclude a title from the ${noun}'s <strong>View</strong> page.</div></div>
       </div>
     </div>
 
@@ -725,20 +819,20 @@ async function editor(id, params = new URLSearchParams()) {
       <h2>Appearance in Plex</h2>
       <div class="grid">
         <div class="full"><label for="f-summary">Summary</label><textarea id="f-summary">${esc(cfg.summary)}</textarea></div>
-        <div><label for="f-sort">Sort title</label><input type="text" id="f-sort" value="${esc(cfg.sort_title)}" placeholder="!01 Top 250"></div>
-        <div><label for="f-labels">Labels (comma separated)</label><input type="text" id="f-labels" value="${esc(cfg.labels.join(", "))}"></div>
-        <div><label for="f-cmode">Collection visibility in library</label>
+        <div ${isPlaylist ? "hidden" : ""}><label for="f-sort">Sort title</label><input type="text" id="f-sort" value="${esc(cfg.sort_title)}" placeholder="!01 Top 250"></div>
+        <div ${isPlaylist ? "hidden" : ""}><label for="f-labels">Labels (comma separated)</label><input type="text" id="f-labels" value="${esc(cfg.labels.join(", "))}"></div>
+        <div ${isPlaylist ? "hidden" : ""}><label for="f-cmode">Collection visibility in library</label>
           <select id="f-cmode">
             <option value="default" ${cfg.collection_mode === "default" ? "selected" : ""}>Library default</option>
             <option value="hide" ${cfg.collection_mode === "hide" ? "selected" : ""}>Hide collection</option>
             <option value="hideItems" ${cfg.collection_mode === "hideItems" ? "selected" : ""}>Hide items, show collection</option>
             <option value="showItems" ${cfg.collection_mode === "showItems" ? "selected" : ""}>Show collection and items</option>
           </select></div>
-        <div><label>Home screen</label>
+        <div ${isPlaylist ? "hidden" : ""}><label>Home screen</label>
           <label class="check"><input type="checkbox" id="f-rec" ${cfg.promote_recommended ? "checked" : ""}> Library recommended</label>
           <label class="check"><input type="checkbox" id="f-home" ${cfg.promote_home ? "checked" : ""}> My home</label>
           <label class="check"><input type="checkbox" id="f-shared" ${cfg.promote_shared ? "checked" : ""}> Friends' home</label></div>
-        <div class="full calendar">
+        <div class="full calendar" ${isPlaylist ? "hidden" : ""}>
           <label class="check"><input type="checkbox" id="f-window" ${cfg.promote_window ? "checked" : ""}> Only show on the home screen between these dates</label>
           <div class="row" id="window-fields">
             <div><label for="f-wstart">From</label><input type="date" id="f-wstart" value="${esc(cfg.promote_start)}"></div>
@@ -755,7 +849,7 @@ async function editor(id, params = new URLSearchParams()) {
       <h2>Artwork</h2>
       <div class="images">
         ${imageSlot(id, cfg, "poster", "Poster (2:3)")}
-        ${imageSlot(id, cfg, "art", "Background (16:9)")}
+        ${isPlaylist ? "" : imageSlot(id, cfg, "art", "Background (16:9)")}
       </div>
       <p class="hint">Chosen files are uploaded when you save. An image file takes priority over a URL. Collections built from a TMDB collection use the TMDB poster when nothing else is set.</p>
     </div>`;
@@ -778,7 +872,7 @@ async function editor(id, params = new URLSearchParams()) {
         if (cfg.sources.length > 1) { cfg.sources.splice(Number(el.dataset.idx), 1); renderSources(); }
       };
       el.querySelector("[data-build]")?.addEventListener("click", () => openFilterBuilder(
-        el.querySelector(".filter-builder"), src, view.querySelector("#f-lib").value, (query) => {
+        el.querySelector(".filter-builder"), src, pickedLibs().length > 1 ? "" : pickedLibs()[0]?.id, (query) => {
           src.value = query;
           el.querySelector("[data-field=value]").value = query;
         }));
@@ -839,16 +933,17 @@ async function editor(id, params = new URLSearchParams()) {
   view.querySelector("#addSource").onclick = () => { cfg.sources.push({ type: "tmdb_list", value: "", limit: null }); renderSources(); };
 
   const collect = () => {
-    const lib = view.querySelector("#f-lib");
-    const opt = lib.selectedOptions[0];
+    const picked = pickedLibs();
     return {
       ...cfg,
       name: view.querySelector("#f-name").value,
-      section_id: lib.value,
-      library: opt?.dataset.title || "",
+      section_id: picked[0]?.id || "",
+      library: picked[0]?.title || "",
+      section_ids: isPlaylist ? picked.map((l) => l.id) : [],
+      libraries: isPlaylist ? picked.map((l) => l.title) : [],
       enabled: view.querySelector("#f-enabled").checked,
       sync_mode: view.querySelector("#f-mode").value,
-      order: view.querySelector("#f-order").value,
+      order: isPlaylist ? "custom" : view.querySelector("#f-order").value,
       item_limit: Number(view.querySelector("#f-limit").value || 0),
       min_items: Number(view.querySelector("#f-min").value || 0),
       delete_below_min: view.querySelector("#f-delmin").checked,
@@ -869,7 +964,7 @@ async function editor(id, params = new URLSearchParams()) {
       promote_yearly: view.querySelector("#f-wyearly").checked,
       seasonal_only: view.querySelector("#f-seasonal").checked,
       poster_url: view.querySelector("#poster-url").value,
-      art_url: view.querySelector("#art-url").value,
+      art_url: view.querySelector("#art-url")?.value || "",
       sources: cfg.sources.filter((s) => s.value),
     };
   };
@@ -907,7 +1002,7 @@ async function editor(id, params = new URLSearchParams()) {
     out.innerHTML = `<p class="muted">Fetching lists and matching against Plex…</p>`;
     const body = collect();
     try {
-      const r = await api("POST", "/preview", { section_id: body.section_id, library: body.library, sources: body.sources, item_limit: body.item_limit });
+      const r = await api("POST", "/preview", { section_id: body.section_id, library: body.library, section_ids: body.section_ids, sources: body.sources, item_limit: body.item_limit });
       out.innerHTML = `
         <p><strong>${r.matched}</strong> of <strong>${r.total}</strong> titles are in <em>${esc(r.library.title)}</em>.</p>
         ${r.errors.map((e) => `<p class="no small">${esc(e)}</p>`).join("")}
@@ -923,7 +1018,7 @@ async function editor(id, params = new URLSearchParams()) {
     }
   });
 
-  for (const kind of ["poster", "art"]) {
+  for (const kind of isPlaylist ? ["poster"] : ["poster", "art"]) {
     const input = view.querySelector(`#${kind}-file`);
     const del = view.querySelector(`#${kind}-del`);
     const urlInput = view.querySelector(`#${kind}-url`);
