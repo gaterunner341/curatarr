@@ -653,6 +653,31 @@ def request_title(collection_id: int, body: dict = Body(...)):
     return {"status": outcome, "service": kind}
 
 
+@router.post("/arr/have")
+def arr_have(body: dict = Body(...)):
+    """Which of these titles Radarr (movies) or Sonarr (shows) already has, in one call per service.
+
+    Each result is true, false, or null when that service isn't set up or can't be reached.
+    """
+    items = body.get("items") or []
+    settings = db.get_settings()
+    libraries: dict[str, dict | None] = {}
+    with httpx.Client(timeout=30) as http:
+        for kind in {("sonarr" if i.get("media_type") == "show" else "radarr") for i in items}:
+            client = arr.Arr(kind, settings, http)
+            try:
+                libraries[kind] = client.library_ids() if client.configured else None
+            except (arr.ArrError, httpx.HTTPError, ValueError) as exc:
+                log.warning("Could not read the %s library: %s", kind.title(), exc)
+                libraries[kind] = None
+    out = []
+    for i in items:
+        have = libraries.get("sonarr" if i.get("media_type") == "show" else "radarr")
+        ref = sources.MediaRef(**{k: i.get(k) for k in ("imdb", "tmdb", "tvdb")})
+        out.append(None if have is None else arr.Arr.already_has(ref, have))
+    return {"have": out}
+
+
 @router.post("/collections/{collection_id}/undo")
 def undo_collection(collection_id: int):
     if not db.get_collection(collection_id):

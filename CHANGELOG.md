@@ -3,6 +3,10 @@
 The version shown in the web UI's sidebar matches these entries. Each
 release is also published as `ghcr.io/gaterunner341/curatarr:<version>`.
 
+## 0.11.2
+
+- **Show missing titles** marks titles Radarr or Sonarr already has with an **In Radarr** (or **In Sonarr**) badge as soon as the list opens, instead of showing an **Add** button. Those titles are waiting to be downloaded. Curatarr checks each service's library once, so the list still opens quickly.
+
 ## 0.11.1
 
 - **Dashboard → Coming up** shows the dates each collection is on the home screen, such as "Nov 12 – Nov 28", and its library. Below that, it says when the collection starts or until when it's showing.

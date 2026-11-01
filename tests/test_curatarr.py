@@ -971,3 +971,17 @@ def test_pin_to_top_while_showing():
     assert len(moves) == 1
     sync_mod.apply_pin(plex, "1", "100", cfg, date(2026, 12, 27), state)      # dates over: put back
     assert hubs[0]["identifier"] == "movie.recent" and state["hub_pinned"] is None
+
+
+def test_arr_have_endpoint(monkeypatch):
+    from fastapi.testclient import TestClient
+    from app import arr as arr_mod
+    from app.main import app
+
+    monkeypatch.setattr(arr_mod.Arr, "configured", property(lambda self: self.kind == "radarr"))
+    monkeypatch.setattr(arr_mod.Arr, "library_ids",
+                        lambda self: {"tmdb": {"1760170"}, "imdb": {"tt0000002"}, "tvdb": set()})
+    r = TestClient(app).post("/api/arr/have", json={"items": [
+        {"tmdb": 1760170, "media_type": "movie"}, {"tmdb": 5, "media_type": "movie"},
+        {"imdb": "tt0000002"}, {"tvdb": 7, "media_type": "show"}]})
+    assert r.json() == {"have": [True, False, True, None]}      # Sonarr isn't set up

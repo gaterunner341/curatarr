@@ -531,6 +531,16 @@ async function collectionItems({ id = null, ratingKey = null, playlist = false, 
               <td><button type="button" class="small" data-request="${n}">Add to ${service(i)}</button></td></tr>`).join("")}
             </tbody></table></div>` : ""}
         </details>`;
+      // Mark titles Radarr/Sonarr already has (one library check per service).
+      if (missing.length) {
+        api("POST", "/arr/have", { items: missing.map((i) => ({ ...i, media_type: r.library.type || i.media_type })) })
+          .then(({ have }) => have.forEach((yes, n) => {
+            if (!yes) return;
+            const b = out.querySelector(`[data-request="${n}"]`);
+            if (b) b.outerHTML = `<span class="badge success" title="Waiting for ${service(missing[n])} to download it">In ${service(missing[n])}</span>`;
+          }))
+          .catch(() => {});        // the buttons still work without the status
+      }
       out.querySelectorAll("[data-request]").forEach((b) => b.onclick = () => guard(async () => {
         b.disabled = true;
         try {
