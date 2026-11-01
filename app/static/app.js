@@ -624,10 +624,11 @@ async function dashboardPage() {
           : `<p class="muted small">Everything synced fine.</p>`}</div>
       <div class="card"><h2>Coming up</h2>
         ${d.coming.length ? `<ul class="dash-list">${d.coming.map((x) => `
-          <li><strong>${esc(day(x.date))}</strong> · <a href="${link(x)}">${esc(x.name)}</a>
+          <li><strong>${esc(windowText({ promote_start: x.start, promote_end: x.end, promote_yearly: false }).replace(/, \d{4}/g, ""))}</strong>
+            · <a href="${link(x)}">${esc(x.name)}</a>${x.library ? ` <span class="small muted">(${esc(x.library)})</span>` : ""}
             <div class="small muted">${x.appears
-              ? (x.seasonal ? "Added to Plex and shown on the home screen" : "Shown on the home screen")
-              : (x.seasonal ? "Last day; removed from Plex after" : "Last day on the home screen")}</div></li>`).join("")}</ul>`
+              ? `Starts ${esc(day(x.date))}: ${x.seasonal ? "added to Plex and shown on the home screen" : "shown on the home screen"}`
+              : `Showing now until ${esc(day(x.date))}${x.seasonal ? ", then removed from Plex" : ""}`}</div></li>`).join("")}</ul>`
           : `<p class="muted small">No calendar changes coming up.</p>`}</div>
       <div class="card"><h2>Most missing</h2>
         ${d.most_missing.length ? `<ul class="dash-list">${d.most_missing.map((m) => `

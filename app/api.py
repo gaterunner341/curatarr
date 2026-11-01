@@ -456,7 +456,9 @@ def dashboard():
         if change:
             day, appears = change
             coming.append({**brief, "date": day.isoformat(), "appears": appears,
-                           "seasonal": bool(cfg.get("seasonal_only"))})
+                           "seasonal": bool(cfg.get("seasonal_only")), "library": cfg.get("library", ""),
+                           "start": cfg.get("promote_start"), "end": cfg.get("promote_end"),
+                           "yearly": cfg.get("promote_yearly", True)})
     recent = [{k: v for k, v in run.items() if k not in ("missing", "added_items", "removed_items")}
               | {"missing": len(run["missing"])} for run in db.list_runs(limit=10)]
     return {

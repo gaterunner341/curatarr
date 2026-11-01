@@ -3,6 +3,10 @@
 The version shown in the web UI's sidebar matches these entries. Each
 release is also published as `ghcr.io/gaterunner341/curatarr:<version>`.
 
+## 0.11.1
+
+- **Dashboard → Coming up** shows the dates each collection is on the home screen, such as "Nov 12 – Nov 28", and its library. Below that, it says when the collection starts or until when it's showing.
+
 ## 0.11.0
 
 - **Seven more holidays,** each with a poster in the same style as the others:
