@@ -721,7 +721,9 @@ def _run_collection(collection_id: int, trigger: str, dry_run: bool) -> dict:
                     by_type.setdefault(kind, []).append(ref)
                 limited = False
                 for kind, missing_refs in by_type.items():
-                    requested, arr_errors, hit_limit = arr.request_missing(kind, missing_refs, settings, http)
+                    requested, arr_errors, hit_limit = arr.request_missing(
+                        kind, missing_refs, settings, http,
+                        section["id"] if kind == section["type"] else None)
                     result.requested += requested
                     limited = limited or hit_limit
                     for err in arr_errors:

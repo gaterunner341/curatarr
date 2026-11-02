@@ -2,7 +2,7 @@
 import os
 from pathlib import Path
 
-VERSION = "0.20.0"
+VERSION = "0.21.0"
 APP_NAME = "Curatarr"
 
 
@@ -59,6 +59,8 @@ DEFAULT_SETTINGS = {
     "default_schedule": "0 */6 * * *",
     "arr_max_requests": "25",
     "managed_label": "Curatarr",
+    "radarr_library_folders": "",       # JSON {plex section id: Radarr root folder}
+    "sonarr_library_folders": "",       # JSON {plex section id: Sonarr root folder}
     "primary_movie_library": "",        # section id listed (and picked) first; "" = Plex's order
     "primary_tv_library": "",
 }

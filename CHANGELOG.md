@@ -3,6 +3,12 @@
 The version shown in the web UI's sidebar matches these entries. Each
 release is also published as `ghcr.io/gaterunner341/curatarr:<version>`.
 
+## 0.21.0
+
+- **Root folder per library:** Radarr and Sonarr can now use a different root folder for each Plex library. Before this, every request went to the single Root folder in Settings, whichever library the collection was in.
+  - Set them in **Settings → Radarr / Sonarr**, under "Root folder for each Plex library". The list appears once Curatarr can reach Radarr/Sonarr, or after **Load folders & profiles**.
+  - Titles requested from a collection, by a sync or with **Add to Radarr/Sonarr**, go to that library's folder. Libraries left on "Default" keep using the Root folder.
+
 ## 0.20.0
 
 - **Primary libraries:** pick a primary movie library and a primary TV library under **Settings → General**. They're listed first everywhere, and every page and new collection starts on them: the collection editor, starter packs, holidays, Existing Plex collections, Poster overlays and Napalm. Leave them blank to keep Plex's order.

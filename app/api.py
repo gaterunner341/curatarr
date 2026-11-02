@@ -683,14 +683,15 @@ def exclude_title(collection_id: int, body: dict = Body(...)):
 @router.post("/collections/{collection_id}/request")
 def request_title(collection_id: int, body: dict = Body(...)):
     """Send one missing title to Radarr (movie libraries) or Sonarr (TV libraries)."""
-    if not db.get_collection(collection_id):
+    row = db.get_collection(collection_id)
+    if not row:
         raise HTTPException(404, "Collection not found")
     kind = "sonarr" if body.get("media_type") == "show" else "radarr"
     fields = {k: body.get(k) for k in ("title", "year", "imdb", "tmdb", "tvdb")}
     ref = sources.MediaRef(media_type=body.get("media_type"), **{k: v for k, v in fields.items() if v})
     settings = db.get_settings()
     with httpx.Client(timeout=30) as http:
-        client = arr.Arr(kind, settings, http)
+        client = arr.Arr(kind, settings, http, row["config"].get("section_id"))   # that library's root folder
         if not client.configured:
             raise HTTPException(400, f"{kind.title()} isn't set up in Settings")
         try:

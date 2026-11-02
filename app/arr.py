@@ -1,4 +1,5 @@
 """Send titles missing from Plex to Radarr (movies) or Sonarr (shows)."""
+import json
 import logging
 
 import httpx
@@ -14,11 +15,12 @@ class ArrError(Exception):
 
 
 class Arr:
-    def __init__(self, kind: str, settings: dict, http: httpx.Client):
+    def __init__(self, kind: str, settings: dict, http: httpx.Client, section_id: str | None = None):
         self.kind = kind   # "radarr" or "sonarr"
         self.url = settings.get(f"{kind}_url", "").rstrip("/")
         self.api_key = settings.get(f"{kind}_api_key", "")
-        self.root_folder = settings.get(f"{kind}_root_folder", "")
+        # The Plex library's own root folder (Settings), else the default one.
+        self.root_folder = library_folder(kind, settings, section_id) or settings.get(f"{kind}_root_folder", "")
         self.quality_profile = settings.get(f"{kind}_quality_profile", "")
         self.search = settings.get(f"{kind}_search", "true") != "false"
         self.http = http
@@ -146,15 +148,24 @@ class Arr:
         raise ArrError(f"{self.kind.title()} add failed: HTTP {resp.status_code} {resp.text[:200]}")
 
 
+def library_folder(kind: str, settings: dict, section_id: str | None) -> str:
+    """The root folder set for one Plex library ("" when none is set)."""
+    try:
+        folders = json.loads(settings.get(f"{kind}_library_folders") or "{}")
+    except ValueError:
+        return ""
+    return str(folders.get(str(section_id)) or "") if section_id and isinstance(folders, dict) else ""
+
+
 def request_missing(media_type: str, refs: list[MediaRef], settings: dict,
-                    http: httpx.Client) -> tuple[int, list[str], bool]:
+                    http: httpx.Client, section_id: str | None = None) -> tuple[int, list[str], bool]:
     """Add missing refs to Radarr/Sonarr.
 
     At most ``arr_max_requests`` titles are added per call (0 = no limit), and
     titles Radarr/Sonarr already has are skipped without a lookup each.
     Returns (added count, error messages, whether the limit was reached).
     """
-    arr = Arr("sonarr" if media_type == "show" else "radarr", settings, http)
+    arr = Arr("sonarr" if media_type == "show" else "radarr", settings, http, section_id)
     if not arr.configured:
         return 0, [f"{arr.kind.title()} is not fully configured; missing titles were not requested"], False
     try:

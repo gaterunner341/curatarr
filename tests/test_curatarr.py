@@ -1584,3 +1584,14 @@ def test_primary_libraries_come_first():
     assert [s["id"] for s in ordered] == ["3", "4", "1", "2"] and ordered[0]["primary"] and not ordered[2]["primary"]
     db.save_settings({"primary_movie_library": "", "primary_tv_library": ""})
     assert [s["id"] for s in api_mod._primary_first(libs)] == ["1", "2", "3", "4"]
+
+
+def test_arr_root_folder_per_library():
+    from app import arr as arr_mod
+    settings = {"radarr_url": "http://r", "radarr_api_key": "k", "radarr_root_folder": "/movies",
+                "radarr_quality_profile": "1", "radarr_library_folders": '{"7": "/movies-special"}'}
+    with httpx.Client() as http:
+        assert arr_mod.Arr("radarr", settings, http, "7").root_folder == "/movies-special"
+        assert arr_mod.Arr("radarr", settings, http, "1").root_folder == "/movies"      # not set: the default
+        assert arr_mod.Arr("radarr", settings, http).root_folder == "/movies"
+        assert arr_mod.Arr("radarr", {**settings, "radarr_library_folders": "junk"}, http, "7").root_folder == "/movies"

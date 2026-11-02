@@ -2098,7 +2098,9 @@ async function settings() {
           ${g.arr ? `<button type="button" data-arr="${g.arr}">Load folders &amp; profiles</button>` : ""}
           ${g.extra || ""}
         </div>
-        ${g.arr ? `<div id="${g.arr}-options" class="small muted" style="margin-top:8px"></div>` : ""}
+        ${g.arr ? `<div id="${g.arr}-options" class="small muted" style="margin-top:8px"></div>
+          <input type="hidden" data-key="${g.arr}_library_folders" value="${esc(values[`${g.arr}_library_folders`] || "")}">
+          <div id="${g.arr}-libfolders" style="margin-top:12px"></div>` : ""}
       </div>`).join("")}
     <p class="hint">Values marked <span class="badge">env</span> come from container environment variables; saving a value here overrides them.</p>`;
   libraries().then((libs) => view.querySelectorAll("[data-lib-type]").forEach((sel) => {
@@ -2132,10 +2134,37 @@ async function settings() {
       if (b.dataset.test === "plex") loadStatus();
     } finally { b.disabled = false; }
   }));
+  // Root folder per Plex library: titles requested from a collection go to its library's folder.
+  const libFolders = async (kind, folders) => {
+    const box = view.querySelector(`#${kind}-libfolders`);
+    const store = view.querySelector(`[data-key="${kind}_library_folders"]`);
+    const libs = (await libraries().catch(() => [])).filter((l) => l.type === (kind === "sonarr" ? "show" : "movie"));
+    if (!libs.length || !folders.length) { box.innerHTML = ""; return; }
+    let saved = {};
+    try { saved = JSON.parse(store.value || "{}"); } catch { saved = {}; }
+    box.innerHTML = `<label>Root folder for each Plex library</label>
+      <p class="hint" style="margin-top:0">Titles requested from a collection go to its library's folder. "Default" uses the Root folder above.</p>
+      <div class="grid">${libs.map((l) => `<div><label class="small">${esc(l.title)}</label>
+        <select data-libfolder="${esc(l.id)}"><option value="">Default</option>${folders.map((f) =>
+          `<option value="${esc(f)}" ${saved[l.id] === f ? "selected" : ""}>${esc(f)}</option>`).join("")}
+          ${saved[l.id] && !folders.includes(saved[l.id]) ? `<option selected value="${esc(saved[l.id])}">${esc(saved[l.id])} (not in ${kind === "sonarr" ? "Sonarr" : "Radarr"})</option>` : ""}
+        </select></div>`).join("")}</div>`;
+    box.querySelectorAll("[data-libfolder]").forEach((sel) => sel.onchange = () => {
+      const out = {};
+      box.querySelectorAll("[data-libfolder]").forEach((s) => { if (s.value) out[s.dataset.libfolder] = s.value; });
+      store.value = Object.keys(out).length ? JSON.stringify(out) : "";
+    });
+  };
+  ["radarr", "sonarr"].forEach((kind) => {
+    if (values[`${kind}_url`] && values[`${kind}_api_key`]) {
+      api("GET", `/arr/${kind}/options`).then((r) => libFolders(kind, r.root_folders)).catch(() => {});
+    }
+  });
   view.querySelectorAll("[data-arr]").forEach((b) => b.onclick = () => guard(async () => {
     await saveAll();
     const kind = b.dataset.arr;
     const r = await api("GET", `/arr/${kind}/options`);
+    await libFolders(kind, r.root_folders);
     const out = view.querySelector(`#${kind}-options`);
     out.innerHTML = `Root folders: ${r.root_folders.map((f) => `<a href="#" data-fill="${kind}_root_folder" data-val="${esc(f)}">${esc(f)}</a>`).join(", ") || "none"}<br>
       Quality profiles: ${r.quality_profiles.map((p) => `<a href="#" data-fill="${kind}_quality_profile" data-val="${p.id}">${esc(p.name)} (${p.id})</a>`).join(", ")}`;
