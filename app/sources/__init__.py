@@ -82,12 +82,12 @@ CATALOG = [
 
 # Links that a source type takes: (pattern, source type, what it is). The first match wins.
 LINKS = [
-    (r"themoviedb\.org/collection/\d+", "tmdb_collection", "TMDB collection (franchise)"),
+    (r"themoviedb\.org/collection/\d+", "tmdb_collection", "TMDB collection"),
     (r"themoviedb\.org/list/\d+", "tmdb_list", "TMDB list"),
-    (r"themoviedb\.org/company/\d+", "tmdb_list", "TMDB studio (company) page"),
-    (r"themoviedb\.org/network/\d+", "tmdb_list", "TMDB TV network page"),
-    (r"themoviedb\.org/keyword/\d+", "tmdb_list", "TMDB keyword page"),
-    (r"themoviedb\.org/person/\d+", "tmdb_list", "TMDB person page"),
+    (r"themoviedb\.org/company/\d+", "tmdb_list", "TMDB studio"),
+    (r"themoviedb\.org/network/\d+", "tmdb_list", "TMDB TV network"),
+    (r"themoviedb\.org/keyword/\d+", "tmdb_list", "TMDB keyword"),
+    (r"themoviedb\.org/person/\d+", "tmdb_list", "TMDB person"),
     (r"imdb\.com/(?:[a-z-]+/)?list/ls\d+", "imdb_list", "IMDb list"),
     (r"imdb\.com/(?:[a-z-]+/)?user/ur\d+/watchlist", "imdb_list", "IMDb watchlist"),
     (r"trakt\.tv/users/[^/\s]+/lists/[^/\s?#]+", "trakt_list", "Trakt list"),
@@ -113,6 +113,14 @@ def detect(value: str) -> dict:
         return {"type": "trakt_chart", "value": key, "label": f"Trakt chart: {trakt.CHARTS[key]}"}
     if re.fullmatch(r"ls\d+", value):
         return {"type": "imdb_list", "value": value, "label": "IMDb list"}
+    if re.match(r"(?i)(?:https?://(?:www\.)?themoviedb\.org/)?(?:discover/)?(movie|tv)\?\S*=", value):
+        query = re.sub(r"(?i)^(?:https?://(?:www\.)?themoviedb\.org/)?(?:discover/)?", "", value)
+        return {"type": "tmdb_discover", "value": query, "label": "TMDB discover query"}
+    if re.search(r"^\s*(Position,)?\s*Const\b", value, re.M | re.I):
+        return {"type": "static", "value": value, "label": "IMDb list export (CSV)"}
+    tokens = [t for t in re.split(r"[\s,]+", value) if t]
+    if tokens and all(re.fullmatch(r"(?i)(?:imdb:)?tt\d+|(?:tmdb|tvdb):\d+", t) for t in tokens):
+        return {"type": "static", "value": value, "label": f"{len(tokens)} title id{'s' if len(tokens) != 1 else ''}"}
     if re.match(r"(?i)https?://|www\.", value):
         return {"link": True}
     return {}

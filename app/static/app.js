@@ -1168,20 +1168,31 @@ const RATING_CAPS = [
   ["G", "G / TV-G / TV-Y7"], ["PG", "PG / TV-PG"], ["PG-13", "PG-13 / TV-14"], ["R", "R / TV-MA"],
 ];
 
+// Source rows. A list row is one box: what's pasted in it (a link, ids, a discover query)
+// picks the source type. Charts and Plex filters aren't links, so they have their own rows.
+const CHART_TYPES = ["tmdb_chart", "imdb_chart", "trakt_chart"];
+const sourceKind = (type) => CHART_TYPES.includes(type) ? "chart" : type === "plex_filter" ? "plex" : "list";
+
 function sourceRow(src, idx) {
-  const options = state.catalog.map((c) =>
-    `<option value="${c.type}" ${c.type === src.type ? "selected" : ""}>${esc(c.provider)} · ${esc(c.label)}</option>`).join("");
+  const kind = sourceKind(src.type);
   const meta = state.catalog.find((c) => c.type === src.type) || {};
-  const input = meta.options
-    ? `<select data-field="value">${Object.entries(meta.options).map(([k, v]) =>
-        `<option value="${esc(k)}" ${k === src.value ? "selected" : ""}>${esc(v)}</option>`).join("")}</select>`
-    : src.type === "static"
-      ? `<textarea data-field="value" rows="3" placeholder="${esc(meta.placeholder || "")}">${esc(src.value)}</textarea>`
-      : `<input type="text" data-field="value" value="${esc(src.value)}" placeholder="${esc(meta.placeholder || "")}">`;
+  let input;
+  if (kind === "chart") {
+    input = `<select data-field="chart">${state.catalog.filter((c) => CHART_TYPES.includes(c.type)).map((c) =>
+      `<optgroup label="${esc(c.provider)}">${Object.entries(c.options).map(([k, v]) =>
+        `<option value="${esc(`${c.type}|${k}`)}" ${c.type === src.type && k === src.value ? "selected" : ""}>${esc(v)}</option>`).join("")}</optgroup>`).join("")}</select>`;
+  } else if (kind === "plex") {
+    input = `<div class="row" style="flex-wrap:nowrap"><input type="text" data-field="value" value="${esc(src.value)}"
+      placeholder="${esc(meta.placeholder || "")}"><button type="button" class="small" data-build>Build filter</button></div>`;
+  } else {
+    input = `<textarea data-field="value" wrap="off" rows="${src.type === "static" && src.value.includes("\n") ? 3 : 1}"
+      placeholder="Paste a TMDB, IMDb, Trakt or MDBList link, title ids (tt0133093, tmdb:603) or a TMDB discover query">${esc(src.value)}</textarea>`;
+  }
+  const tag = kind === "chart" ? "Chart" : kind === "plex" ? "Plex filter" : src.value ? (src.label || meta.label || "") : "";
   return `
     <div class="source" data-idx="${idx}">
-      <select data-field="type">${options}</select>
-      ${src.type === "plex_filter" ? `<div class="row" style="flex-wrap:nowrap">${input}<button type="button" class="small" data-build>Build filter</button></div>` : input}
+      <span class="source-tag ${tag ? "" : "muted"}" data-src-tag title="What Curatarr recognised this source as">${esc(tag || "List")}</span>
+      ${input}
       <input type="number" data-field="limit" min="1" placeholder="Limit" value="${src.limit ?? ""}" title="Max items from this source">
       <button type="button" class="small" data-test-src title="Fetch this source on its own and check it works">Test</button>
       <button type="button" class="small danger" data-remove="${idx}" title="Remove source">✕</button>
@@ -1338,7 +1349,9 @@ async function editor(id, params = new URLSearchParams()) {
       <p class="hint" style="margin-top:-6px">Titles from every source are merged in order. Duplicates and titles of the wrong type for the library are skipped.</p>
       <div id="sources"></div>
       <div class="row" style="margin-top:8px">
-        <button type="button" id="addSource">+ Add source</button>
+        <button type="button" id="addSource">+ Add list</button>
+        <button type="button" id="addChart">+ Add chart</button>
+        <button type="button" id="addPlexFilter">+ Add Plex filter</button>
         <button type="button" id="preview">Preview matches</button>
       </div>
       <div id="previewOut"></div>
@@ -1468,30 +1481,46 @@ async function editor(id, params = new URLSearchParams()) {
     sourcesEl.innerHTML = cfg.sources.map(sourceRow).join("");
     sourcesEl.querySelectorAll(".source").forEach((el) => {
       const src = cfg.sources[Number(el.dataset.idx)];
-      el.querySelector("[data-field=type]").onchange = (e) => {
-        src.type = e.target.value;
-        const meta = state.catalog.find((c) => c.type === src.type);
-        src.value = meta.options ? Object.keys(meta.options)[0] : "";
-        renderSources();
-      };
+      el.querySelector("[data-field=chart]")?.addEventListener("change", (e) => {
+        [src.type, src.value] = e.target.value.split("|");
+      });
       const note = el.querySelector("[data-src-note]");
       const say = (html) => { src.note = html; note.innerHTML = html; note.hidden = !html; };
-      // A pasted link picks its own source type.
-      const recognise = async (value) => {
-        if (!/^(https?:\/\/|www\.)|^ls\d+$/i.test(value.trim())) return;
-        const found = await api("GET", `/sources/detect?value=${encodeURIComponent(value.trim())}`).catch(() => ({}));
+      // What's pasted in a list box picks the source type.
+      const tagEl = el.querySelector("[data-src-tag]");
+      let timer = null;
+      const recognise = async () => {
+        const value = src.value.trim();
+        if (!value) { tagEl.textContent = "List"; tagEl.classList.add("muted"); say(""); return; }
+        const found = await api("GET", `/sources/detect?value=${encodeURIComponent(value)}`).catch(() => ({}));
+        if (value !== src.value.trim()) return;          // changed meanwhile
         if (found.type) {
-          const switched = found.type !== src.type || found.value !== src.value;
-          Object.assign(src, { type: found.type, value: found.value });
-          src.note = `<span class="yes">Recognised: ${esc(found.label)}.</span> <span class="muted">Use Test to check it.</span>`;
-          if (switched) renderSources(); else say(src.note);
-        } else if (found.link) {
-          say(`<span class="no">Curatarr doesn't recognise this link.</span> <span class="muted">It takes TMDB, IMDb, Trakt and MDBList list links.</span>`);
+          Object.assign(src, { type: found.type, label: found.label });
+          if (found.value !== value && found.type !== "static") {      // e.g. a chart link becomes its chart
+            src.value = found.value;
+            if (sourceKind(found.type) !== "list") return renderSources();
+            el.querySelector("[data-field=value]").value = found.value;
+          }
+          tagEl.textContent = found.label;
+          tagEl.classList.remove("muted");
+          say("");
+        } else {
+          src.label = "";
+          tagEl.textContent = "Not recognised";
+          tagEl.classList.add("muted");
+          say(`<span class="no">${found.link ? "Curatarr doesn't recognise this link." : "Curatarr doesn't recognise this."}</span>
+            <span class="muted">Use a TMDB, IMDb, Trakt or MDBList link, title ids like tt0133093 or tmdb:603, or a TMDB discover query.</span>`);
         }
       };
-      el.querySelector("[data-field=value]").oninput = (e) => { src.value = e.target.value; };
-      el.querySelector("[data-field=value]").onchange = (e) => { src.value = e.target.value; recognise(src.value); };
-      el.querySelector("[data-field=value]").addEventListener("paste", () => setTimeout(() => recognise(src.value), 0));
+      if (sourceKind(src.type) === "list" && src.value.trim() && !src.label) recognise();    // a saved source
+      const valueEl = el.querySelector("[data-field=value]");
+      if (valueEl) valueEl.oninput = (e) => {
+        src.value = e.target.value;
+        if (sourceKind(src.type) !== "list") return;
+        if (e.target.tagName === "TEXTAREA") e.target.rows = e.target.value.includes("\n") ? 3 : 1;
+        clearTimeout(timer);
+        timer = setTimeout(recognise, 400);
+      };
       el.querySelector("[data-test-src]").onclick = (e) => guard(async () => {
         const libs = pickedLibs();
         if (!libs.length) return toast("Pick a library first", true);
@@ -1571,6 +1600,11 @@ async function editor(id, params = new URLSearchParams()) {
   }));
 
   view.querySelector("#addSource").onclick = () => { cfg.sources.push({ type: "tmdb_list", value: "", limit: null }); renderSources(); };
+  view.querySelector("#addChart").onclick = () => {
+    cfg.sources.push({ type: "tmdb_chart", value: Object.keys(state.catalog.find((c) => c.type === "tmdb_chart").options)[0], limit: null });
+    renderSources();
+  };
+  view.querySelector("#addPlexFilter").onclick = () => { cfg.sources.push({ type: "plex_filter", value: "", limit: null }); renderSources(); };
 
   // The ribbon text box shows a suggestion; an empty box uses it.
   const ribbonFields = () => ({

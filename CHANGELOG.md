@@ -3,6 +3,23 @@
 The version shown in the web UI's sidebar matches these entries. Each
 release is also published as `ghcr.io/gaterunner341/curatarr:<version>`.
 
+## 0.26.0
+
+- **No more source-type dropdown:** each list is one box. Paste a link, title ids or a TMDB discover query and Curatarr works out what it is. A tag next to the box says what it recognised, e.g. "TMDB studio", "IMDb watchlist", "Trakt list" or "3 title ids". Anything it doesn't recognise is flagged.
+  - Recognised:
+    - TMDB lists, collections, and studio, network, keyword and person pages
+    - IMDb lists, watchlists and chart links
+    - Trakt lists, watchlists and chart links
+    - MDBList lists
+    - title ids (tt…, tmdb:…, tvdb:…)
+    - IMDb CSV exports
+    - TMDB discover queries and discover links
+  - Charts and Plex filters aren't links, so they have their own buttons:
+    - **+ Add chart** gives one dropdown with every TMDB, IMDb and Trakt chart, grouped by service.
+    - **+ Add Plex filter** keeps the Build filter button.
+  - Pasting a chart link (e.g. imdb.com/chart/top) turns the row into that chart.
+  - Saved collections keep their sources and show the recognised type when opened.
+
 ## 0.25.0
 
 - **Links pick their own source type:** paste a link into a list source and Curatarr recognises it, switches the source to the right type and says what it found.

@@ -156,7 +156,10 @@ ul.changes { margin: 6px 0 0; padding-left: 0; list-style: none; max-height: 240
 .badge.skipped { background: color-mix(in srgb, var(--skip) 20%, transparent); color: var(--skip); }
 .badge.running { background: color-mix(in srgb, var(--accent) 20%, transparent); color: var(--accent); }
 
-.source { display: grid; grid-template-columns: 220px 1fr 90px auto auto; gap: 8px; align-items: center; margin-bottom: 8px; }
+.source-tag { font-size: .8rem; padding: 4px 10px; border-radius: 999px; background: var(--panel-2); border: 1px solid var(--border);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center; }
+.source textarea[data-field=value] { resize: vertical; min-height: 38px; }
+.source { display: grid; grid-template-columns: 170px 1fr 90px auto auto; gap: 8px; align-items: center; margin-bottom: 8px; }
 .source .full-row { grid-column: 1 / -1; }
 .source .row > input { flex: 1; min-width: 0; }
 .stats { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); margin-bottom: 16px; }

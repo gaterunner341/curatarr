@@ -1697,7 +1697,7 @@ def test_dashboard_rogue_filenames_count():
 def test_source_link_detection():
     from app.sources import detect
     assert detect("https://www.themoviedb.org/company/165435-angel-studios")["type"] == "tmdb_list"
-    assert detect("https://www.themoviedb.org/company/165435-angel-studios")["label"] == "TMDB studio (company) page"
+    assert detect("https://www.themoviedb.org/company/165435-angel-studios")["label"] == "TMDB studio"
     assert detect("https://www.themoviedb.org/collection/10-star-wars-collection")["type"] == "tmdb_collection"
     assert detect("https://www.imdb.com/list/ls055592025/")["type"] == "imdb_list"
     assert detect("https://www.imdb.com/user/ur12345678/watchlist")["label"] == "IMDb watchlist"
@@ -1708,7 +1708,13 @@ def test_source_link_detection():
     assert detect("https://mdblist.com/lists/linaspurinis/top-watched-movies-of-the-week")["type"] == "mdblist"
     assert detect("ls055592025")["type"] == "imdb_list"
     assert detect("https://example.com/my-list") == {"link": True}
-    assert detect("tt0133093, tmdb:604") == {}
+    assert detect("tt0133093, tmdb:604")["type"] == "static"
+    assert detect("tt0133093, tmdb:604")["label"] == "2 title ids"
+    assert detect("Position,Const,Title\n1,tt0133093,The Matrix")["type"] == "static"
+    assert detect("movie?with_genres=27&sort_by=vote_average.desc") == {
+        "type": "tmdb_discover", "value": "movie?with_genres=27&sort_by=vote_average.desc", "label": "TMDB discover query"}
+    assert detect("https://www.themoviedb.org/discover/tv?with_networks=213")["value"] == "tv?with_networks=213"
+    assert detect("hello world") == {}
 
 
 def test_source_test_endpoint(monkeypatch):
@@ -1721,7 +1727,7 @@ def test_source_test_endpoint(monkeypatch):
             "sources": [{"type": "tmdb_list", "value": "https://www.themoviedb.org/company/165435"}]}
     r = TestClient(app).post("/api/sources/test", json=body).json()
     assert r["ok"] and r["total"] == 7 and r["matched"] == 2 and r["sample"] == ["P0", "P1", "T2", "T3", "T4"]
-    assert r["label"] == "TMDB studio (company) page"
+    assert r["label"] == "TMDB studio"
     monkeypatch.setattr(sync_mod, "preview", lambda *a, **k: {"items": [], "errors": ["tmdb_list: TMDB 404"], "matched": 0})
     r = TestClient(app).post("/api/sources/test", json=body).json()
     assert not r["ok"] and "404" in r["error"]
