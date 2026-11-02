@@ -3,6 +3,12 @@
 The version shown in the web UI's sidebar matches these entries. Each
 release is also published as `ghcr.io/gaterunner341/curatarr:<version>`.
 
+## 0.23.1
+
+- **Fixed:** "Sonarr couldn't find this title" for shows that Sonarr does have, such as new shows like Quokka's Wild Life.
+  - Curatarr used to ask Sonarr only by TVDB id, which it got from TMDB. TMDB often has no TVDB link yet for new shows.
+  - Now it also asks Sonarr by TMDB and IMDb id, then by title. A result only counts when its TMDB or IMDb id is the show's own, so a show with a similar name is never added by mistake.
+
 ## 0.23.0
 
 - **Rogue Filenames** (Settings → Rogue Filenames): finds movie and episode files whose names don't follow the naming formats set in Radarr and Sonarr (Settings → Media Management).

@@ -1649,3 +1649,31 @@ def test_rogue_filenames_scan(monkeypatch):
     assert s["items"][0]["files"][0]["existing"] == "heat.1995.mkv" and s["items"][0]["files"][0]["new"] == "Heat (1995).mkv"
     assert naming.last()["services"]["radarr"]["items"][0]["id"] == 1 and not naming.progress["running"]
     db.save_settings({"radarr_url": "", "radarr_api_key": "", "naming_scan": ""})
+
+
+def test_sonarr_finds_show_without_tvdb_link_on_tmdb():
+    from app import arr as arr_mod
+    from app.sources import MediaRef
+    added = {}
+
+    def sonarr(request):
+        path, term = request.url.path, request.url.params.get("term", "")
+        if path == "/api/v3/series/lookup":
+            if term == "tmdb:303726":                      # old Sonarr: a name search, no tmdbId
+                return httpx.Response(200, json=[{"title": "Quokka", "tvdbId": 1}])
+            if term == "Quokka's Wild Life":
+                return httpx.Response(200, json=[{"title": "Quokka's Wild Life (Other)", "tvdbId": 2, "tmdbId": 999},
+                                                 {"title": "Quokka's Wild Life", "tvdbId": 455000, "tmdbId": 303726}])
+            return httpx.Response(200, json=[])
+        if path == "/api/v3/series" and request.method == "POST":
+            added.update(json.loads(request.content))
+            return httpx.Response(201, json={})
+        return httpx.Response(404)
+
+    settings = {"sonarr_url": "http://s", "sonarr_api_key": "k", "sonarr_root_folder": "/tv",
+                "sonarr_quality_profile": "1", "tmdb_api_key": ""}      # no TMDB key: no TVDB id from TMDB
+    with httpx.Client(transport=httpx.MockTransport(sonarr)) as http:
+        client = arr_mod.Arr("sonarr", settings, http)
+        ref = MediaRef(media_type="show", title="Quokka's Wild Life", year=2025, tmdb=303726)
+        assert client.add(ref) == "added" and added["tvdbId"] == 455000
+        assert client.add(MediaRef(media_type="show", title="Nothing", tmdb=1)) == "not_found"

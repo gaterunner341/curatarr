@@ -158,13 +158,33 @@ class Arr:
             return None
         return None
 
-    def _lookup_series(self, ref: MediaRef) -> dict | None:
-        tvdb = self._tvdb_id(ref)
-        if not tvdb:
-            return None
-        resp = self._request("GET", "/series/lookup", params={"term": f"tvdb:{tvdb}"})
+    def _series_search(self, term: str) -> list[dict]:
+        resp = self._request("GET", "/series/lookup", params={"term": term})
         data = resp.json() if resp.status_code < 400 else []
-        return data[0] if data else None
+        return data if isinstance(data, list) else []
+
+    def _lookup_series(self, ref: MediaRef) -> dict | None:
+        """Sonarr's entry for a show. Sonarr keys shows on TVDB ids, but TMDB often has no TVDB
+        link yet for new shows, so Sonarr is also asked by TMDB/IMDb id and by title; those
+        results only count when their TMDB or IMDb id is the show's own."""
+        tvdb = self._tvdb_id(ref)
+        if tvdb:
+            data = self._series_search(f"tvdb:{tvdb}")
+            if data:
+                return data[0]
+
+        def same(s: dict) -> bool:
+            return bool((ref.tmdb and str(s.get("tmdbId") or "") == str(ref.tmdb))
+                        or (ref.imdb and s.get("imdbId") == ref.imdb))
+
+        terms = [f"tmdb:{ref.tmdb}" if ref.tmdb else "", f"imdb:{ref.imdb}" if ref.imdb else "", ref.title or ""]
+        for term in filter(None, terms):
+            found = next((s for s in self._series_search(term) if same(s)), None)
+            if found:
+                return found
+        log.info("Sonarr: no show with %s found (TVDB id %s)", ", ".join(
+            f"{k} {getattr(ref, k)}" for k in ("tmdb", "imdb") if getattr(ref, k)) or ref.title, tvdb or "unknown")
+        return None
 
     def add(self, ref: MediaRef, tags: list[int] | None = None) -> str:
         """Returns 'added', 'exists' or 'not_found'."""
