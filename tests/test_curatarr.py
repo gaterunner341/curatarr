@@ -9,7 +9,7 @@ import pytest  # noqa: E402
 
 from app import api, db  # noqa: E402
 from app.models import CollectionConfig, Source  # noqa: E402
-from app.plex import LibraryIndex, Plex, parse_guid  # noqa: E402
+from app.plex import LibraryIndex, Plex, PlexError, parse_guid  # noqa: E402
 from app.sources import SourceContext, SourceError, fetch_static, imdb, resolve, trakt  # noqa: E402
 from app.sources.base import MediaRef  # noqa: E402
 from app.sync import reorder_moves, sync_collection  # noqa: E402
@@ -1149,3 +1149,76 @@ def test_ribbons_in_every_corner():
         assert out.startswith(bytes([0xFF, 0xD8]))
     with pytest.raises(ValueError):
         Ribbon(corner="middle")
+
+
+class FakePosterPlex(httpx.BaseTransport):
+    """A library of three movies with different poster choices."""
+
+    def __init__(self):
+        self.posters = {
+            "1": [{"ratingKey": "upload://posters/abc", "key": "/library/metadata/1/file?url=upload", "selected": 1},
+                  {"ratingKey": "metadata://posters/tmdb_1", "key": "https://image.tmdb.org/t/p/original/one.jpg",
+                   "thumb": "https://image.tmdb.org/t/p/w300/one.jpg", "provider": "tmdb", "selected": 0}],
+            "2": [{"ratingKey": "metadata://posters/tmdb_2", "key": "https://image.tmdb.org/t/p/original/two.jpg",
+                   "provider": "tmdb", "selected": True}],
+            "3": [{"ratingKey": "media://local", "key": "/library/metadata/3/file?url=local", "provider": "local",
+                   "selected": True}],
+        }
+        self.selected: dict[str, str] = {}
+
+    def handle_request(self, request):
+        path, method, q = request.url.path, request.method, request.url.params
+        mc = lambda body: httpx.Response(200, json={"MediaContainer": body})  # noqa: E731
+        if path == "/library/sections":
+            return mc({"Directory": [{"key": "1", "title": "Movies", "type": "movie"}]})
+        if path == "/library/sections/1/all":
+            return mc({"totalSize": 3, "Metadata": [{"ratingKey": rk, "title": f"T{rk}", "thumb": f"/library/metadata/{rk}/thumb/1"}
+                                                    for rk in self.posters]})
+        parts = path.strip("/").split("/")
+        if path.endswith("/posters") and method == "GET":
+            return mc({"Metadata": self.posters[parts[2]]})
+        if path.endswith("/poster") and method == "PUT":
+            self.selected[parts[2]] = q["url"]
+            return mc({})
+        return mc({})
+
+
+def test_napalm_refreshes_posters(monkeypatch):
+    from app import napalm, plex as plexmod, sync as sync_mod
+    fake = FakePosterPlex()
+    monkeypatch.setattr(plexmod, "from_settings", lambda *a, **k: Plex("http://plex", "t", client=httpx.Client(transport=fake)))
+    monkeypatch.setattr(sync_mod, "run_overlays", lambda: None)
+    assert Plex.fresh_poster(fake.posters["1"])["ratingKey"] == "metadata://posters/tmdb_1"
+    assert Plex.fresh_poster(fake.posters["3"]) is None
+    result = napalm.run(["1"])
+    assert fake.selected == {"1": "metadata://posters/tmdb_1"}                  # only the one that needed it
+    assert (result["changed"], result["unchanged"], result["no_poster"], result["errors"]) == (1, 1, 1, 0)
+    assert not napalm.progress["running"] and result["done"] == 3
+
+    sync_mod.clear_index_cache()
+    sample = {s["ratingKey"]: s for s in napalm.preview(["1"])}
+    assert sample["1"]["status"] == "changes" and sample["1"]["fresh"] == "https://image.tmdb.org/t/p/w300/one.jpg"
+    assert sample["1"]["current"].startswith("/api/plex/image?path=")
+    assert sample["2"]["status"] == "already using it" and "no poster" in sample["3"]["status"]
+    with pytest.raises(PlexError):
+        napalm.preview(["99"])
+
+
+def test_napalm_endpoint_needs_confirmation():
+    from fastapi.testclient import TestClient
+    from app.main import app
+    client = TestClient(app)
+    assert client.post("/api/napalm/run", json={"section_ids": ["1"]}).status_code == 422
+    assert client.post("/api/napalm/run", json={"confirm": "napalm"}).status_code == 422
+
+
+def test_content_rating_badge_and_fresh_spec():
+    from app import overlays
+    assert overlays.content_rating_label("gb/12A") == "12A" and overlays.content_rating_label("PG-13") == "PG-13"
+    entry = {"ribbons": [], "fresh": True, "type": "movie",
+             "badges": {"quality": False, "content_rating": True, "rating": "", "rating_min": 0},
+             "item": {"ratingKey": "5", "contentRating": "TV-MA"}}
+    specs, _, _ = overlays._specs(None, "5", entry, None)
+    assert specs == [{"kind": "fresh"}, {"kind": "badges", "quality": [], "rating": None, "content_rating": "TV-MA"}]
+    drawn = overlays.render(overlays.sample_poster(), specs)
+    assert drawn.startswith(bytes([0xFF, 0xD8]))

@@ -127,6 +127,8 @@ def _badges(img: Image.Image, spec: dict, clear: dict[str, float] | None = None)
     y = h - margin - pill
     # A badge's bottom sits ``margin`` above the edge, so it clears the band that much sooner.
     x = max(margin, clear.get("left", 0) - margin)
+    if spec.get("content_rating"):
+        x += _pill(img, x, y, pill, [(spec["content_rating"], "#f5d77a")]) + pill * 0.25
     for label in spec.get("quality") or []:
         x += _pill(img, x, y, pill, [(label, "#ffffff")]) + pill * 0.25
     rating = spec.get("rating")
@@ -174,10 +176,17 @@ def sample_poster() -> bytes:
     return out.getvalue()
 
 
-def preview(specs: list[dict], plex: Plex | None = None, thumb: str = "") -> bytes:
+def preview(specs: list[dict], plex: Plex | None = None, thumb: str = "", rating_key: str = "",
+            fresh: bool = False) -> bytes:
+    """``specs`` drawn on a title's poster (its fresh one with ``fresh``), or on a plain sample."""
     if plex and thumb:
         try:
-            return render(plex.image(thumb)[0], specs)
+            base = plex.image(thumb)[0]
+            if fresh and rating_key:
+                choice = plex.fresh_poster(plex.posters(rating_key))
+                if choice:
+                    base = plex.poster_bytes(choice)
+            return render(base, specs)
         except (PlexError, OverlayError):
             pass                     # fall back to the plain sample
     return render(sample_poster(), specs)
@@ -192,17 +201,21 @@ def ribbon_spec(cfg: CollectionConfig) -> dict | None:
 
 
 def badge_settings(cfg: CollectionConfig) -> dict | None:
-    if cfg.kind != "collection" or not (cfg.badges.quality or cfg.badges.rating):
+    if cfg.kind != "collection" or not (cfg.badges.quality or cfg.badges.rating or cfg.badges.content_rating):
         return None
     return cfg.badges.model_dump()
+
+
+def uses_overlays(cfg: CollectionConfig) -> bool:
+    """Whether a collection changes its titles' posters at all (ribbon, badges or a fresh poster)."""
+    return bool(ribbon_spec(cfg) or badge_settings(cfg) or (cfg.kind == "collection" and cfg.fresh_poster))
 
 
 def needed() -> bool:
     """Whether an overlay pass has anything to do (overlays wanted, or ones to remove)."""
     if db.overlay_rows():
         return True
-    configs = [CollectionConfig(**r["config"]) for r in db.list_collections()]
-    return any(ribbon_spec(c) or badge_settings(c) for c in configs)
+    return any(uses_overlays(CollectionConfig(**r["config"])) for r in db.list_collections())
 
 
 RESOLUTIONS = {"4k": "4K", "2160": "4K", "1080": "1080P", "720": "720P", "576": "SD", "480": "SD", "sd": "SD"}
@@ -260,7 +273,7 @@ def _wanted(plex: Plex) -> dict[str, dict]:
     for row in db.list_collections():
         cfg = CollectionConfig(**row["config"])
         ribbon, badges = ribbon_spec(cfg), badge_settings(cfg)
-        if not (ribbon or badges) or not row.get("plex_rating_key"):
+        if not uses_overlays(cfg) or not row.get("plex_rating_key"):
             continue
         try:
             items = plex.collection_raw(row["plex_rating_key"])
@@ -271,13 +284,15 @@ def _wanted(plex: Plex) -> dict[str, dict]:
         for item in items:
             rk = str(item["ratingKey"])
             entry = wanted.setdefault(rk, {
-                "ribbons": [], "badges": None, "item": item, "section_id": cfg.section_id,
+                "ribbons": [], "badges": None, "fresh": False, "item": item, "section_id": cfg.section_id,
                 "type": item.get("type") or "movie", "thumb": item.get("thumb") or ""})
+            entry["fresh"] = entry["fresh"] or cfg.fresh_poster
             if ribbon:
                 entry["ribbons"].append({**ribbon, "collection": row["id"]})
             if badges:
-                merged = entry["badges"] or {"quality": False, "rating": "", "rating_min": 0}
+                merged = entry["badges"] or {"quality": False, "content_rating": False, "rating": "", "rating_min": 0}
                 merged["quality"] = merged["quality"] or badges["quality"]
+                merged["content_rating"] = merged["content_rating"] or badges["content_rating"]
                 if badges["rating"] and not merged["rating"]:      # the first collection's choice wins
                     merged["rating"], merged["rating_min"] = badges["rating"], badges["rating_min"]
                 entry["badges"] = merged
@@ -286,7 +301,8 @@ def _wanted(plex: Plex) -> dict[str, dict]:
 
 def _specs(plex: Plex, rk: str, entry: dict, row: dict | None) -> tuple[list[dict], str, list]:
     """The overlays to draw on one title, plus its media key and quality labels to cache."""
-    specs = sorted(entry["ribbons"], key=lambda s: s["collection"])
+    specs = [{"kind": "fresh"}] if entry.get("fresh") else []
+    specs += sorted(entry["ribbons"], key=lambda s: s["collection"])
     settings, item = entry["badges"], entry["item"]
     key, quality, detail = media_key(item), [], None
     if settings and settings["quality"] and entry["type"] == "movie":
@@ -302,9 +318,22 @@ def _specs(plex: Plex, rk: str, entry: dict, row: dict | None) -> tuple[list[dic
             detail = detail or plex.item(rk) or item
             item = {**item, **{k: detail.get(k) for k in (field, f"{field}Image")}}
         rating = rating_badge(item, settings["rating"], settings["rating_min"])
-    if quality or rating:
-        specs.append({"kind": "badges", "quality": quality, "rating": rating})
+    certificate = ""
+    if settings and settings.get("content_rating"):
+        if not item.get("contentRating"):
+            detail = detail or plex.item(rk) or item
+        certificate = content_rating_label((item.get("contentRating") or (detail or {}).get("contentRating")))
+    if quality or rating or certificate:
+        badge = {"kind": "badges", "quality": quality, "rating": rating}
+        if certificate:             # only when used, so posters drawn before 0.14 keep their signature
+            badge["content_rating"] = certificate
+        specs.append(badge)
     return specs, key, quality
+
+
+def content_rating_label(rating: str | None) -> str:
+    """"PG-13", "TV-MA", or a country's rating without its prefix ("gb/12A" -> "12A")."""
+    return (rating or "").split("/")[-1].strip()
 
 
 def signature(specs: list[dict]) -> str:
@@ -340,7 +369,12 @@ def _apply_one(plex: Plex, rk: str, entry: dict, row: dict | None) -> bool | Non
         original, _ = plex.image(thumb)
         ORIGINALS.mkdir(parents=True, exist_ok=True)
         path.write_bytes(original)
-    plex.upload_image(rk, "poster", data=render(path.read_bytes(), specs))
+    base = path.read_bytes()
+    if entry.get("fresh"):          # a clean poster from Plex's sources, when there is one
+        fresh = plex.fresh_poster(plex.posters(rk))
+        if fresh:
+            base = plex.poster_bytes(fresh)
+    plex.upload_image(rk, "poster", data=render(base, specs))
     new_thumb = (plex.item(rk) or {}).get("thumb") or ""
     db.save_overlay(rk, entry["section_id"], entry["type"], sig, new_thumb, key, quality)
     if not row:

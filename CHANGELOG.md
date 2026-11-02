@@ -3,6 +3,20 @@
 The version shown in the web UI's sidebar matches these entries. Each
 release is also published as `ghcr.io/gaterunner341/curatarr:<version>`.
 
+## 0.14.0
+
+- **Content rating badge:** a new badge option under **Poster overlays**. It shows the title's rating from Plex (PG-13, R, TV-MA, or a country rating like 12A) in gold, first in the bottom-left row.
+- **Start from a fresh poster:** a new option under **Poster overlays**. Each title's ribbon and badges are drawn on the first poster from Plex's metadata sources (such as TMDB) instead of the current one, so artwork other tools added drops away.
+  - On its own, without a ribbon or badges, it just switches the collection's titles to that clean poster.
+  - The current posters are backed up as usual and come back if you turn it off.
+  - **Preview** shows the fresh poster too.
+- **I love the smell of napalm in the morning:** a new card in Settings that gives every movie and show in the libraries you pick a fresh poster, the first one from Plex's metadata sources.
+  - **Preview** shows random titles with their current poster next to the one they'd get. Click it again for others.
+  - Clear warnings, a tick box and a confirmation come before anything changes: posters picked by hand are replaced too, and it can't be undone in one click. Nothing is deleted, though: it uses Plex's own poster selection, so the old posters stay in each title's poster list in Plex.
+  - Progress shows in the top bar ("Refreshing posters · 120 / 5748"), and there's a **Stop** button. A summary appears when it finishes.
+  - Titles with Curatarr ribbons or badges are redrawn on their new poster afterwards.
+  - Titles already on their fresh poster, or with no poster from Plex's sources, are left as they are.
+
 ## 0.13.4
 
 - **Ribbons can go in any corner:** bottom right and bottom left join top right and top left.

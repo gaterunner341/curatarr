@@ -74,6 +74,7 @@ class Ribbon(BaseModel):
 class Badges(BaseModel):
     """Small badges along the bottom of every title's poster in a collection."""
     quality: bool = False         # resolution, HDR / Dolby Vision, Atmos (movies)
+    content_rating: bool = False  # PG-13, TV-MA, ...
     rating: Literal["", "audience", "critic"] = ""
     rating_min: float = Field(default=0, ge=0, le=10)    # hide the rating badge below this (out of 10)
 
@@ -126,6 +127,8 @@ class CollectionConfig(BaseModel):
     manual_order: list[str] = []
     ribbon: Ribbon = Ribbon()
     badges: Badges = Badges()
+    # Draw on (or just switch to) a clean poster from Plex's metadata sources instead of the current one.
+    fresh_poster: bool = False
 
     @field_validator("max_rating")
     @classmethod

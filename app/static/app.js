@@ -76,15 +76,31 @@ async function pollActivity() {
   const el = document.getElementById("activity");
   const overlaysRunning = Boolean(p && (p.running || p.queued));
   const syncing = p?.syncing || [];
-  const running = overlaysRunning || syncing.length > 0;
+  const napalm = p?.napalm?.running ? p.napalm : null;
+  const running = overlaysRunning || syncing.length > 0 || Boolean(napalm);
   el.hidden = !running;
-  if (overlaysRunning) {
+  const stop = document.getElementById("napalmStop");
+  if (stop) stop.hidden = !napalm;
+  if (napalm) {
+    el.innerHTML = `<span class="spinner"></span>${napalm.stopping ? "Stopping the poster refresh" : "Refreshing posters"}`
+      + `${napalm.total ? ` · ${napalm.done} / ${napalm.total}` : "…"}`;
+    el.title = `${napalm.changed} changed, ${napalm.unchanged} already fresh, ${napalm.errors} failed`;
+  } else if (overlaysRunning) {
     el.innerHTML = `<span class="spinner"></span>${esc(p.phase || "Poster overlays")}${p.total ? ` · ${p.done} / ${p.total}` : "…"}`;
     el.title = p.drawn ? `${p.drawn} poster(s) drawn so far` : "";
   } else if (syncing.length) {
     el.innerHTML = `<span class="spinner"></span>Syncing ${esc(syncing.length === 1 ? syncing[0] : `${syncing.length} collections`)}…`;
     el.title = syncing.join(", ");
   }
+  // A refresh we started (even one too quick to be seen running) reports when it's done.
+  if ((activity.napalm || activity.napalmStarted) && !napalm && p?.napalm?.finished
+      && Date.parse(p.napalm.finished) >= (activity.napalmStarted || 0) - 5000) {
+    activity.napalmStarted = 0;
+    const n = p.napalm;
+    toast(`Poster refresh done: ${n.changed} changed, ${n.unchanged} already fresh, ${n.no_poster} without a source poster`
+      + (n.errors ? `, ${n.errors} failed (see Logs)` : ""), Boolean(n.errors));
+  }
+  activity.napalm = Boolean(napalm);
   if (activity.overlays && !overlaysRunning && p) {
     toast(p.errors ? `Poster overlays finished with ${p.errors} problem(s); see Logs` : "Poster overlays are up to date",
       Boolean(p.errors));
@@ -457,7 +473,8 @@ async function collectionItems({ id = null, ratingKey = null, playlist = false, 
 
   const watched = items.filter((i) => i.watched).length;
   // Poster overlays on this collection: how many posters have them so far.
-  const wantsOverlay = row && (row.config.ribbon?.enabled || row.config.badges?.quality || row.config.badges?.rating);
+  const wantsOverlay = row && (row.config.ribbon?.enabled || row.config.badges?.quality || row.config.badges?.rating
+    || row.config.badges?.content_rating || row.config.fresh_poster);
   const overlaid = items.filter((i) => i.overlay).length;
   const overlayLine = wantsOverlay && inPlex && items.length ? `<p class="small muted" style="margin-top:-8px">
     <span class="overlay-dot"></span>Poster overlays on <strong>${overlaid}</strong> of ${items.length} posters${overlaid < items.length
@@ -1062,7 +1079,14 @@ async function editor(id, params = new URLSearchParams()) {
           <div><label for="r-color">Ribbon colour</label><input type="color" id="r-color" value="${esc(cfg.ribbon?.color || "#f5c518")}"></div>
           <div><label for="r-tcolor">Text colour</label><input type="color" id="r-tcolor" value="${esc(cfg.ribbon?.text_color || "#000000")}"></div>
           <div class="full"><label class="check"><input type="checkbox" id="b-quality" ${cfg.badges?.quality ? "checked" : ""}>
-            Quality badges: resolution, HDR or Dolby Vision, Atmos (movies)</label></div>
+            Quality badges: resolution, HDR or Dolby Vision, Atmos (movies)</label>
+            <label class="check"><input type="checkbox" id="b-cert" ${cfg.badges?.content_rating ? "checked" : ""}>
+            Content rating badge: PG-13, TV-MA and so on</label>
+            <label class="check"><input type="checkbox" id="f-fresh" ${cfg.fresh_poster ? "checked" : ""}>
+            Start from a fresh poster from Plex's sources</label>
+            <div class="hint">Swaps each title's poster for the first one from Plex's metadata sources (such as TMDB),
+              dropping artwork other tools added. On its own, without a ribbon or badges, it just switches to that clean poster.
+              The current posters are kept and put back if you turn this off.</div></div>
           <div><label for="b-rating">Rating badge</label><select id="b-rating">
             <option value="">None</option>
             <option value="audience" ${cfg.badges?.rating === "audience" ? "selected" : ""}>Audience rating (e.g. IMDb)</option>
@@ -1176,6 +1200,7 @@ async function editor(id, params = new URLSearchParams()) {
   });
   const badgeFields = () => ({
     quality: !isPlaylist && view.querySelector("#b-quality").checked,
+    content_rating: !isPlaylist && view.querySelector("#b-cert").checked,
     rating: isPlaylist ? "" : view.querySelector("#b-rating").value,
     rating_min: Number(view.querySelector("#b-min").value || 0),
   });
@@ -1183,7 +1208,8 @@ async function editor(id, params = new URLSearchParams()) {
     const out = view.querySelector("#r-out");
     out.textContent = "…";
     const resp = await api("POST", "/overlays/preview",
-      { ribbon: { ...ribbonFields(), enabled: view.querySelector("#r-on").checked }, badges: badgeFields(), collection_id: id }, true);
+      { ribbon: { ...ribbonFields(), enabled: view.querySelector("#r-on").checked }, badges: badgeFields(),
+        fresh_poster: view.querySelector("#f-fresh").checked, collection_id: id }, true);
     if (!resp.ok) { out.textContent = "▦"; throw new Error(`Preview failed (HTTP ${resp.status})`); }
     out.innerHTML = `<img src="${URL.createObjectURL(await resp.blob())}" alt="Overlay preview">`;
   });
@@ -1221,6 +1247,7 @@ async function editor(id, params = new URLSearchParams()) {
       pin_top: view.querySelector("#f-pin").checked,
       ribbon: ribbonFields(),
       badges: badgeFields(),
+      fresh_poster: !isPlaylist && view.querySelector("#f-fresh").checked,
       poster_url: view.querySelector("#poster-url").value,
       art_url: view.querySelector("#art-url")?.value || "",
       sources: cfg.sources.filter((s) => s.value),
@@ -1728,8 +1755,10 @@ async function settings() {
         ${g.arr ? `<div id="${g.arr}-options" class="small muted" style="margin-top:8px"></div>` : ""}
       </div>`).join("")}
     <div class="card" id="overlayCard"></div>
+    <div class="card napalm" id="napalmCard"></div>
     <p class="hint">Values marked <span class="badge">env</span> come from container environment variables; saving a value here overrides them.</p>`;
   overlayCard(view.querySelector("#overlayCard"));
+  napalmCard(view.querySelector("#napalmCard"));
 
   const gather = () => {
     const out = {};
@@ -1796,6 +1825,85 @@ async function overlayCard(card) {
     if (!confirm("Put every original poster back and turn off all ribbons and badges?")) return;
     await api("POST", "/overlays/apply?remove_all=true");
     toast("Restoring original posters in the background");
+  });
+}
+
+// "I love the smell of napalm in the morning": a fresh poster for every title.
+async function napalmCard(card) {
+  const libs = await libraries().catch(() => []);
+  if (!libs.length) { card.hidden = true; return; }
+  card.innerHTML = `
+    <h2>I love the smell of napalm in the morning</h2>
+    <p class="hint" style="margin-top:-6px">Gives every movie and show in the libraries you pick a fresh poster: the first one
+      from Plex's metadata sources, such as TMDB. Use it to clear out posters with old overlays or artwork from other tools.</p>
+    <div class="notice napalm-warning">
+      <strong>Before you light it up:</strong>
+      <ul>
+        <li>Every title's poster changes, <strong>including posters you picked by hand</strong> in Plex.</li>
+        <li>Nothing is deleted: the old posters stay in each title's poster list in Plex (Edit → Poster), where you can pick them again.
+          Curatarr can't undo it in one click.</li>
+        <li>Titles with Curatarr ribbons or badges get them redrawn on their new poster.</li>
+        <li>Big libraries take a while, about one Plex request or two per title. You can stop it part way.</li>
+        <li>Everyone using your server sees the new posters.</li>
+      </ul>
+    </div>
+    <div class="row" style="gap:16px;margin:10px 0">${libs.map((l) => `
+      <label class="check"><input type="checkbox" data-napalm-lib value="${esc(l.id)}">
+        ${esc(l.title)} (${l.type === "show" ? "TV" : "Movies"})</label>`).join("")}</div>
+    <div class="row">
+      <button type="button" id="napalmPreview">Preview</button>
+      <label class="check"><input type="checkbox" id="napalmAgree"> I understand every poster in these libraries will change</label>
+      <button type="button" class="danger" id="napalmRun" disabled>Refresh every poster</button>
+      <button type="button" id="napalmStop" hidden>Stop</button>
+    </div>
+    <div id="napalmOut"></div>`;
+  const picked = () => [...card.querySelectorAll("[data-napalm-lib]:checked")].map((b) => b.value);
+  const run = card.querySelector("#napalmRun");
+  const agree = card.querySelector("#napalmAgree");
+  const update = () => { run.disabled = !(agree.checked && picked().length); };
+  card.querySelectorAll("[data-napalm-lib]").forEach((b) => b.onchange = update);
+  agree.onchange = update;
+  card.querySelector("#napalmPreview").onclick = (e) => guard(async () => {
+    if (!picked().length) return toast("Pick at least one library", true);
+    const out = card.querySelector("#napalmOut");
+    e.target.disabled = true;
+    out.innerHTML = `<p class="muted small">Picking some titles and looking up their fresh posters…</p>`;
+    try {
+      const params = new URLSearchParams();
+      picked().forEach((s) => params.append("section", s));
+      const sample = await api("GET", `/napalm/preview?${params}`);
+      out.innerHTML = `
+        <p class="small muted">${sample.length} random titles: current poster on the left, the one it would get on the right.
+          Click <strong>Preview</strong> again for others.</p>
+        <div class="napalm-grid">${sample.map((s) => `
+          <div class="napalm-pair">
+            <div class="napalm-imgs">
+              <div class="item-poster">${s.current ? `<img loading="lazy" src="${esc(s.current)}" alt="Current poster">` : "▦"}</div>
+              <span class="muted">→</span>
+              <div class="item-poster">${s.fresh ? `<img loading="lazy" src="${esc(s.fresh)}" alt="Fresh poster" referrerpolicy="no-referrer">` : "—"}</div>
+            </div>
+            <div class="item-title" title="${esc(s.title)}">${esc(s.title)}${s.year ? ` <span class="muted">(${esc(s.year)})</span>` : ""}</div>
+            <div class="small ${s.status === "changes" ? "" : "muted"}">${s.status === "changes" ? "Gets the new poster" : esc(s.status)}</div>
+          </div>`).join("")}</div>`;
+    } catch (err) {
+      out.innerHTML = `<p class="no">${esc(err.message)}</p>`;
+    } finally {
+      e.target.disabled = false;
+    }
+  });
+  run.onclick = () => guard(async () => {
+    const names = libs.filter((l) => picked().includes(l.id)).map((l) => l.title).join(", ");
+    if (!confirm(`Give every title in ${names} a fresh poster?\n\nPosters you picked by hand are replaced too. `
+      + "The old ones stay in Plex's poster list, but Curatarr can't undo this in one click.")) return;
+    activity.napalmStarted = Date.now();
+    await api("POST", "/napalm/run", { section_ids: picked(), confirm: "napalm" });
+    toast("Refreshing posters in the background. Progress is in the top bar.");
+    agree.checked = false;
+    update();
+  });
+  card.querySelector("#napalmStop").onclick = () => guard(async () => {
+    await api("POST", "/napalm/stop");
+    toast("Stopping after the current title");
   });
 }
 

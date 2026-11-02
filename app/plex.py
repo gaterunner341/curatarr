@@ -479,6 +479,37 @@ class Plex:
             params["label[].tag.tag-"] = label
         self._request("PUT", f"/library/sections/{section_id}/all", params=params)
 
+    def posters(self, rating_key: str) -> list[dict]:
+        """A title's poster choices, in Plex's order: [{key, ratingKey, provider, selected, thumb}]."""
+        return self._request("GET", f"/library/metadata/{rating_key}/posters").get("Metadata") or []
+
+    @staticmethod
+    def fresh_poster(posters: list[dict]) -> dict | None:
+        """The first poster from Plex's metadata sources (not an upload or a local file)."""
+        for poster in posters:
+            ident = str(poster.get("ratingKey") or "")
+            if ident.startswith("upload://") or poster.get("provider") == "local" or not poster.get("key"):
+                continue
+            return poster
+        return None
+
+    def poster_bytes(self, poster: dict) -> bytes:
+        """Download a poster choice: from Plex, or straight from the source (e.g. TMDB)."""
+        key = poster.get("key") or ""
+        if key.startswith("/"):
+            return self.image(key)[0]
+        try:
+            resp = self.http.get(key, timeout=30)
+        except httpx.HTTPError as exc:
+            raise PlexError(f"Could not download the poster: {exc}") from exc
+        if resp.status_code >= 400 or not resp.content:
+            raise PlexError(f"The poster's source returned HTTP {resp.status_code}")
+        return resp.content
+
+    def select_poster(self, rating_key: str, poster: dict) -> None:
+        """Make one of a title's existing poster choices the current poster."""
+        self._request("PUT", f"/library/metadata/{rating_key}/poster", params={"url": poster["ratingKey"]})
+
     def upload_image(self, rating_key: str, kind: str, data: bytes | None = None,
                      url: str | None = None) -> None:
         """Upload a poster (kind='poster') or background (kind='art')."""

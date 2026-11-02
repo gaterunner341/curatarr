@@ -562,7 +562,7 @@ def update_collection(collection_id: int, cfg: dict = Body(...)):
     db.update_collection_config(collection_id, model.model_dump())
     scheduler.reload_jobs()
     before = CollectionConfig(**row["config"])
-    if (model.ribbon, model.badges) != (before.ribbon, before.badges):
+    if (model.ribbon, model.badges, model.fresh_poster) != (before.ribbon, before.badges, before.fresh_poster):
         scheduler.run_task(sync.run_overlays, "Poster overlays")     # draw or remove it now
     return _collection_out(db.get_collection(collection_id))
 
@@ -589,7 +589,8 @@ def delete_collection(collection_id: int, remove_from_plex: bool = False):
             (config.IMAGE_DIR / row["config"][kind]).unlink(missing_ok=True)
     db.delete_collection(collection_id)
     scheduler.reload_jobs()
-    if row["config"].get("ribbon", {}).get("enabled") or any((row["config"].get("badges") or {}).values()):
+    if row["config"].get("ribbon", {}).get("enabled") or any((row["config"].get("badges") or {}).values()) \
+            or row["config"].get("fresh_poster"):
         scheduler.run_task(sync.run_overlays, "Poster overlays")     # put the original posters back
     return {"deleted": True, "message": message}
 
@@ -679,8 +680,7 @@ def overlay_status():
     rows = db.overlay_rows()
     return {"posters": len(rows), "label": overlays.LABEL,
             "collections": [r["id"] for r in db.list_collections()
-                            if overlays.ribbon_spec(c := CollectionConfig(**r["config"]))
-                            or overlays.badge_settings(c)]}
+                            if overlays.uses_overlays(CollectionConfig(**r["config"]))]}
 
 
 @router.get("/overlays/progress")
@@ -688,7 +688,41 @@ def overlay_progress():
     """Background work for the web UI's indicator: running syncs, and the overlay pass's progress."""
     from . import overlays
     syncing = [r["config"]["name"] for r in db.list_collections() if sync.is_running(r["id"])]
-    return {**overlays.progress, "queued": overlays._again.is_set(), "syncing": syncing}
+    from . import napalm
+    return {**overlays.progress, "queued": overlays._again.is_set(), "syncing": syncing,
+            "napalm": napalm.progress}
+
+
+@router.get("/napalm/preview")
+def napalm_preview(section: list[str] = Query(default=[])):
+    """A sample of titles with their current poster and the fresh one they'd get."""
+    from . import napalm
+    try:
+        return napalm.preview(section)
+    except PlexError as exc:
+        raise HTTPException(400, str(exc))
+
+
+@router.post("/napalm/run")
+def napalm_run(body: dict = Body(...)):
+    """Switch every title in the chosen libraries to a fresh poster (in the background)."""
+    from . import napalm
+    if body.get("confirm") != "napalm":
+        raise HTTPException(422, "Confirm first")
+    sections = [str(s) for s in body.get("section_ids") or []]
+    if not sections:
+        raise HTTPException(422, "Pick at least one library")
+    if napalm.progress["running"]:
+        raise HTTPException(409, "A poster refresh is already running")
+    scheduler.run_task(lambda: napalm.run(sections), "Napalm poster refresh")
+    return {"queued": True}
+
+
+@router.post("/napalm/stop")
+def napalm_stop():
+    from . import napalm
+    napalm.stop()
+    return {"stopping": napalm.progress["running"]}
 
 
 @router.post("/overlays/apply")
@@ -699,8 +733,10 @@ def overlay_apply(remove_all: bool = False):
         # Turn ribbons and badges off too, or the next sync would draw them again.
         for row in db.list_collections():
             cfg = CollectionConfig(**row["config"])
-            if cfg.ribbon.enabled or cfg.badges.quality or cfg.badges.rating:
+            if cfg.ribbon.enabled or cfg.badges.quality or cfg.badges.rating or cfg.badges.content_rating \
+                    or cfg.fresh_poster:
                 cfg.ribbon.enabled, cfg.badges.quality, cfg.badges.rating = False, False, ""
+                cfg.badges.content_rating = cfg.fresh_poster = False
                 db.update_collection_config(row["id"], cfg.model_dump())
     scheduler.run_task(lambda: overlays.apply_all(remove_all=remove_all), "Poster overlays")
     return {"queued": True}
@@ -723,7 +759,10 @@ def overlay_preview(body: dict = Body(...)):
     ribbons = [{"kind": "ribbon", **ribbon.model_dump(exclude={"enabled"})}] if ribbon.enabled else []
     sample = {"kind": "badges", "quality": ["4K", "DV", "ATMOS"] if badges.quality else [],
               "rating": ({"source": "imdb", "value": "8.4"} if badges.rating == "audience"
-                         else {"source": "rottentomatoes", "value": "92%"}) if badges.rating else None}
+                         else {"source": "rottentomatoes", "value": "92%"}) if badges.rating else None,
+              "content_rating": "PG-13" if badges.content_rating else ""}
+    has_sample = bool(sample["quality"] or sample["rating"] or sample["content_rating"])
+    fresh = bool(body.get("fresh_poster"))
     row = db.get_collection(int(body["collection_id"])) if body.get("collection_id") else None
     try:
         if row and row.get("plex_rating_key"):
@@ -733,21 +772,25 @@ def overlay_preview(body: dict = Body(...)):
                 except PlexError:
                     items = []
                 specs = list(ribbons)
-                thumb = ""
+                thumb, rk = "", ""
                 if items:
-                    item, thumb = items[0], items[0].get("thumb") or ""
+                    item, thumb, rk = items[0], items[0].get("thumb") or "", str(items[0]["ratingKey"])
                     quality = overlays.quality_labels(plex.item(str(item["ratingKey"])) or item) \
                         if badges.quality and item.get("type") == "movie" else []
                     rating = overlays.rating_badge(item, badges.rating) if badges.rating else None
+                    certificate = overlays.content_rating_label(item.get("contentRating")) \
+                        if badges.content_rating else ""
                     # Sample values where this title has none, so the preview shows the look.
                     quality, rating = quality or sample["quality"], rating or sample["rating"]
-                    if quality or rating:
-                        specs.append({"kind": "badges", "quality": quality, "rating": rating})
-                elif sample["quality"] or sample["rating"]:
+                    certificate = certificate or sample["content_rating"]
+                    if quality or rating or certificate:
+                        specs.append({"kind": "badges", "quality": quality, "rating": rating,
+                                      "content_rating": certificate})
+                elif has_sample:
                     specs.append(sample)
-                data = overlays.preview(specs, plex, thumb)
+                data = overlays.preview(specs, plex, thumb, rk, fresh)
         else:
-            data = overlays.preview(ribbons + ([sample] if sample["quality"] or sample["rating"] else []))
+            data = overlays.preview(ribbons + ([sample] if has_sample else []))
     except Exception as exc:
         raise HTTPException(500, f"Could not draw the preview: {exc}")
     return Response(data, media_type="image/jpeg", headers={"Cache-Control": "no-store"})
