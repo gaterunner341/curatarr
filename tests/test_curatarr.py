@@ -1619,3 +1619,33 @@ def test_arr_root_folder_per_library():
         assert sync_mod.arr_root_folder("radarr", chosen, http, None, section) == "/movies"
         assert sync_mod.arr_root_folder("radarr", settings, http, None, None) == ""
         sync_mod._folder_cache.clear()
+
+
+def test_rogue_filenames_scan(monkeypatch):
+    from app import naming
+
+    def radarr(request):
+        path, q = request.url.path, request.url.params
+        if path == "/api/v3/config/naming":
+            return httpx.Response(200, json={"renameMovies": True, "standardMovieFormat": "{Movie Title} ({Release Year})"})
+        if path == "/api/v3/movie":
+            return httpx.Response(200, json=[{"id": 1, "title": "Heat", "year": 1995, "hasFile": True, "path": "/m/Heat"},
+                                             {"id": 2, "title": "Alien", "year": 1979, "hasFile": True, "path": "/m/Alien"},
+                                             {"id": 3, "title": "Wanted", "hasFile": False}])
+        if path == "/api/v3/rename":
+            assert q["movieId"] in ("1", "2")
+            return httpx.Response(200, json=[{"existingPath": "heat.1995.mkv", "newPath": "Heat (1995).mkv"}]
+                                  if q["movieId"] == "1" else [])
+        return httpx.Response(404)
+
+    real_client = httpx.Client
+    monkeypatch.setattr(naming.httpx, "Client", lambda **kw: real_client(transport=httpx.MockTransport(radarr)))
+    db.save_settings({"radarr_url": "http://r", "radarr_api_key": "k", "sonarr_url": "", "naming_scan": ""})
+    result = naming.scan()
+    s = result["services"]["radarr"]
+    assert "sonarr" not in result["services"]
+    assert s["checked"] == 2 and s["formats"]["standardMovieFormat"] == "{Movie Title} ({Release Year})"
+    assert [i["title"] for i in s["items"]] == ["Heat"]
+    assert s["items"][0]["files"][0]["existing"] == "heat.1995.mkv" and s["items"][0]["files"][0]["new"] == "Heat (1995).mkv"
+    assert naming.last()["services"]["radarr"]["items"][0]["id"] == 1 and not naming.progress["running"]
+    db.save_settings({"radarr_url": "", "radarr_api_key": "", "naming_scan": ""})

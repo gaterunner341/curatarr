@@ -88,6 +88,36 @@ class Arr:
             out.append((ids, root))
         return out
 
+    def _json(self, path: str, **params):
+        resp = self._request("GET", path, params=params or None)
+        if resp.status_code >= 400:
+            raise ArrError(f"{self.kind.title()} returned HTTP {resp.status_code} for {path}")
+        return resp.json()
+
+    def naming(self) -> dict:
+        """The naming settings (Settings → Media Management): whether renaming is on, and the formats."""
+        cfg = self._json("/config/naming")
+        keys = (("renameMovies", "standardMovieFormat", "movieFolderFormat") if self.kind == "radarr" else
+                ("renameEpisodes", "standardEpisodeFormat", "dailyEpisodeFormat", "animeEpisodeFormat",
+                 "seriesFolderFormat", "seasonFolderFormat"))
+        return {k: cfg.get(k) for k in keys if k in cfg}
+
+    def titles_with_files(self) -> list[dict]:
+        """Movies (Radarr) or series (Sonarr) that have files: [{id, title, year, path}]."""
+        if self.kind == "radarr":
+            items = [m for m in self._json("/movie") if m.get("hasFile")]
+        else:
+            items = [s for s in self._json("/series") if (s.get("statistics") or {}).get("episodeFileCount")]
+        return sorted(({"id": i["id"], "title": i.get("title") or "", "year": i.get("year"), "path": i.get("path") or ""}
+                       for i in items), key=lambda t: t["title"].lower())
+
+    def rename_preview(self, item_id: int) -> list[dict]:
+        """Files Radarr/Sonarr would rename to follow its naming format: [{existing, new, season, episodes}]."""
+        key = "movieId" if self.kind == "radarr" else "seriesId"
+        return [{"existing": f.get("existingPath") or "", "new": f.get("newPath") or "",
+                 "season": f.get("seasonNumber"), "episodes": f.get("episodeNumbers") or []}
+                for f in self._json("/rename", **{key: item_id})]
+
     @staticmethod
     def already_has(ref: MediaRef, have: dict[str, set]) -> bool:
         return any(getattr(ref, key) and str(getattr(ref, key)) in have[key]

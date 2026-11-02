@@ -1,5 +1,6 @@
 """REST API used by the web UI (and available for scripting)."""
 import logging
+import threading
 import time
 import os
 from datetime import date, datetime
@@ -140,6 +141,29 @@ def test_service(service: str):
     except (PlexError, SourceError, arr.ArrError, httpx.HTTPError) as exc:
         return {"ok": False, "message": str(exc)}
     raise HTTPException(404, f"Unknown service '{service}'")
+
+
+@router.get("/naming")
+def naming_results():
+    """Rogue Filenames: the last scan, and the running one's progress."""
+    from . import naming
+    return {"last": naming.last(), "progress": naming.progress}
+
+
+@router.post("/naming/scan")
+def naming_scan():
+    from . import naming
+    if naming.progress["running"]:
+        return {"running": True}
+    threading.Thread(target=naming.scan, daemon=True, name="naming-scan").start()
+    return {"started": True}
+
+
+@router.post("/naming/stop")
+def naming_stop():
+    from . import naming
+    naming.stop()
+    return {"stopping": True}
 
 
 @router.get("/arr/{kind}/detect")

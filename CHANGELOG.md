@@ -3,6 +3,15 @@
 The version shown in the web UI's sidebar matches these entries. Each
 release is also published as `ghcr.io/gaterunner341/curatarr:<version>`.
 
+## 0.23.0
+
+- **Rogue Filenames** (Settings → Rogue Filenames): finds movie and episode files whose names don't follow the naming formats set in Radarr and Sonarr (Settings → Media Management).
+  - Radarr and Sonarr decide this themselves. Curatarr asks each one for its rename preview for every movie and series, and lists the files it would rename: the current name → the name its format gives.
+  - The page shows each service's formats, warns when Rename Movies/Episodes is off, and has a filter.
+  - The scan runs in the background, can be stopped, and the last result is kept. Nothing is renamed: use **Rename Files** in Radarr or Sonarr.
+  - Only file names are checked. Radarr and Sonarr don't report folders that differ from the folder format.
+- **Settings menu folds up:** the arrow next to Settings shows or hides its sub-pages. Your browser remembers the choice, and opening a sub-page unfolds it.
+
 ## 0.22.0
 
 - **Root folder per library, found automatically:** Curatarr works out each Plex library's Radarr/Sonarr root folder from Radarr/Sonarr's own data. It matches the library's titles to Radarr/Sonarr titles by TMDB/IMDb/TVDB id and uses the root folder most of them are in. Missing titles requested from a collection, by a sync or with **Add to Radarr/Sonarr**, go there. Nothing needs setting.

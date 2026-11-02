@@ -142,6 +142,7 @@ const routes = [
   [/^#\/prerolls$/, prerollsPage],
   [/^#\/overlays$/, overlaysPage],
   [/^#\/napalm$/, napalmPage],
+  [/^#\/rogue$/, roguePage],
   [/^#\/collections$/, () => location.replace("#/movies")],   // the old single Collections page
   [/^.*$/, () => location.replace("#/dashboard")],
 ];
@@ -170,6 +171,28 @@ async function route() {
   }
 }
 
+// Settings and its sub-pages can be folded up (remembered per browser); opening a sub-page unfolds it.
+function foldNav(group, folded) {
+  const btn = document.querySelector(`[data-toggle="${group}"]`);
+  if (!btn) return;
+  btn.setAttribute("aria-expanded", String(!folded));
+  document.querySelectorAll(`[data-parent="${group}"]`).forEach((a) => a.classList.toggle("folded", folded));
+}
+document.querySelectorAll("[data-toggle]").forEach((btn) => {
+  const key = `curatarr.nav.${btn.dataset.toggle}.folded`;
+  let folded = false;
+  try { folded = localStorage.getItem(key) === "1"; } catch { /* no storage */ }
+  foldNav(btn.dataset.toggle, folded);
+  btn.onclick = () => {
+    const now = btn.getAttribute("aria-expanded") === "true";
+    foldNav(btn.dataset.toggle, now);
+    try { localStorage.setItem(key, now ? "1" : "0"); } catch { /* no storage */ }
+  };
+});
+window.addEventListener("hashchange", () => {
+  const sub = document.querySelector(`[data-parent][href="${location.hash.split("?")[0]}"]`);
+  if (sub?.classList.contains("folded")) foldNav(sub.dataset.parent, false);
+});
 window.addEventListener("hashchange", route);
 document.getElementById("menuBtn").onclick = () => document.getElementById("sidebar").classList.toggle("open");
 
@@ -2209,6 +2232,75 @@ async function overlaysPage() {
   bindCardActions("list overlay");
   if (lists.some((r) => r.running)) refreshTimer = setInterval(route, 4000);
   await overlayCard(view.querySelector("#overlayCard"));
+}
+
+// Rogue Filenames: files Radarr/Sonarr would rename, i.e. not following their own naming formats.
+async function roguePage() {
+  const r = await api("GET", "/naming");
+  const p = r.progress;
+  const last = r.last || {};
+  const services = last.services || {};
+  const filter = (state.rogueFilter || "").toLowerCase();
+  const NAMES = { radarr: "Radarr", sonarr: "Sonarr" };
+  const FORMAT_LABELS = {
+    standardMovieFormat: "Movie file", movieFolderFormat: "Movie folder", standardEpisodeFormat: "Episode file",
+    dailyEpisodeFormat: "Daily episode file", animeEpisodeFormat: "Anime episode file",
+    seriesFolderFormat: "Series folder", seasonFolderFormat: "Season folder",
+  };
+  const block = (kind, s) => {
+    const items = s.items.filter((i) => !filter || i.title.toLowerCase().includes(filter)
+      || i.files.some((f) => f.existing.toLowerCase().includes(filter)));
+    const files = s.items.reduce((n, i) => n + i.files.length, 0);
+    const renameOn = s.formats.renameMovies ?? s.formats.renameEpisodes;
+    return `<div class="card">
+      <h2>${NAMES[kind]}</h2>
+      ${s.error ? `<div class="notice">Couldn't scan ${NAMES[kind]}: ${esc(s.error)}</div>` : `
+      <p class="small muted" style="margin-top:-6px">${s.items.length} of ${s.checked} ${kind === "radarr" ? "movies" : "series"}
+        have ${files} file${files === 1 ? "" : "s"} that don't follow ${NAMES[kind]}'s naming format.
+        ${renameOn === false ? `<strong>Rename ${kind === "radarr" ? "Movies" : "Episodes"} is off</strong> in ${NAMES[kind]}, so it won't rename new files either.` : ""}</p>
+      <details class="small"><summary class="muted">${NAMES[kind]}'s naming formats (Settings → Media Management)</summary>
+        ${Object.entries(s.formats).filter(([k]) => FORMAT_LABELS[k]).map(([k, v]) =>
+          `<div><span class="muted">${FORMAT_LABELS[k]}:</span> <span class="mono">${esc(v || "")}</span></div>`).join("")}
+        <div class="muted" style="margin-top:4px">Only file names are checked; ${NAMES[kind]} doesn't report folders that differ from the folder format.</div>
+      </details>
+      ${items.length ? `<table style="margin-top:10px"><thead><tr><th>Title</th><th>Files: now → ${NAMES[kind]}'s format</th></tr></thead><tbody>
+        ${items.map((i) => `<tr><td style="vertical-align:top;min-width:180px"><strong>${esc(i.title)}</strong>${i.year ? ` <span class="muted">(${i.year})</span>` : ""}
+            <div class="small muted mono">${esc(i.path)}</div></td>
+          <td>${i.files.map((f) => `<div class="rogue-file"><span class="old">${esc(f.existing)}</span><span class="arrow">→</span>${esc(f.new)}</div>`).join("")}</td></tr>`).join("")}
+      </tbody></table>` : `<p class="muted">${filter ? "Nothing matches the filter." : "Every file follows the naming format."}</p>`}`}
+    </div>`;
+  };
+  view.innerHTML = `
+    <div class="page-head"><h1>Rogue Filenames</h1>
+      <div class="actions">
+        ${p.running ? `<button id="rogueStop" class="danger" ${p.stopping ? "disabled" : ""}>${p.stopping ? "Stopping…" : "Stop"}</button>`
+          : `<button class="primary" id="rogueScan">${last.finished ? "Scan again" : "Scan"}</button>`}
+      </div></div>
+    <p class="hint" style="margin-top:-8px">Movies and episodes whose file names don't follow the naming formats set in
+      Radarr and Sonarr (Settings → Media Management). Radarr and Sonarr decide this themselves: these are the files their
+      rename preview would change. Nothing is renamed here; use <strong>Rename Files</strong> on a title in Radarr or Sonarr.</p>
+    ${p.running ? `<div class="card"><span class="spinner"></span> Checking ${esc(NAMES[p.service] || "")}${p.total ? `: ${p.done} / ${p.total}` : "…"}
+      <div class="small muted">One request per ${p.service === "sonarr" ? "series" : "movie"}; big libraries take a few minutes.</div></div>` : ""}
+    ${last.finished ? `<p class="small muted">Last scan: ${esc(new Date(last.finished).toLocaleString())}${last.stopped ? " (stopped part way)" : ""}</p>
+      <input type="search" id="rogueFilter" placeholder="Filter by title or file name" value="${esc(state.rogueFilter || "")}" style="max-width:360px;margin-bottom:12px">
+      ${Object.keys(services).length ? Object.entries(services).map(([k, s]) => block(k, s)).join("")
+        : `<div class="card"><p class="muted">Radarr and Sonarr aren't set up in Settings, so there was nothing to scan.</p></div>`}`
+      : p.running ? "" : `<div class="card"><p class="muted">No scan yet. <strong>Scan</strong> checks every movie in Radarr and every series in Sonarr.</p></div>`}`;
+  view.querySelector("#rogueScan")?.addEventListener("click", () => guard(async () => {
+    await api("POST", "/naming/scan");
+    route();
+  }));
+  view.querySelector("#rogueStop")?.addEventListener("click", () => guard(async () => {
+    await api("POST", "/naming/stop");
+    route();
+  }));
+  const box = view.querySelector("#rogueFilter");
+  if (box) box.oninput = () => {
+    state.rogueFilter = box.value;
+    const pos = box.selectionStart;
+    roguePage().then(() => { const b = view.querySelector("#rogueFilter"); b.focus(); b.setSelectionRange(pos, pos); });
+  };
+  if (p.running) refreshTimer = setInterval(() => { if (location.hash === "#/rogue") route(); }, 3000);
 }
 
 async function napalmPage() {
