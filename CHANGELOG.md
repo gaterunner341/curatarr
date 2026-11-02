@@ -3,6 +3,10 @@
 The version shown in the web UI's sidebar matches these entries. Each
 release is also published as `ghcr.io/gaterunner341/curatarr:<version>`.
 
+## 0.23.2
+
+- **Dashboard:** removed the Watched % card.
+
 ## 0.23.1
 
 - **Fixed:** "Sonarr couldn't find this title" for shows that Sonarr does have, such as new shows like Quokka's Wild Life.

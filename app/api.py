@@ -481,7 +481,7 @@ def enable_holiday(key: str, section_id: str = Body(..., embed=True),
 
 @router.get("/dashboard")
 def dashboard():
-    """Overview from the database only (fast); watched counts come from /dashboard/watched."""
+    """Overview from the database only (fast)."""
     rows = db.list_collections()
     latest = db.latest_runs()
     today = date.today()
@@ -531,25 +531,6 @@ def dashboard():
         "most_missing": sorted(missing_rank, key=lambda m: -m["missing"])[:5],
         "recent": recent,
     }
-
-
-@router.get("/dashboard/watched")
-def dashboard_watched():
-    """How much of each collection and playlist has been watched (asks Plex; slower)."""
-    out, watched, total = {}, 0, 0
-    with _plex() as plex:
-        for r in db.list_collections():
-            if not r.get("plex_rating_key"):
-                continue
-            try:
-                items = (plex.playlist_contents if r["config"].get("kind") == "playlist"
-                         else plex.collection_contents)(r["plex_rating_key"])
-            except PlexError:
-                continue
-            seen = sum(1 for i in items if i["watched"])
-            out[r["id"]] = {"watched": seen, "total": len(items)}
-            watched, total = watched + seen, total + len(items)
-    return {"watched": watched, "total": total, "collections": out}
 
 
 @router.get("/packs")

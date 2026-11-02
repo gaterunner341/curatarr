@@ -747,7 +747,6 @@ async function dashboardPage() {
       ${stat(c.holidays, "Holiday collections")}
       ${stat(c.titles.toLocaleString(), "Titles in Plex")}
       ${stat(c.missing.toLocaleString(), "Missing from Plex")}
-      ${stat("…", "Watched", "watchedStat")}
     </div>
     <div class="dash">
       <div class="card"><h2>Needs attention</h2>
@@ -775,15 +774,6 @@ async function dashboardPage() {
           <p class="small"><a href="#/history">All history</a></p>`
           : `<p class="muted small">No syncs yet.</p>`}</div>
     </div>`;
-  try {
-    const w = await api("GET", "/dashboard/watched");
-    const el = view.querySelector("#watchedStat .stat-value");
-    if (el) el.textContent = w.total ? `${Math.round((w.watched / w.total) * 100)}%` : "—";
-    view.querySelector("#watchedStat")?.setAttribute("title", `${w.watched} of ${w.total} titles`);
-  } catch {
-    const el = view.querySelector("#watchedStat .stat-value");
-    if (el) el.textContent = "—";
-  }
 }
 
 // ---------- unmatched titles ----------
