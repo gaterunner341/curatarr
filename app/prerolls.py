@@ -1,8 +1,8 @@
 """Plex prerolls, managed from a Plex library instead of a typed list of paths.
 
 Plex has one server setting for prerolls, ``CinemaTrailersPrerollID``: file paths
-(as the Plex server sees them) separated by commas (Plex plays one at random) or
-semicolons (Plex plays them all, in order). Curatarr builds that string from clips
+(as the Plex server sees them) separated by commas (Plex plays them all, in order) or
+semicolons (Plex plays one at random). Curatarr builds that string from clips
 picked in a Plex library (e.g. "PreRolls"), with a default set and seasonal sets
 that switch automatically, and keeps the setting's original value so it can be
 restored.
@@ -114,12 +114,12 @@ def build_value(cfg: dict, paths: list[str], today: date | None = None) -> str:
     if not paths:
         return ""
     if cfg["mode"] == "sequence":
-        return ";".join(paths)
+        return ",".join(paths)
     if cfg["mode"] == "daily":           # the same few clips all day, a new pick each day
         today = today or date.today()
         pick = random.Random(today.toordinal()).sample(paths, min(cfg["daily_count"], len(paths)))
-        return ";".join(pick)
-    return ",".join(paths)
+        return ",".join(pick)
+    return ";".join(paths)
 
 
 def parse_value(value: str) -> tuple[list[str], str]:
@@ -127,7 +127,7 @@ def parse_value(value: str) -> tuple[list[str], str]:
     value = (value or "").strip()
     if not value:
         return [], "random"
-    sep, mode = (";", "sequence") if ";" in value and "," not in value else (",", "random")
+    sep, mode = (",", "sequence") if "," in value and ";" not in value else (";", "random")
     return [p.strip() for p in value.split(sep) if p.strip()], mode
 
 
@@ -171,9 +171,14 @@ def overview(today: date | None = None) -> dict:
         items = clips(plex, cfg["section_id"]) if cfg["section_id"] else []
     paths, current_mode = parse_value(current)
     by_path = {c["file"]: c["ratingKey"] for c in items}
+    # Not set up yet: start from what Plex plays now (saved once the user saves the page).
+    from_plex = not cfg["enabled"] and cfg["backup"] is None and not cfg["default"] and not cfg["sets"]
+    if from_plex:
+        cfg["default"] = [by_path[p] for p in paths if p in by_path]
+        cfg["mode"] = current_mode
     active = active_set(cfg, today)
     return {
-        "settings": cfg, "libraries": libraries, "clips": items,
+        "settings": cfg, "libraries": libraries, "clips": items, "from_plex": from_plex and bool(cfg["default"]),
         "current": {"value": current, "mode": current_mode,
                     "matched": [by_path[p] for p in paths if p in by_path],
                     "unmatched": [p for p in paths if p not in by_path]},

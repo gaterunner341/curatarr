@@ -3,6 +3,11 @@
 The version shown in the web UI's sidebar matches these entries. Each
 release is also published as `ghcr.io/gaterunner341/curatarr:<version>`.
 
+## 0.19.2
+
+- **Fixed (prerolls):** Curatarr had Plex's separators backwards. In Plex's preroll setting, commas mean "play all of them, in order" and semicolons mean "play one at random". Curatarr now reads and writes them that way, so a semicolon list shows as "one played at random".
+- **Prerolls:** until Curatarr manages your prerolls, the Prerolls page fills in the play mode and the Default set from Plex's current preroll list. Turn on managing and save to take it over as it is.
+
 ## 0.19.1
 
 - **Fixed:** a collection or playlist that Curatarr created could be treated as one that "existed before Curatarr". This happened when Curatarr lost track of it and found it again by name, for example after a holiday was turned off and back on. Curatarr then only added titles to it and left it in Plex out of season.

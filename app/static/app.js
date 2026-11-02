@@ -961,6 +961,8 @@ async function prerollsPage() {
         <div class="small muted">${cfg.enabled
           ? `Managed by Curatarr. Today: <strong>${esc(data.active.name)}</strong> (${data.active.count} clip(s))${data.next_change
             ? ` · switches to <strong>${esc(data.next_change.set)}</strong> on ${esc(new Date(data.next_change.date + "T00:00").toLocaleDateString())}` : ""}.`
+          : data.from_plex ? "Not managed by Curatarr yet. The play mode and Default set below are filled in from this list; "
+            + "turn on managing and save to take it over."
           : "Not managed by Curatarr yet: tick the clips below, turn on managing and save."}</div>
       </div>
 

@@ -1489,14 +1489,16 @@ def test_preroll_manager(monkeypatch):
     assert view["settings"]["section_id"] == "5"                      # found "PreRolls" by name
     assert [c["title"] for c in view["clips"]] == ["Classic", "Pumpkin", "Snow"]
     assert view["current"]["matched"] == ["51"] and view["current"]["unmatched"] == ["/data/prerolls/Old.mp4"]
-    assert view["current"]["mode"] == "random"
+    assert view["current"]["mode"] == "sequence"                      # commas: all, in order
+    assert view["settings"]["default"] == ["51"] and view["settings"]["mode"] == "sequence"   # taken from Plex
+    assert view["from_plex"]
 
     with pytest.raises(prerolls.PrerollError):
         prerolls.save({"sets": [{"name": "Bad", "start": "13-01", "end": "10-31", "items": []}]})
     prerolls.save({"enabled": True, "section_id": "5", "mode": "random", "default": ["51", "53"],
                    "sets": [{"name": "Halloween", "start": "10-01", "end": "10-31", "items": ["52"]}]})
     assert prerolls.apply(date(2026, 6, 1))["set"] == "Default"
-    assert fake.pref == "/data/prerolls/Classic.mp4,/data/prerolls/Snow.mp4"
+    assert fake.pref == "/data/prerolls/Classic.mp4;/data/prerolls/Snow.mp4"
     assert prerolls.load()["backup"] == "/data/prerolls/Classic.mp4,/data/prerolls/Old.mp4"   # the original, kept
     prerolls.apply(date(2026, 10, 5))
     assert fake.pref == "/data/prerolls/Pumpkin.mp4"
@@ -1504,16 +1506,18 @@ def test_preroll_manager(monkeypatch):
 
     prerolls.save({"mode": "sequence"})
     prerolls.apply(date(2026, 6, 1))
-    assert fake.pref == "/data/prerolls/Classic.mp4;/data/prerolls/Snow.mp4"
+    assert fake.pref == "/data/prerolls/Classic.mp4,/data/prerolls/Snow.mp4"
     prerolls.save({"mode": "daily", "daily_count": 1})
     prerolls.apply(date(2026, 6, 1))
     first = fake.pref
     prerolls.apply(date(2026, 6, 1))
-    assert fake.pref == first and ";" not in first                        # one clip, the same all day
+    assert fake.pref == first and "," not in first                        # one clip, the same all day
 
     prerolls.restore()
     assert fake.pref == "/data/prerolls/Classic.mp4,/data/prerolls/Old.mp4" and not prerolls.load()["enabled"]
-    assert prerolls.parse_value("a;b") == (["a", "b"], "sequence")
+    assert prerolls.parse_value("a;b") == (["a", "b"], "random")
+    assert prerolls.parse_value("a,b") == (["a", "b"], "sequence")
+    assert not prerolls.overview()["from_plex"]                         # set up already: nothing taken
     assert prerolls.build_value({"mode": "random"}, []) == ""
     db.save_settings({"prerolls": ""})
 
