@@ -83,6 +83,10 @@ def _migrate(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE collections ADD COLUMN plex_owned INTEGER")
     if "hub_pinned" not in columns:     # 0.11.0: hub that was first before Curatarr pinned this one
         conn.execute("ALTER TABLE collections ADD COLUMN hub_pinned TEXT")
+    overlay_columns = {r[1] for r in conn.execute("PRAGMA table_info(overlays)")}
+    for column in ("media_key", "media"):          # 0.13.0: cached quality info for badges
+        if column not in overlay_columns:
+            conn.execute(f"ALTER TABLE overlays ADD COLUMN {column} TEXT")
     run_columns = {r[1] for r in conn.execute("PRAGMA table_info(runs)")}
     for column in ("added_items", "removed_items"):    # 0.7.0: which titles a sync changed
         if column not in run_columns:
@@ -238,13 +242,15 @@ def overlay_rows() -> dict[str, dict]:
 
 
 def save_overlay(rating_key: str, section_id: str, item_type: str, signature: str,
-                 applied_thumb: str) -> None:
+                 applied_thumb: str, media_key: str = "", media: list | None = None) -> None:
     _execute(
-        "INSERT INTO overlays (rating_key, section_id, item_type, signature, applied_thumb, updated) "
-        "VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(rating_key) DO UPDATE SET section_id = excluded.section_id, "
-        "item_type = excluded.item_type, signature = excluded.signature, "
-        "applied_thumb = excluded.applied_thumb, updated = excluded.updated",
-        (rating_key, section_id, item_type, signature, applied_thumb, now()))
+        "INSERT INTO overlays (rating_key, section_id, item_type, signature, applied_thumb, updated, "
+        "media_key, media) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(rating_key) DO UPDATE SET "
+        "section_id = excluded.section_id, item_type = excluded.item_type, signature = excluded.signature, "
+        "applied_thumb = excluded.applied_thumb, updated = excluded.updated, "
+        "media_key = excluded.media_key, media = excluded.media",
+        (rating_key, section_id, item_type, signature, applied_thumb, now(), media_key,
+         json.dumps(media or [])))
 
 
 def delete_overlay(rating_key: str) -> None:

@@ -278,6 +278,10 @@ class Plex:
         items = self._paged(f"/library/collections/{rating_key}/items")
         return [str(m["ratingKey"]) for m in items]
 
+    def collection_raw(self, rating_key: str) -> list[dict]:
+        """A collection's titles as Plex sends them (ratings, media info and all)."""
+        return self._paged(f"/library/collections/{rating_key}/items")
+
     def collection_contents(self, rating_key: str) -> list[dict]:
         """The titles in a collection, in collection order, for display."""
         result = []

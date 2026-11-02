@@ -973,9 +973,9 @@ async function editor(id, params = new URLSearchParams()) {
     </div>
 
     <div class="card" ${isPlaylist ? "hidden" : ""}>
-      <h2>Poster overlay</h2>
-      <p class="hint" style="margin-top:-6px">Draws a ribbon across a corner of every title's poster in this collection.
-        The original posters are kept and put back if you turn this off or delete the collection.</p>
+      <h2>Poster overlays</h2>
+      <p class="hint" style="margin-top:-6px">Draws a ribbon and badges on every title's poster in this collection.
+        The original posters are kept and put back if you turn these off or delete the collection.</p>
       <div class="overlay-edit">
         <div class="grid" style="flex:1">
           <div class="full"><label class="check"><input type="checkbox" id="r-on" ${cfg.ribbon?.enabled ? "checked" : ""}> Ribbon on every title's poster</label></div>
@@ -986,8 +986,18 @@ async function editor(id, params = new URLSearchParams()) {
             <option value="top-left" ${cfg.ribbon?.corner === "top-left" ? "selected" : ""}>Top left</option></select></div>
           <div><label for="r-color">Ribbon colour</label><input type="color" id="r-color" value="${esc(cfg.ribbon?.color || "#f5c518")}"></div>
           <div><label for="r-tcolor">Text colour</label><input type="color" id="r-tcolor" value="${esc(cfg.ribbon?.text_color || "#000000")}"></div>
+          <div class="full"><label class="check"><input type="checkbox" id="b-quality" ${cfg.badges?.quality ? "checked" : ""}>
+            Quality badges: resolution, HDR or Dolby Vision, Atmos (movies)</label></div>
+          <div><label for="b-rating">Rating badge</label><select id="b-rating">
+            <option value="">None</option>
+            <option value="audience" ${cfg.badges?.rating === "audience" ? "selected" : ""}>Audience rating (e.g. IMDb)</option>
+            <option value="critic" ${cfg.badges?.rating === "critic" ? "selected" : ""}>Critic rating (e.g. Rotten Tomatoes)</option></select>
+            <div class="hint">Uses the ratings shown in Plex, set in the library's settings.</div></div>
+          <div><label for="b-min">Only show ratings of at least (out of 10)</label>
+            <input type="number" id="b-min" min="0" max="10" step="0.1" value="${cfg.badges?.rating_min || 0}"></div>
           <div class="full"><button type="button" class="small" id="r-preview">Preview</button>
-            <span class="hint">Applied to Plex after you save, then kept up to date at every sync.</span></div>
+            <span class="hint">Shown on the collection's first title (sample badges where it has no data).
+              Applied to Plex after you save, then kept up to date at every sync.</span></div>
         </div>
         <div class="overlay-preview image-box" id="r-out">▦</div>
       </div>
@@ -1089,10 +1099,16 @@ async function editor(id, params = new URLSearchParams()) {
     color: view.querySelector("#r-color").value,
     text_color: view.querySelector("#r-tcolor").value,
   });
+  const badgeFields = () => ({
+    quality: !isPlaylist && view.querySelector("#b-quality").checked,
+    rating: isPlaylist ? "" : view.querySelector("#b-rating").value,
+    rating_min: Number(view.querySelector("#b-min").value || 0),
+  });
   view.querySelector("#r-preview").onclick = () => guard(async () => {
     const out = view.querySelector("#r-out");
     out.textContent = "…";
-    const resp = await api("POST", "/overlays/preview", { ribbon: ribbonFields(), collection_id: id }, true);
+    const resp = await api("POST", "/overlays/preview",
+      { ribbon: { ...ribbonFields(), enabled: view.querySelector("#r-on").checked }, badges: badgeFields(), collection_id: id }, true);
     if (!resp.ok) { out.textContent = "▦"; throw new Error(`Preview failed (HTTP ${resp.status})`); }
     out.innerHTML = `<img src="${URL.createObjectURL(await resp.blob())}" alt="Overlay preview">`;
   });
@@ -1129,6 +1145,7 @@ async function editor(id, params = new URLSearchParams()) {
       seasonal_only: view.querySelector("#f-seasonal").checked,
       pin_top: view.querySelector("#f-pin").checked,
       ribbon: ribbonFields(),
+      badges: badgeFields(),
       poster_url: view.querySelector("#poster-url").value,
       art_url: view.querySelector("#art-url")?.value || "",
       sources: cfg.sources.filter((s) => s.value),
@@ -1689,7 +1706,7 @@ async function overlayCard(card) {
   if (!o) { card.hidden = true; return; }
   card.innerHTML = `
     <h2>Poster overlays</h2>
-    <p class="hint" style="margin-top:-6px">Ribbons are set per collection, under <strong>Poster overlay</strong> in its settings.
+    <p class="hint" style="margin-top:-6px">Ribbons and badges are set per collection, under <strong>Poster overlays</strong> in its settings.
       Titles with an overlay get the Plex label <span class="mono">${esc(o.label)}</span>; their original posters are kept in the config folder.</p>
     <p>${o.posters} poster${o.posters === 1 ? "" : "s"} with overlays, from ${o.collections.length} collection${o.collections.length === 1 ? "" : "s"}.</p>
     <div class="row">
@@ -1701,7 +1718,7 @@ async function overlayCard(card) {
     toast("Updating overlays in the background; see Logs for progress");
   });
   card.querySelector("#ovRemove").onclick = () => guard(async () => {
-    if (!confirm("Put every original poster back and turn off all ribbons?")) return;
+    if (!confirm("Put every original poster back and turn off all ribbons and badges?")) return;
     await api("POST", "/overlays/apply?remove_all=true");
     toast("Restoring original posters in the background");
   });

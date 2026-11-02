@@ -71,6 +71,13 @@ class Ribbon(BaseModel):
         return v.strip()
 
 
+class Badges(BaseModel):
+    """Small badges along the bottom of every title's poster in a collection."""
+    quality: bool = False         # resolution, HDR / Dolby Vision, Atmos (movies)
+    rating: Literal["", "audience", "critic"] = ""
+    rating_min: float = Field(default=0, ge=0, le=10)    # hide the rating badge below this (out of 10)
+
+
 class CollectionConfig(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     kind: Literal["collection", "playlist"] = "collection"
@@ -118,6 +125,7 @@ class CollectionConfig(BaseModel):
     # in list order. Only used with list order ("custom") and for playlists.
     manual_order: list[str] = []
     ribbon: Ribbon = Ribbon()
+    badges: Badges = Badges()
 
     @field_validator("max_rating")
     @classmethod

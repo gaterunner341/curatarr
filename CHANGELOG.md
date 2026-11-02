@@ -3,6 +3,16 @@
 The version shown in the web UI's sidebar matches these entries. Each
 release is also published as `ghcr.io/gaterunner341/curatarr:<version>`.
 
+## 0.13.0
+
+- **Poster overlays: quality and rating badges.** Under **Poster overlays** in a collection's settings, every title's poster can show small badges along the bottom:
+  - **Quality badges** (movies), bottom left: resolution (4K, 1080P, 720P, SD), then DV (Dolby Vision) or HDR, then ATMOS. They come from Plex's own media info for the best version of each movie.
+  - **Rating badge**, bottom right: the audience rating (e.g. IMDb 8.4) or the critic rating (e.g. RT 92%) that Plex shows for the title. Ratings come from the library's settings in Plex. You can hide ratings below a minimum, such as only 7.0 and up.
+  - Badges are text in each site's color, not copies of their logos.
+- A title's quality is read from Plex once and saved. It's only checked again when the title's files change, so later syncs stay fast.
+- Badges and ribbons work together and use the same original-poster backup. **Remove all overlays** turns off both.
+- **Preview** uses the collection's first title, with sample badges where it has no data.
+
 ## 0.12.0
 
 - **Poster overlays: collection ribbons.** A collection can put a diagonal corner ribbon on the poster of every title in it, such as "IMDb TOP 250" in yellow.

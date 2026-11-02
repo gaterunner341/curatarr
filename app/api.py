@@ -561,7 +561,8 @@ def update_collection(collection_id: int, cfg: dict = Body(...)):
     model = _validate(cfg)
     db.update_collection_config(collection_id, model.model_dump())
     scheduler.reload_jobs()
-    if model.ribbon.model_dump() != CollectionConfig(**row["config"]).ribbon.model_dump():
+    before = CollectionConfig(**row["config"])
+    if (model.ribbon, model.badges) != (before.ribbon, before.badges):
         scheduler.run_task(sync.run_overlays, "Poster overlays")     # draw or remove it now
     return _collection_out(db.get_collection(collection_id))
 
@@ -588,7 +589,7 @@ def delete_collection(collection_id: int, remove_from_plex: bool = False):
             (config.IMAGE_DIR / row["config"][kind]).unlink(missing_ok=True)
     db.delete_collection(collection_id)
     scheduler.reload_jobs()
-    if row["config"].get("ribbon", {}).get("enabled"):
+    if row["config"].get("ribbon", {}).get("enabled") or any((row["config"].get("badges") or {}).values()):
         scheduler.run_task(sync.run_overlays, "Poster overlays")     # put the original posters back
     return {"deleted": True, "message": message}
 
@@ -663,7 +664,8 @@ def overlay_status():
     rows = db.overlay_rows()
     return {"posters": len(rows), "label": overlays.LABEL,
             "collections": [r["id"] for r in db.list_collections()
-                            if overlays.ribbon_spec(CollectionConfig(**r["config"]))]}
+                            if overlays.ribbon_spec(c := CollectionConfig(**r["config"]))
+                            or overlays.badge_settings(c)]}
 
 
 @router.post("/overlays/apply")
@@ -671,37 +673,58 @@ def overlay_apply(remove_all: bool = False):
     """Update every overlaid poster now (in the background); ``remove_all`` restores all originals."""
     from . import overlays
     if remove_all:
-        # Turn ribbons off too, or the next sync would draw them again.
+        # Turn ribbons and badges off too, or the next sync would draw them again.
         for row in db.list_collections():
-            if row["config"].get("ribbon", {}).get("enabled"):
-                db.update_collection_config(row["id"], {**row["config"],
-                                                        "ribbon": {**row["config"]["ribbon"], "enabled": False}})
+            cfg = CollectionConfig(**row["config"])
+            if cfg.ribbon.enabled or cfg.badges.quality or cfg.badges.rating:
+                cfg.ribbon.enabled, cfg.badges.quality, cfg.badges.rating = False, False, ""
+                db.update_collection_config(row["id"], cfg.model_dump())
     scheduler.run_task(lambda: overlays.apply_all(remove_all=remove_all), "Poster overlays")
     return {"queued": True}
 
 
 @router.post("/overlays/preview")
 def overlay_preview(body: dict = Body(...)):
-    """A sample poster with a ribbon on it: the first title of ``collection_id`` when it's in Plex."""
+    """A poster with the ribbon and badges drawn on it.
+
+    Uses the first title of ``collection_id`` (its real ratings and quality) when
+    it's in Plex, otherwise a plain poster with sample values.
+    """
     from . import overlays
-    from .models import Ribbon
+    from .models import Badges, Ribbon
     try:
-        ribbon = Ribbon(**{**(body.get("ribbon") or {}), "enabled": True})
+        ribbon = Ribbon(**(body.get("ribbon") or {}))
+        badges = Badges(**(body.get("badges") or {}))
     except ValidationError as exc:
         raise HTTPException(422, exc.errors(include_url=False, include_context=False))
-    specs = [{"kind": "ribbon", **ribbon.model_dump(exclude={"enabled"})}]
+    ribbons = [{"kind": "ribbon", **ribbon.model_dump(exclude={"enabled"})}] if ribbon.enabled else []
+    sample = {"kind": "badges", "quality": ["4K", "DV", "ATMOS"] if badges.quality else [],
+              "rating": ({"source": "imdb", "value": "8.4"} if badges.rating == "audience"
+                         else {"source": "rottentomatoes", "value": "92%"}) if badges.rating else None}
     row = db.get_collection(int(body["collection_id"])) if body.get("collection_id") else None
     try:
         if row and row.get("plex_rating_key"):
             with _plex() as plex:
                 try:
-                    items = plex.collection_contents(row["plex_rating_key"])
+                    items = plex.collection_raw(row["plex_rating_key"])
                 except PlexError:
                     items = []
-                thumb = items[0].get("thumb") if items else ""
+                specs = list(ribbons)
+                thumb = ""
+                if items:
+                    item, thumb = items[0], items[0].get("thumb") or ""
+                    quality = overlays.quality_labels(plex.item(str(item["ratingKey"])) or item) \
+                        if badges.quality and item.get("type") == "movie" else []
+                    rating = overlays.rating_badge(item, badges.rating) if badges.rating else None
+                    # Sample values where this title has none, so the preview shows the look.
+                    quality, rating = quality or sample["quality"], rating or sample["rating"]
+                    if quality or rating:
+                        specs.append({"kind": "badges", "quality": quality, "rating": rating})
+                elif sample["quality"] or sample["rating"]:
+                    specs.append(sample)
                 data = overlays.preview(specs, plex, thumb)
         else:
-            data = overlays.preview(specs)
+            data = overlays.preview(ribbons + ([sample] if sample["quality"] or sample["rating"] else []))
     except Exception as exc:
         raise HTTPException(500, f"Could not draw the preview: {exc}")
     return Response(data, media_type="image/jpeg", headers={"Cache-Control": "no-store"})

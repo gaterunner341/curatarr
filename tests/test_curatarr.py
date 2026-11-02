@@ -1007,7 +1007,10 @@ class FakeOverlayPlex(httpx.BaseTransport):
         parts = path.strip("/").split("/")
         if path == "/library/collections/100/items":
             return mc({"totalSize": 2, "Metadata": [{"ratingKey": rk, "title": f"T{rk}", "type": "movie",
-                                                     "thumb": self.thumb(rk)} for rk in self.version]})
+                                                     "thumb": self.thumb(rk), "audienceRating": 8.4 if rk == "1" else 6.1,
+                                                     "audienceRatingImage": "imdb://image.rating",
+                                                     "Media": [{"id": 50 + int(rk), "videoResolution": "4k"}]}
+                                                    for rk in self.version]})
         if path.startswith("/library/metadata/") and "thumb" in parts:
             return httpx.Response(200, content=self.posters[parts[2]], headers={"content-type": "image/jpeg"})
         if path.endswith("/posters") and method == "POST":
@@ -1018,8 +1021,12 @@ class FakeOverlayPlex(httpx.BaseTransport):
             return mc({})
         if len(parts) == 3 and parts[1] == "metadata":
             rk = parts[2]
+            self.details = getattr(self, "details", 0) + 1
             return mc({"Metadata": [{"ratingKey": rk, "thumb": self.thumb(rk),
-                                     "Label": [{"tag": t} for t in self.labels[rk]]}]})
+                                     "Label": [{"tag": t} for t in self.labels[rk]],
+                                     "Media": [{"id": 50 + int(rk), "videoResolution": "4k", "Part": [{"Stream": [
+                                         {"streamType": 1, "DOVIPresent": rk == "1", "colorTrc": "smpte2084"},
+                                         {"streamType": 2, "displayTitle": "English (TrueHD Atmos 7.1)"}]}]}]}]})
         if path == "/library/sections/1/all" and method == "PUT":
             rk = q["id"]
             if "label[].tag.tag-" in q:
@@ -1064,3 +1071,38 @@ def test_overlays_draw_skip_redraw_and_restore(monkeypatch):
     assert fake.posters["1"] == fake.original["1"] and fake.posters["2"] == replaced
     assert db.overlay_rows() == {} and fake.labels["1"] == ["Kids"]
     assert not overlays.needed()
+
+
+def test_quality_and_rating_badges(monkeypatch):
+    from app import overlays, plex as plexmod
+    detail = {"Media": [
+        {"id": 1, "videoResolution": "1080", "Part": [{"Stream": [{"streamType": 1}]}]},
+        {"id": 2, "videoResolution": "4k", "Part": [{"Stream": [
+            {"streamType": 1, "colorTrc": "smpte2084", "displayTitle": "4K HDR10"},
+            {"streamType": 2, "displayTitle": "English (EAC3 Atmos 5.1)"}]}]}]}
+    assert overlays.quality_labels(detail) == ["4K", "HDR"]  + ["ATMOS"]
+    assert overlays.quality_labels({"Media": [{"videoResolution": "720"}]}) == ["720P"]
+    rt = {"rating": 9.1, "ratingImage": "rottentomatoes://image.rating.ripe"}
+    assert overlays.rating_badge(rt, "critic") == {"source": "rottentomatoes", "value": "91%"}
+    assert overlays.rating_badge({"audienceRating": 6.1, "audienceRatingImage": "imdb://image.rating"},
+                                 "audience", 7) is None
+    drawn = overlays.render(overlays.sample_poster(), [{"kind": "badges", "quality": ["4K", "DV"],
+                                                        "rating": {"source": "imdb", "value": "8.4"}}])
+    assert drawn.startswith(bytes([0xFF, 0xD8]))          # a JPEG
+
+    for row in db.list_collections():
+        db.delete_collection(row["id"])
+    fake = FakeOverlayPlex()
+    monkeypatch.setattr(plexmod, "from_settings", lambda *a, **k: Plex("http://plex", "t", client=httpx.Client(transport=fake)))
+    cfg = CollectionConfig(name="Top", library="Movies", section_id="1", sources=[Source(type="static", value="x")],
+                           badges={"quality": True, "rating": "audience", "rating_min": 7})
+    cid = db.create_collection(cfg.model_dump())
+    db.update_collection_state(cid, plex_rating_key="100")
+    assert overlays.apply_all()["drawn"] == 2
+    rows = db.overlay_rows()
+    assert json.loads(rows["1"]["media"]) == ["4K", "DV", "ATMOS"] and json.loads(rows["2"]["media"]) == ["4K", "HDR", "ATMOS"]
+    fake.details = 0
+    assert overlays.apply_all()["unchanged"] == 2 and fake.details == 0      # cached: no detail calls
+    cfg.badges.quality, cfg.badges.rating = False, ""
+    db.update_collection_config(cid, cfg.model_dump())
+    assert overlays.apply_all()["restored"] == 2 and db.overlay_rows() == {}
