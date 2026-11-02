@@ -140,6 +140,8 @@ const routes = [
   [/^#\/dashboard$/, dashboardPage],
   [/^#\/unmatched$/, () => unmatchedPage()],
   [/^#\/prerolls$/, prerollsPage],
+  [/^#\/overlays$/, overlaysPage],
+  [/^#\/napalm$/, napalmPage],
   [/^#\/collections$/, () => location.replace("#/movies")],   // the old single Collections page
   [/^.*$/, () => location.replace("#/dashboard")],
 ];
@@ -2081,11 +2083,7 @@ async function settings() {
         </div>
         ${g.arr ? `<div id="${g.arr}-options" class="small muted" style="margin-top:8px"></div>` : ""}
       </div>`).join("")}
-    <div class="card" id="overlayCard"></div>
-    <div class="card napalm" id="napalmCard"></div>
     <p class="hint">Values marked <span class="badge">env</span> come from container environment variables; saving a value here overrides them.</p>`;
-  overlayCard(view.querySelector("#overlayCard"));
-  napalmCard(view.querySelector("#napalmCard"));
 
   const gather = () => {
     const out = {};
@@ -2132,11 +2130,22 @@ async function settings() {
 // The Plex card is kept apart from the other settings: once connected it is a
 // read-only summary, and changes go through "Change server" or "Disconnect".
 // Poster overlays: how many posters Curatarr changed, with redraw and remove-all.
+// Settings sub-pages: Poster overlays and Napalm.
+async function overlaysPage() {
+  view.innerHTML = `<div class="page-head"><h1>Poster overlays</h1></div><div class="card" id="overlayCard"></div>`;
+  await overlayCard(view.querySelector("#overlayCard"));
+}
+
+async function napalmPage() {
+  view.innerHTML = `<div class="page-head"><h1>Napalm</h1></div><div class="card napalm" id="napalmCard"></div>`;
+  await napalmCard(view.querySelector("#napalmCard"));
+}
+
 async function overlayCard(card) {
   const o = await api("GET", "/overlays").catch(() => null);
   if (!o) { card.hidden = true; return; }
   card.innerHTML = `
-    <h2>Poster overlays</h2>
+    <h2>Posters with overlays</h2>
     <p class="hint" style="margin-top:-6px">Ribbons and badges are set per collection, under <strong>Poster overlays</strong> in its settings.
       Titles with an overlay get the Plex label <span class="mono">${esc(o.label)}</span>; their original posters are kept in the config folder.</p>
     <p>${o.posters} poster${o.posters === 1 ? "" : "s"} with overlays, from ${o.collections.length} collection${o.collections.length === 1 ? "" : "s"}.</p>

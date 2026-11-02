@@ -3,6 +3,10 @@
 The version shown in the web UI's sidebar matches these entries. Each
 release is also published as `ghcr.io/gaterunner341/curatarr:<version>`.
 
+## 0.18.1
+
+- **Poster overlays** and **Napalm** now have their own pages, listed under **Settings** in the left menu next to History and Logs. Settings stays highlighted while either is open. The Settings page itself is back to connections and general options.
+
 ## 0.18.0
 
 - **Prerolls:** a new page in the left menu that manages Plex's preroll list from a Plex library instead of the typed list of paths in Plex's settings.
