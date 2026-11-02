@@ -3,6 +3,14 @@
 The version shown in the web UI's sidebar matches these entries. Each
 release is also published as `ghcr.io/gaterunner341/curatarr:<version>`.
 
+## 0.17.2
+
+- **Fan edits on the Unmatched page:** titles with a Plex label like **Fan Edit** or **FanEdit** are now listed too, even when they're properly matched. Case, spaces, hyphens and underscores don't matter, and "Fan Edits" counts too.
+  - They carry a **Fan edit** tag, next to **Not matched** or **No IMDb/TMDB IDs** when those apply as well.
+  - The **Kind** filter and the totals include fan edits.
+  - Upload poster, Keep poster and Open in Plex work for them like any other title.
+- The page and its menu link are now called **Unmatched and Fan Edits**.
+
 ## 0.17.1
 
 - **Upload posters for unmatched titles:** each title on **Unmatched titles** has an **Upload poster** button.

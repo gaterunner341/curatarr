@@ -765,16 +765,18 @@ async function dashboardPage() {
 const UNMATCHED_KINDS = {
   unmatched: ["Not matched", "Plex has no metadata match for it. Its poster is the one you uploaded or that's in its folder."],
   no_ids: ["No IMDb/TMDB IDs", "Matched in Plex, but not to an IMDb, TMDB or TVDB entry. If it's a fan edit matched to the wrong title, fix the match in Plex or keep its poster."],
+  fan_edit: ["Fan edit", "Labelled Fan Edit in Plex."],
 };
 
 async function unmatchedPage(refresh = false) {
-  view.innerHTML = `<div class="page-head"><h1>Unmatched titles</h1></div><p class="muted">Scanning your libraries…</p>`;
+  view.innerHTML = `<div class="page-head"><h1>Unmatched and Fan Edits</h1></div><p class="muted">Scanning your libraries…</p>`;
   const r = await api("GET", `/unmatched${refresh ? "?refresh=true" : ""}`);
   const f = state.unmatchedFilter ||= { library: "", kind: "", keep: "", q: "" };
   const plexLink = (t) => state.machineId
     ? `https://app.plex.tv/desktop/#!/server/${encodeURIComponent(state.machineId)}/details?key=${encodeURIComponent(`/library/metadata/${t.ratingKey}`)}`
     : "";
-  const shown = () => r.titles.filter((t) => (!f.library || t.section_id === f.library) && (!f.kind || t.kind === f.kind)
+  const shown = () => r.titles.filter((t) => (!f.library || t.section_id === f.library)
+    && (!f.kind || (f.kind === "fan_edit" ? t.fan_edit : t.kind === f.kind))
     && (!f.keep || String(t.keep) === f.keep)
     && (!f.q || `${t.title} ${t.year || ""} ${t.file}`.toLowerCase().includes(f.q.toLowerCase())));
   const tile = (t) => `
@@ -785,7 +787,8 @@ async function unmatchedPage(refresh = false) {
       </div>
       <div class="item-title" title="${esc(t.title)}">${esc(t.title)}</div>
       <div class="small muted">${esc(t.year || "")}${t.year ? " · " : ""}${esc(t.library)}</div>
-      <div class="small"><span class="badge ${t.kind === "unmatched" ? "warning" : ""}" title="${esc(UNMATCHED_KINDS[t.kind][1])}">${esc(UNMATCHED_KINDS[t.kind][0])}</span></div>
+      <div class="small">${UNMATCHED_KINDS[t.kind] ? `<span class="badge ${t.kind === "unmatched" ? "warning" : ""}" title="${esc(UNMATCHED_KINDS[t.kind][1])}">${esc(UNMATCHED_KINDS[t.kind][0])}</span>` : ""}
+        ${t.fan_edit ? `<span class="badge running" title="${esc(UNMATCHED_KINDS.fan_edit[1])}">Fan edit</span>` : ""}</div>
       ${t.file ? `<div class="small muted unmatched-file" title="${esc(t.file)}">${esc(t.file)}</div>` : ""}
       <div class="coll-actions">
         <button type="button" class="small" data-upload="${esc(t.ratingKey)}">Upload poster</button>
@@ -795,23 +798,25 @@ async function unmatchedPage(refresh = false) {
     </div>`;
   const render = () => {
     const list = shown();
-    const counts = (kind) => r.titles.filter((t) => t.kind === kind).length;
+    const counts = (kind) => r.titles.filter((t) => (kind === "fan_edit" ? t.fan_edit : t.kind === kind)).length;
     view.innerHTML = `
-      <div class="page-head"><h1>Unmatched titles</h1>
+      <div class="page-head"><h1>Unmatched and Fan Edits</h1>
         <div class="actions"><button id="umRescan">Scan again</button></div></div>
-      <p class="hint" style="margin-top:-8px">Movies and shows not tied to IMDb, TMDB or TVDB, such as fan edits.
+      <p class="hint" style="margin-top:-8px">Movies and shows not tied to IMDb, TMDB or TVDB, plus titles labelled
+        <strong>Fan Edit</strong> (or FanEdit) in Plex.
         <strong>Keep poster</strong> adds the Plex label <span class="mono">Curatarr Keep Poster</span>: napalm and the fresh-poster
         option never change that title's poster (ribbons and badges are still drawn on it).
         <strong>Open in Plex</strong> is where you fix a wrong match. Scanned ${esc(when(r.scanned))}.</p>
       <div class="stats" style="margin-bottom:12px">
         <div class="stat"><div class="stat-value">${counts("unmatched")}</div><div class="stat-label">Not matched</div></div>
         <div class="stat"><div class="stat-value">${counts("no_ids")}</div><div class="stat-label">No IMDb/TMDB IDs</div></div>
+        <div class="stat"><div class="stat-value">${counts("fan_edit")}</div><div class="stat-label">Fan edits</div></div>
         <div class="stat"><div class="stat-value">${r.titles.filter((t) => t.keep).length}</div><div class="stat-label">Posters kept</div></div>
       </div>
       <div class="row" style="margin-bottom:14px">
         <div><label for="umLib">Library</label><select id="umLib"><option value="">All libraries</option>${r.libraries.map((l) =>
           `<option value="${esc(l.id)}" ${f.library === l.id ? "selected" : ""}>${esc(l.title)} (${l.found} of ${l.total.toLocaleString()})</option>`).join("")}</select></div>
-        <div><label for="umKind">Kind</label><select id="umKind"><option value="">Both</option>${Object.entries(UNMATCHED_KINDS).map(([k, [label]]) =>
+        <div><label for="umKind">Kind</label><select id="umKind"><option value="">All</option>${Object.entries(UNMATCHED_KINDS).map(([k, [label]]) =>
           `<option value="${k}" ${f.kind === k ? "selected" : ""}>${label}</option>`).join("")}</select></div>
         <div><label for="umKeep">Poster</label><select id="umKeep"><option value="">Any</option>
           <option value="false" ${f.keep === "false" ? "selected" : ""}>Not kept</option>
@@ -2085,7 +2090,7 @@ async function napalmCard(card) {
         <li>Big libraries take a while, about one Plex request or two per title. You can stop it part way.</li>
         <li>Everyone using your server sees the new posters.</li>
         <li>Titles labelled <strong>Curatarr Keep Poster</strong> are skipped. Set it on fan edits and custom posters
-          from <a href="#/unmatched">Unmatched titles</a>.</li>
+          from <a href="#/unmatched">Unmatched and Fan Edits</a>.</li>
       </ul>
     </div>
     <div id="napalmLast"></div>

@@ -1340,9 +1340,12 @@ def test_unmatched_titles_and_keep_label(monkeypatch):
             path, method, q = request.url.path, request.method, request.url.params
             mc = lambda body: httpx.Response(200, json={"MediaContainer": body})  # noqa: E731
             if path == "/library/sections/1/label":
-                return mc({"Directory": [{"key": "77", "title": unmatched.KEEP_LABEL}]})
+                return mc({"Directory": [{"key": "77", "title": unmatched.KEEP_LABEL}, {"key": "88", "title": "FanEdit"},
+                                         {"key": "99", "title": "Family"}]})
             if path == "/library/sections/1/all" and method == "GET" and q.get("label") == "77":
                 return mc({"totalSize": 1, "Metadata": [{"ratingKey": "1"}]})
+            if path == "/library/sections/1/all" and method == "GET" and q.get("label") == "88":
+                return mc({"totalSize": 1, "Metadata": [{"ratingKey": "3"}]})
             if path == "/library/sections/1/all" and method == "GET":
                 return mc({"totalSize": 3, "Metadata": [
                     {"ratingKey": "1", "title": "Ahsoka: The Patterson Cut", "guid": "local://1",
@@ -1359,9 +1362,12 @@ def test_unmatched_titles_and_keep_label(monkeypatch):
     monkeypatch.setattr(sync_mod, "run_overlays", lambda: None)
     result = unmatched.scan(refresh=True)
     found = {t["ratingKey"]: t for t in result["titles"]}
-    assert set(found) == {"1", "2"} and found["1"]["kind"] == "unmatched" and found["2"]["kind"] == "no_ids"
+    assert set(found) == {"1", "2", "3"} and found["1"]["kind"] == "unmatched" and found["2"]["kind"] == "no_ids"
+    assert found["3"]["kind"] == "matched" and found["3"]["fan_edit"] and not found["1"]["fan_edit"]
+    assert all(unmatched.is_fan_edit_label(n) for n in ("Fan Edit", "FanEdit", "fan-edit", "Fan Edits", "FAN_EDIT"))
+    assert not unmatched.is_fan_edit_label("Fanatic Edition")
     assert found["1"]["file"] == "Ahsoka (2024).mkv" and found["1"]["keep"] and not found["2"]["keep"]
-    assert result["libraries"] == [{"id": "1", "title": "Movies", "type": "movie", "total": 3, "found": 2}]
+    assert result["libraries"] == [{"id": "1", "title": "Movies", "type": "movie", "total": 3, "found": 3}]
 
     unmatched.set_keep([{"ratingKey": "2", "section_id": "1", "type": "movie"}], True)
     assert fake.labels["2"]["label[0].tag.tag"] == unmatched.KEEP_LABEL
