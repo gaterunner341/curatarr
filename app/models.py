@@ -54,6 +54,23 @@ def rating_level(rating: str | None) -> int | None:
     return RATING_LEVELS.get(rating.split("/")[-1].strip().upper())
 
 
+HEX_COLOR = r"^#[0-9a-fA-F]{6}$"
+
+
+class Ribbon(BaseModel):
+    """A diagonal corner ribbon drawn on the poster of every title in a collection."""
+    enabled: bool = False
+    text: str = Field(default="", max_length=40)
+    color: str = Field(default="#f5c518", pattern=HEX_COLOR)
+    text_color: str = Field(default="#000000", pattern=HEX_COLOR)
+    corner: Literal["top-right", "top-left"] = "top-right"
+
+    @field_validator("text")
+    @classmethod
+    def strip_text(cls, v: str) -> str:
+        return v.strip()
+
+
 class CollectionConfig(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     kind: Literal["collection", "playlist"] = "collection"
@@ -100,6 +117,7 @@ class CollectionConfig(BaseModel):
     # Order set by dragging on the View page (rating keys). Titles not in it follow
     # in list order. Only used with list order ("custom") and for playlists.
     manual_order: list[str] = []
+    ribbon: Ribbon = Ribbon()
 
     @field_validator("max_rating")
     @classmethod

@@ -561,6 +561,8 @@ def update_collection(collection_id: int, cfg: dict = Body(...)):
     model = _validate(cfg)
     db.update_collection_config(collection_id, model.model_dump())
     scheduler.reload_jobs()
+    if model.ribbon.model_dump() != CollectionConfig(**row["config"]).ribbon.model_dump():
+        scheduler.run_task(sync.run_overlays, "Poster overlays")     # draw or remove it now
     return _collection_out(db.get_collection(collection_id))
 
 
@@ -586,6 +588,8 @@ def delete_collection(collection_id: int, remove_from_plex: bool = False):
             (config.IMAGE_DIR / row["config"][kind]).unlink(missing_ok=True)
     db.delete_collection(collection_id)
     scheduler.reload_jobs()
+    if row["config"].get("ribbon", {}).get("enabled"):
+        scheduler.run_task(sync.run_overlays, "Poster overlays")     # put the original posters back
     return {"deleted": True, "message": message}
 
 
@@ -651,6 +655,56 @@ def request_title(collection_id: int, body: dict = Body(...)):
         raise HTTPException(404, f"{kind.title()} couldn't find this title")
     log.info("%s: %s %s (requested by hand)", kind.title(), outcome, ref.title or ref.imdb or ref.tmdb)
     return {"status": outcome, "service": kind}
+
+
+@router.get("/overlays")
+def overlay_status():
+    from . import overlays
+    rows = db.overlay_rows()
+    return {"posters": len(rows), "label": overlays.LABEL,
+            "collections": [r["id"] for r in db.list_collections()
+                            if overlays.ribbon_spec(CollectionConfig(**r["config"]))]}
+
+
+@router.post("/overlays/apply")
+def overlay_apply(remove_all: bool = False):
+    """Update every overlaid poster now (in the background); ``remove_all`` restores all originals."""
+    from . import overlays
+    if remove_all:
+        # Turn ribbons off too, or the next sync would draw them again.
+        for row in db.list_collections():
+            if row["config"].get("ribbon", {}).get("enabled"):
+                db.update_collection_config(row["id"], {**row["config"],
+                                                        "ribbon": {**row["config"]["ribbon"], "enabled": False}})
+    scheduler.run_task(lambda: overlays.apply_all(remove_all=remove_all), "Poster overlays")
+    return {"queued": True}
+
+
+@router.post("/overlays/preview")
+def overlay_preview(body: dict = Body(...)):
+    """A sample poster with a ribbon on it: the first title of ``collection_id`` when it's in Plex."""
+    from . import overlays
+    from .models import Ribbon
+    try:
+        ribbon = Ribbon(**{**(body.get("ribbon") or {}), "enabled": True})
+    except ValidationError as exc:
+        raise HTTPException(422, exc.errors(include_url=False, include_context=False))
+    specs = [{"kind": "ribbon", **ribbon.model_dump(exclude={"enabled"})}]
+    row = db.get_collection(int(body["collection_id"])) if body.get("collection_id") else None
+    try:
+        if row and row.get("plex_rating_key"):
+            with _plex() as plex:
+                try:
+                    items = plex.collection_contents(row["plex_rating_key"])
+                except PlexError:
+                    items = []
+                thumb = items[0].get("thumb") if items else ""
+                data = overlays.preview(specs, plex, thumb)
+        else:
+            data = overlays.preview(specs)
+    except Exception as exc:
+        raise HTTPException(500, f"Could not draw the preview: {exc}")
+    return Response(data, media_type="image/jpeg", headers={"Cache-Control": "no-store"})
 
 
 @router.post("/arr/have")

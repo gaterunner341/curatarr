@@ -3,6 +3,17 @@
 The version shown in the web UI's sidebar matches these entries. Each
 release is also published as `ghcr.io/gaterunner341/curatarr:<version>`.
 
+## 0.12.0
+
+- **Poster overlays: collection ribbons.** A collection can put a diagonal corner ribbon on the poster of every title in it, such as "IMDb TOP 250" in yellow.
+  - It's under **Poster overlay** in the collection's settings. Set the text, the ribbon and text colors and the corner, then click **Preview** to see it on one of the collection's posters.
+  - A title in several collections with ribbons gets all of them, stacked inward from the corner.
+  - Before a poster is changed, its original is saved in the config folder (`/config/overlays`). Turning a ribbon off, deleting the collection, or a title leaving the collection puts the original poster back.
+  - Posters are redrawn only when a ribbon changes. If Plex replaces a poster, through a metadata refresh or a poster you picked, that becomes the new original and the ribbon is drawn on it.
+  - Titles with an overlay get the Plex label `Curatarr Overlay`.
+  - **Settings → Poster overlays** shows how many posters have overlays and has **Update overlays now** and **Remove all overlays**. Remove all puts every original back and turns all ribbons off.
+- Overlays are updated after every sync, and straight away when you change a ribbon or delete a collection.
+
 ## 0.11.2
 
 - **Show missing titles** marks titles Radarr or Sonarr already has with an **In Radarr** (or **In Sonarr**) badge as soon as the list opens, instead of showing an **Add** button. Those titles are waiting to be downloaded. Curatarr checks each service's library once, so the list still opens quickly.

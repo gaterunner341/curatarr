@@ -985,3 +985,82 @@ def test_arr_have_endpoint(monkeypatch):
         {"tmdb": 1760170, "media_type": "movie"}, {"tmdb": 5, "media_type": "movie"},
         {"imdb": "tt0000002"}, {"tvdb": 7, "media_type": "show"}]})
     assert r.json() == {"have": [True, False, True, None]}      # Sonarr isn't set up
+
+
+class FakeOverlayPlex(httpx.BaseTransport):
+    """Posters for a two-title collection: uploads become the current poster."""
+
+    def __init__(self):
+        from app import overlays
+        self.version = {"1": 1, "2": 1}
+        self.posters = {rk: overlays.sample_poster() for rk in self.version}
+        self.original = dict(self.posters)
+        self.uploads: list[str] = []
+        self.labels: dict[str, list[str]] = {"1": ["Kids"], "2": []}
+
+    def thumb(self, rk):
+        return f"/library/metadata/{rk}/thumb/{self.version[rk]}"
+
+    def handle_request(self, request):
+        path, method, q = request.url.path, request.method, request.url.params
+        mc = lambda body: httpx.Response(200, json={"MediaContainer": body})  # noqa: E731
+        parts = path.strip("/").split("/")
+        if path == "/library/collections/100/items":
+            return mc({"totalSize": 2, "Metadata": [{"ratingKey": rk, "title": f"T{rk}", "type": "movie",
+                                                     "thumb": self.thumb(rk)} for rk in self.version]})
+        if path.startswith("/library/metadata/") and "thumb" in parts:
+            return httpx.Response(200, content=self.posters[parts[2]], headers={"content-type": "image/jpeg"})
+        if path.endswith("/posters") and method == "POST":
+            rk = parts[2]
+            self.posters[rk] = request.content
+            self.version[rk] += 1
+            self.uploads.append(rk)
+            return mc({})
+        if len(parts) == 3 and parts[1] == "metadata":
+            rk = parts[2]
+            return mc({"Metadata": [{"ratingKey": rk, "thumb": self.thumb(rk),
+                                     "Label": [{"tag": t} for t in self.labels[rk]]}]})
+        if path == "/library/sections/1/all" and method == "PUT":
+            rk = q["id"]
+            if "label[].tag.tag-" in q:
+                self.labels[rk] = [t for t in self.labels[rk] if t != q["label[].tag.tag-"]]
+            else:
+                self.labels[rk] = [v for k, v in q.items() if k.startswith("label[")]
+            return mc({})
+        return mc({})
+
+
+def test_overlays_draw_skip_redraw_and_restore(monkeypatch):
+    from app import overlays, plex as plexmod
+    for row in db.list_collections():           # earlier tests' collections aren't part of this
+        db.delete_collection(row["id"])
+    fake = FakeOverlayPlex()
+    monkeypatch.setattr(plexmod, "from_settings", lambda *a, **k: Plex("http://plex", "t", client=httpx.Client(transport=fake)))
+    cfg = CollectionConfig(name="Best", library="Movies", section_id="1", sources=[Source(type="static", value="x")],
+                           ribbon={"enabled": True, "text": "TOP 250"})
+    cid = db.create_collection(cfg.model_dump())
+    db.update_collection_state(cid, plex_rating_key="100")
+
+    assert overlays.needed()
+    assert overlays.apply_all()["drawn"] == 2
+    assert fake.posters["1"] != fake.original["1"] and overlays._original_path("1").read_bytes() == fake.original["1"]
+    assert fake.labels["1"] == ["Kids", overlays.LABEL]                    # other labels kept
+    assert overlays.apply_all() == {"drawn": 0, "restored": 0, "unchanged": 2, "errors": 0}
+
+    cfg.ribbon.text = "BEST"                                              # a change redraws both
+    db.update_collection_config(cid, cfg.model_dump())
+    assert overlays.apply_all()["drawn"] == 2
+    assert overlays._original_path("1").read_bytes() == fake.original["1"]     # still the real original
+
+    fake.posters["2"] = overlays.render(fake.original["2"], [])            # Plex replaces item 2's poster
+    fake.version["2"] += 1
+    replaced = fake.posters["2"]
+    assert overlays.apply_all()["drawn"] == 1
+    assert overlays._original_path("2").read_bytes() == replaced           # that is the new original
+
+    cfg.ribbon.enabled = False
+    db.update_collection_config(cid, cfg.model_dump())
+    assert overlays.apply_all()["restored"] == 2
+    assert fake.posters["1"] == fake.original["1"] and fake.posters["2"] == replaced
+    assert db.overlay_rows() == {} and fake.labels["1"] == ["Kids"]
+    assert not overlays.needed()

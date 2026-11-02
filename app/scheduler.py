@@ -83,3 +83,11 @@ def run_now(collection_id: int, trigger: str = "manual") -> None:
     _scheduler.add_job(sync.run_collection, args=[collection_id, trigger],
                        id=f"now-{collection_id}-{datetime.now().timestamp()}",
                        name=f"Run {collection_id}")
+
+
+def run_task(func, name: str) -> None:
+    """Run any function once in the background (in the foreground when not started)."""
+    if _scheduler is None:
+        func()
+        return
+    _scheduler.add_job(func, id=f"task-{datetime.now().timestamp()}", name=name)

@@ -153,6 +153,9 @@ ul.changes { margin: 6px 0 0; padding-left: 0; list-style: none; max-height: 240
 .dash-list a { color: var(--text); text-decoration: none; font-weight: 600; }
 .dash-list a:hover { color: var(--accent); }
 .dash-list .small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.overlay-edit { display: flex; gap: 20px; align-items: flex-start; flex-wrap: wrap; }
+.image-box.overlay-preview { width: 180px; aspect-ratio: 2 / 3; flex: none; }
+input[type=color] { width: 64px; height: 36px; padding: 2px; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; }
 .swatches { display: flex; gap: 10px; flex-wrap: wrap; }
 .swatch { margin: 0; cursor: pointer; }
 .swatch input { position: absolute; opacity: 0; }

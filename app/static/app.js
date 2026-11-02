@@ -972,6 +972,27 @@ async function editor(id, params = new URLSearchParams()) {
       </div>
     </div>
 
+    <div class="card" ${isPlaylist ? "hidden" : ""}>
+      <h2>Poster overlay</h2>
+      <p class="hint" style="margin-top:-6px">Draws a ribbon across a corner of every title's poster in this collection.
+        The original posters are kept and put back if you turn this off or delete the collection.</p>
+      <div class="overlay-edit">
+        <div class="grid" style="flex:1">
+          <div class="full"><label class="check"><input type="checkbox" id="r-on" ${cfg.ribbon?.enabled ? "checked" : ""}> Ribbon on every title's poster</label></div>
+          <div><label for="r-text">Ribbon text</label><input type="text" id="r-text" maxlength="40"
+            value="${esc(cfg.ribbon?.text || "")}" placeholder="${esc(cfg.name.replace(/^!\d+_/, "").replace(/ Collection$/i, "").toUpperCase() || "TOP 250")}"></div>
+          <div><label for="r-corner">Corner</label><select id="r-corner">
+            <option value="top-right" ${cfg.ribbon?.corner !== "top-left" ? "selected" : ""}>Top right</option>
+            <option value="top-left" ${cfg.ribbon?.corner === "top-left" ? "selected" : ""}>Top left</option></select></div>
+          <div><label for="r-color">Ribbon colour</label><input type="color" id="r-color" value="${esc(cfg.ribbon?.color || "#f5c518")}"></div>
+          <div><label for="r-tcolor">Text colour</label><input type="color" id="r-tcolor" value="${esc(cfg.ribbon?.text_color || "#000000")}"></div>
+          <div class="full"><button type="button" class="small" id="r-preview">Preview</button>
+            <span class="hint">Applied to Plex after you save, then kept up to date at every sync.</span></div>
+        </div>
+        <div class="overlay-preview image-box" id="r-out">▦</div>
+      </div>
+    </div>
+
     <div class="card">
       <h2>Artwork</h2>
       <div class="images">
@@ -1060,6 +1081,21 @@ async function editor(id, params = new URLSearchParams()) {
 
   view.querySelector("#addSource").onclick = () => { cfg.sources.push({ type: "tmdb_list", value: "", limit: null }); renderSources(); };
 
+  // The ribbon text box shows a suggestion; an empty box uses it.
+  const ribbonFields = () => ({
+    enabled: !isPlaylist && view.querySelector("#r-on").checked,
+    text: view.querySelector("#r-text").value.trim() || view.querySelector("#r-text").placeholder,
+    corner: view.querySelector("#r-corner").value,
+    color: view.querySelector("#r-color").value,
+    text_color: view.querySelector("#r-tcolor").value,
+  });
+  view.querySelector("#r-preview").onclick = () => guard(async () => {
+    const out = view.querySelector("#r-out");
+    out.textContent = "…";
+    const resp = await api("POST", "/overlays/preview", { ribbon: ribbonFields(), collection_id: id }, true);
+    if (!resp.ok) { out.textContent = "▦"; throw new Error(`Preview failed (HTTP ${resp.status})`); }
+    out.innerHTML = `<img src="${URL.createObjectURL(await resp.blob())}" alt="Overlay preview">`;
+  });
   const collect = () => {
     const picked = pickedLibs();
     return {
@@ -1092,6 +1128,7 @@ async function editor(id, params = new URLSearchParams()) {
       promote_yearly: view.querySelector("#f-wyearly").checked,
       seasonal_only: view.querySelector("#f-seasonal").checked,
       pin_top: view.querySelector("#f-pin").checked,
+      ribbon: ribbonFields(),
       poster_url: view.querySelector("#poster-url").value,
       art_url: view.querySelector("#art-url")?.value || "",
       sources: cfg.sources.filter((s) => s.value),
@@ -1598,7 +1635,9 @@ async function settings() {
         </div>
         ${g.arr ? `<div id="${g.arr}-options" class="small muted" style="margin-top:8px"></div>` : ""}
       </div>`).join("")}
+    <div class="card" id="overlayCard"></div>
     <p class="hint">Values marked <span class="badge">env</span> come from container environment variables; saving a value here overrides them.</p>`;
+  overlayCard(view.querySelector("#overlayCard"));
 
   const gather = () => {
     const out = {};
@@ -1644,6 +1683,30 @@ async function settings() {
 
 // The Plex card is kept apart from the other settings: once connected it is a
 // read-only summary, and changes go through "Change server" or "Disconnect".
+// Poster overlays: how many posters Curatarr changed, with redraw and remove-all.
+async function overlayCard(card) {
+  const o = await api("GET", "/overlays").catch(() => null);
+  if (!o) { card.hidden = true; return; }
+  card.innerHTML = `
+    <h2>Poster overlays</h2>
+    <p class="hint" style="margin-top:-6px">Ribbons are set per collection, under <strong>Poster overlay</strong> in its settings.
+      Titles with an overlay get the Plex label <span class="mono">${esc(o.label)}</span>; their original posters are kept in the config folder.</p>
+    <p>${o.posters} poster${o.posters === 1 ? "" : "s"} with overlays, from ${o.collections.length} collection${o.collections.length === 1 ? "" : "s"}.</p>
+    <div class="row">
+      <button type="button" id="ovApply">Update overlays now</button>
+      <button type="button" class="danger" id="ovRemove" ${o.posters ? "" : "disabled"}>Remove all overlays</button>
+    </div>`;
+  card.querySelector("#ovApply").onclick = () => guard(async () => {
+    await api("POST", "/overlays/apply");
+    toast("Updating overlays in the background; see Logs for progress");
+  });
+  card.querySelector("#ovRemove").onclick = () => guard(async () => {
+    if (!confirm("Put every original poster back and turn off all ribbons?")) return;
+    await api("POST", "/overlays/apply?remove_all=true");
+    toast("Restoring original posters in the background");
+  });
+}
+
 async function plexCard(card, values, editing = false) {
   const connected = Boolean(values.plex_url && values.plex_token);
   if (connected && !editing) {

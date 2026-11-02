@@ -448,6 +448,31 @@ class Plex:
             params["label.locked"] = 1
         self._request("PUT", f"/library/sections/{section_id}/all", params=params)
 
+    def item(self, rating_key: str) -> dict | None:
+        """A movie's or show's metadata, or None if it no longer exists."""
+        try:
+            meta = self._request("GET", f"/library/metadata/{rating_key}").get("Metadata") or []
+        except PlexError as exc:
+            if exc.status == 404:
+                return None
+            raise
+        return meta[0] if meta else None
+
+    def set_item_label(self, section_id: str, rating_key: str, item_type: str, label: str,
+                       present: bool) -> None:
+        """Add or remove one label on a movie or show, keeping its other labels."""
+        params: dict = {"type": SECTION_TYPES.get(item_type, TYPE_MOVIE), "id": rating_key}
+        if present:
+            meta = self.item(rating_key) or {}
+            labels = [t.get("tag") for t in meta.get("Label") or [] if t.get("tag")]
+            if label in labels:
+                return
+            for i, tag in enumerate(labels + [label]):     # Plex replaces the whole list
+                params[f"label[{i}].tag.tag"] = tag
+        else:
+            params["label[].tag.tag-"] = label
+        self._request("PUT", f"/library/sections/{section_id}/all", params=params)
+
     def upload_image(self, rating_key: str, kind: str, data: bytes | None = None,
                      url: str | None = None) -> None:
         """Upload a poster (kind='poster') or background (kind='art')."""

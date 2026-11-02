@@ -44,6 +44,14 @@ CREATE TABLE IF NOT EXISTS runs (
     message TEXT
 );
 CREATE INDEX IF NOT EXISTS runs_collection ON runs (collection_id, id);
+CREATE TABLE IF NOT EXISTS overlays (
+    rating_key TEXT PRIMARY KEY,   -- the movie or show whose poster Curatarr changed
+    section_id TEXT,
+    item_type TEXT,
+    signature TEXT,                -- what was drawn; a change means draw again
+    applied_thumb TEXT,            -- Plex's poster path after our upload; a change means Plex replaced it
+    updated TEXT
+);
 """
 
 RUN_HISTORY_LIMIT = 2000
@@ -221,6 +229,26 @@ def list_runs(collection_id: int | None = None, limit: int = 100) -> list[dict]:
             (collection_id, limit),
         )
     return [_decode_run(r) for r in rows]
+
+
+# --- poster overlays ------------------------------------------------------------
+
+def overlay_rows() -> dict[str, dict]:
+    return {r["rating_key"]: r for r in _query("SELECT * FROM overlays")}
+
+
+def save_overlay(rating_key: str, section_id: str, item_type: str, signature: str,
+                 applied_thumb: str) -> None:
+    _execute(
+        "INSERT INTO overlays (rating_key, section_id, item_type, signature, applied_thumb, updated) "
+        "VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(rating_key) DO UPDATE SET section_id = excluded.section_id, "
+        "item_type = excluded.item_type, signature = excluded.signature, "
+        "applied_thumb = excluded.applied_thumb, updated = excluded.updated",
+        (rating_key, section_id, item_type, signature, applied_thumb, now()))
+
+
+def delete_overlay(rating_key: str) -> None:
+    _execute("DELETE FROM overlays WHERE rating_key = ?", (rating_key,))
 
 
 def latest_runs() -> dict[int, dict]:

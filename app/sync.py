@@ -586,9 +586,22 @@ def run_collection(collection_id: int, trigger: str = "manual", dry_run: bool = 
     if not lock.acquire(blocking=False):
         return {"status": "skipped", "message": "A sync for this collection is already running"}
     try:
-        return _run_collection(collection_id, trigger, dry_run)
+        run = _run_collection(collection_id, trigger, dry_run)
     finally:
         lock.release()
+    if not dry_run:
+        run_overlays()
+    return run
+
+
+def run_overlays() -> None:
+    """Update poster overlays after a sync; problems are logged, never raised."""
+    from . import overlays
+    try:
+        if overlays.needed():
+            overlays.apply_all()
+    except Exception:      # overlays are extras; never fail a sync for them
+        log.exception("Poster overlays failed")
 
 
 def _run_collection(collection_id: int, trigger: str, dry_run: bool) -> dict:
