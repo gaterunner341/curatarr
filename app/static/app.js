@@ -735,7 +735,7 @@ async function dashboardPage() {
       <div class="card"><h2>Coming up</h2>
         ${d.coming.length ? `<ul class="dash-list">${d.coming.map((x) => `
           <li><strong>${esc(windowText({ promote_start: x.start, promote_end: x.end, promote_yearly: false }).replace(/, \d{4}/g, ""))}</strong>
-            · <a href="${link(x)}">${esc(x.name)}</a>${x.library ? ` <span class="small muted">(${esc(x.library)})</span>` : ""}
+            · <a href="${link(x)}">${esc(x.name)}</a>${(x.libraries || []).length ? ` <span class="small muted">(${esc(x.libraries.join(", "))})</span>` : ""}
             <div class="small muted">${x.appears
               ? `Starts ${esc(day(x.date))}: ${x.seasonal ? "added to Plex and shown on the home screen" : "shown on the home screen"}`
               : `Showing now until ${esc(day(x.date))}${x.seasonal ? ", then removed from Plex" : ""}`}</div></li>`).join("")}</ul>`

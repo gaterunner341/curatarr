@@ -126,6 +126,7 @@ class FakePlex(httpx.BaseTransport):
     def __init__(self):
         self.library = {str(i): f"imdb://tt000000{i}" for i in range(1, 7)}
         self.collections: dict[str, list[str]] = {}
+        self.collection_title = "Best"          # every fake collection has this title
         self.sections: dict[str, str] = {}        # collection key -> library section id
         self.calls: list[str] = []
 
@@ -140,7 +141,8 @@ class FakePlex(httpx.BaseTransport):
                       "contentRating": {"5": "R", "6": "gb/18"}.get(rk, "PG")} for rk, g in self.library.items()]
             return mc({"Metadata": items, "totalSize": len(items)})
         if path == "/library/sections/1/collections":
-            return mc({"Metadata": [{"ratingKey": k, "title": "Best", "smart": 0} for k in self.collections]})
+            return mc({"Metadata": [{"ratingKey": k, "title": self.collection_title, "smart": 0}
+                                    for k in self.collections]})
         if path == "/library/collections" and method == "POST":
             rks = q["uri"].rsplit("/", 1)[1].split(",")
             self.collections["100"] = rks
@@ -487,9 +489,11 @@ def test_backfill_updates_old_holiday_collections():
 
 def test_existing_same_named_collection_is_never_stripped():
     fake = FakePlex()
-    fake.collections["100"] = ["5", "6"]          # the user's own "Best" collection
+    db.save_settings({"made_by_curatarr": "[]"})  # fake keys repeat across tests
+    fake.collections["100"] = ["5", "6"]          # the user's own "Users Best" collection
+    fake.collection_title = "Users Best"
     plex = plex_with(fake)
-    cfg = CollectionConfig(name="Best", library="Movies", sources=[Source(type="static", value="x")])
+    cfg = CollectionConfig(name="Users Best", library="Movies", sources=[Source(type="static", value="x")])
     result = sync_collection(cfg, {}, plex, SECTION, refs_for(1, 2), {})
     assert set(fake.collections["100"]) == {"1", "2", "5", "6"}
     assert result.removed == 0 and result.state["plex_owned"] == 0
@@ -553,7 +557,8 @@ def test_off_season_and_next_start():
 def test_remove_off_season_deletes_only_owned_collections():
     from datetime import date
     from app.sync import remove_off_season
-    cfg = _cal(seasonal_only=True)
+    cfg = _cal(seasonal_only=True, name="Someone Elses Halloween")
+    db.save_settings({"made_by_curatarr": "[]"})  # fake keys repeat across tests
     fake = FakePlex()
     fake.collections["100"] = ["1", "2"]
     plex = plex_with(fake)
@@ -872,6 +877,52 @@ def test_manual_order_and_calendar_changes(monkeypatch):
     once = CollectionConfig(name="O", sources=[Source(type="static", value="x")], promote_window=True,
                             promote_yearly=False, promote_start="2020-01-01", promote_end="2020-01-05")
     assert sync_mod.next_calendar_change(once, date(2026, 1, 1)) is None
+
+
+def test_collection_curatarr_made_is_not_disowned():
+    from datetime import date
+    from app.sync import remove_off_season
+    db.save_settings({"made_by_curatarr": "[]"})
+    fake = FakePlex()
+    fake.collection_title = "Lost Track"
+    plex = plex_with(fake)
+    cfg = CollectionConfig(name="Lost Track", library="Movies", sync_mode="sync",
+                           sources=[Source(type="static", value="x")])
+    made = sync_collection(cfg, {}, plex, SECTION, refs_for(1, 2), {})
+    rk = made.state["plex_rating_key"]
+    # Curatarr loses the key (e.g. the row was re-added): found by name, it's still Curatarr's
+    again = sync_collection(cfg, {}, plex, SECTION, refs_for(1), {})
+    assert again.state["plex_rating_key"] == rk and again.state["plex_owned"] == 1 and again.removed == 1
+    # a row wrongly marked as someone else's is healed, so off season removes it
+    gone = remove_off_season(_cal(seasonal_only=True, name="Lost Track"), {"plex_rating_key": rk, "plex_owned": 0},
+                             plex, SECTION, today=date(2026, 11, 2))
+    assert "removed from Plex" in gone.messages[0] and rk not in fake.collections
+
+
+def test_collection_made_before_key_tracking_is_recognised_by_history():
+    db.save_settings({"made_by_curatarr": "[]"})
+    fake = FakePlex()
+    fake.collections["100"] = ["1", "2", "3"]
+    fake.collection_title = "Old Holiday"
+    cfg = CollectionConfig(name="Old Holiday", library="Movies", sync_mode="sync", sources=[Source(type="static", value="x")])
+    db.record_run({"collection_name": "Old Holiday", "status": "success", "message": "Created with 3 item(s): +3 / -0"})
+    result = sync_collection(cfg, {"plex_rating_key": "100", "plex_owned": 0}, plex_with(fake), SECTION,
+                             refs_for(1, 2), {})
+    assert result.state["plex_owned"] == 1 and result.removed == 1
+
+
+def test_dashboard_merges_coming_up_across_libraries():
+    from datetime import date, timedelta
+    from fastapi.testclient import TestClient
+    from app.main import app
+    start, end = date.today() + timedelta(days=3), date.today() + timedelta(days=9)
+    for lib in ("Movies", "Movies 4K"):
+        db.create_collection({"name": "Merge Day", "library": lib, "section_id": "1", "promote_home": True,
+                              "promote_window": True, "promote_start": start.isoformat(),
+                              "promote_end": end.isoformat(), "sources": [{"type": "static", "value": "tt1"}]})
+    d = TestClient(app).get("/api/dashboard").json()
+    merged = [c for c in d["coming"] if c["name"] == "Merge Day"]
+    assert len(merged) == 1 and merged[0]["libraries"] == ["Movies", "Movies 4K"]
 
 
 def test_dashboard_endpoint():

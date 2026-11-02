@@ -271,6 +271,22 @@ def latest_runs() -> dict[int, dict]:
     return {r["collection_id"]: _decode_run(r) for r in rows}
 
 
+def remember_made(rating_key: str) -> None:
+    """Note a Plex collection or playlist that Curatarr created."""
+    keys = set(json.loads(get_settings().get("made_by_curatarr") or "[]"))
+    if str(rating_key) not in keys:
+        save_settings({"made_by_curatarr": json.dumps(sorted(keys | {str(rating_key)}))})
+
+
+def made_by_curatarr(rating_key: str, name: str) -> bool:
+    """Whether a Plex collection/playlist found by name is one Curatarr made: its key was noted
+    when it was created, or (for ones made before 0.19.1) a past sync created one with that name."""
+    if str(rating_key) in json.loads(get_settings().get("made_by_curatarr") or "[]"):
+        return True
+    return bool(_query("SELECT 1 FROM runs WHERE collection_name = ? AND message LIKE 'Created with %' LIMIT 1",
+                       (name,)))
+
+
 def last_change(collection_id: int) -> dict | None:
     """The latest successful run of a collection that added or removed titles."""
     rows = _query(

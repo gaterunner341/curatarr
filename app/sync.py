@@ -168,7 +168,10 @@ def sync_collection(cfg: CollectionConfig, state: dict, plex: Plex, section: dic
             existing = None
     if not existing:
         existing = plex.find_collection(section["id"], name)
-        owned = False                     # a same-named collection someone else made
+        # A same-named collection: someone else's, unless Curatarr made it and lost track of it.
+        owned = bool(existing) and db.made_by_curatarr(existing, name)
+    elif not owned and db.made_by_curatarr(existing, name):
+        owned = True                      # marked as someone else's by mistake: Curatarr made it
     result.state["plex_rating_key"] = existing
     result.state["plex_owned"] = int(owned) if existing else None
     log.info("'%s': %d matched in Plex, %d missing; %s", name, len(matched),
@@ -198,6 +201,7 @@ def sync_collection(cfg: CollectionConfig, state: dict, plex: Plex, section: dic
     created = False
     if not existing:
         existing = plex.create_collection(section["id"], section["type"], cfg.name, matched)
+        db.remember_made(existing)
         created = True
         result.added = len(matched)
         result.added_items = titled(matched)
@@ -342,7 +346,9 @@ def sync_playlist(cfg: CollectionConfig, state: dict, plex: Plex, sections: list
         existing = None
     if not existing:
         existing = plex.find_playlist(name)
-        owned = False
+        owned = bool(existing) and db.made_by_curatarr(existing, name)
+    elif not owned and db.made_by_curatarr(existing, name):
+        owned = True
     result.state["plex_rating_key"] = existing
     result.state["plex_owned"] = int(owned) if existing else None
     log.info("'%s': %d matched in Plex, %d missing; %s", name, len(matched), len(result.missing),
@@ -377,6 +383,7 @@ def sync_playlist(cfg: CollectionConfig, state: dict, plex: Plex, sections: list
     created = False
     if not existing:
         existing = plex.create_playlist(name, ordered)
+        db.remember_made(existing)
         created = True
         result.state.update(plex_rating_key=existing, plex_owned=1, poster_applied=None, art_applied=None)
     elif current + to_add == target and not to_remove:
@@ -793,6 +800,8 @@ def remove_off_season(cfg: CollectionConfig, state: dict, plex: Plex, section: d
     owned = state.get("plex_owned")
     owned = True if owned is None else bool(owned)
     if rk and plex.collection_section(rk) is not None:
+        if not owned and db.made_by_curatarr(rk, cfg.name):
+            owned = True                  # marked as someone else's by mistake: Curatarr made it
         if not owned:
             result.messages.append("Off season, but this Plex collection existed before Curatarr, "
                                    "so it was left in place")

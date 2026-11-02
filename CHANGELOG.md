@@ -3,6 +3,13 @@
 The version shown in the web UI's sidebar matches these entries. Each
 release is also published as `ghcr.io/gaterunner341/curatarr:<version>`.
 
+## 0.19.1
+
+- **Fixed:** a collection or playlist that Curatarr created could be treated as one that "existed before Curatarr". This happened when Curatarr lost track of it and found it again by name, for example after a holiday was turned off and back on. Curatarr then only added titles to it and left it in Plex out of season.
+  - Curatarr now records every Plex collection and playlist it creates.
+  - Ones it made earlier are recognised from sync history and fixed automatically on their next sync.
+- **Dashboard:** "Coming up" shows one entry when the same collection has the same dates in several libraries, listing all of them.
+
 ## 0.19.0
 
 - **List overlays:** put a ribbon and/or badges on every title from a list, such as Oscar Best Picture winners or other awards, without making a Plex collection.

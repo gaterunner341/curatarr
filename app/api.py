@@ -456,10 +456,18 @@ def dashboard():
             change = None
         if change:
             day, appears = change
-            coming.append({**brief, "date": day.isoformat(), "appears": appears,
-                           "seasonal": bool(cfg.get("seasonal_only")), "library": cfg.get("library", ""),
-                           "start": cfg.get("promote_start"), "end": cfg.get("promote_end"),
-                           "yearly": cfg.get("promote_yearly", True)})
+            entry = {**brief, "date": day.isoformat(), "appears": appears,
+                     "seasonal": bool(cfg.get("seasonal_only")), "library": cfg.get("library", ""),
+                     "start": cfg.get("promote_start"), "end": cfg.get("promote_end"),
+                     "yearly": cfg.get("promote_yearly", True)}
+            # The same collection on the same dates in several libraries is one entry.
+            same = next((c for c in coming if all(c[k] == entry[k] for k in
+                         ("name", "date", "appears", "seasonal", "start", "end"))), None)
+            if same:
+                if entry["library"] and entry["library"] not in same["libraries"]:
+                    same["libraries"].append(entry["library"])
+            else:
+                coming.append({**entry, "libraries": [entry["library"]] if entry["library"] else []})
     recent = [{k: v for k, v in run.items() if k not in ("missing", "added_items", "removed_items")}
               | {"missing": len(run["missing"])} for run in db.list_runs(limit=10)]
     return {
