@@ -1407,6 +1407,9 @@ async function editor(id, params = new URLSearchParams()) {
             <div class="hint">Swaps each title's poster for the first one from Plex's metadata sources (such as TMDB),
               dropping artwork other tools added. On its own, without a ribbon or badges, it just switches to that clean poster.
               The current posters are kept and put back if you turn this off.</div></div>
+          <div><label for="b-size">Badge size</label><select id="b-size">${[["small", "Small"], ["medium", "Medium"],
+            ["large", "Large"], ["xlarge", "Extra large"]].map(([v, l]) =>
+            `<option value="${v}" ${(cfg.badges?.size || "medium") === v ? "selected" : ""}>${l}</option>`).join("")}</select></div>
           <div><label for="b-rating">Rating badge</label><select id="b-rating">
             <option value="">None</option>
             <option value="audience" ${cfg.badges?.rating === "audience" ? "selected" : ""}>Audience rating (e.g. IMDb)</option>
@@ -1523,6 +1526,7 @@ async function editor(id, params = new URLSearchParams()) {
   const badgeFields = () => ({
     quality: !isPlaylist && view.querySelector("#b-quality").checked,
     content_rating: !isPlaylist && view.querySelector("#b-cert").checked,
+    size: view.querySelector("#b-size").value,
     rating: isPlaylist ? "" : view.querySelector("#b-rating").value,
     rating_min: Number(view.querySelector("#b-min").value || 0),
   });
@@ -2182,6 +2186,8 @@ async function libraryBadges(card) {
           <option value="">No rating badge</option>
           <option value="audience" ${b.rating === "audience" ? "selected" : ""}>Audience rating</option>
           <option value="critic" ${b.rating === "critic" ? "selected" : ""}>Critic rating</option></select>
+        <select data-k="size" title="Badge size">${[["small", "Small"], ["medium", "Medium"], ["large", "Large"],
+          ["xlarge", "Extra large"]].map(([v, lbl]) => `<option value="${v}" ${(b.size || "medium") === v ? "selected" : ""}>${lbl}</option>`).join("")}</select>
         <button type="button" class="small" data-lib-preview>Preview</button>
       </div>`;
   };
@@ -2198,7 +2204,7 @@ async function libraryBadges(card) {
   const read = (el) => ({
     content_rating: el.querySelector('[data-k="content_rating"]').checked,
     quality: Boolean(el.querySelector('[data-k="quality"]')?.checked),
-    rating: el.querySelector('[data-k="rating"]').value, rating_min: 0,
+    rating: el.querySelector('[data-k="rating"]').value, rating_min: 0, size: el.querySelector('[data-k="size"]').value,
   });
   box.querySelectorAll("[data-lib-preview]").forEach((b) => b.onclick = () => guard(async () => {
     const el = b.closest("[data-lib]");

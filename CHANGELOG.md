@@ -3,6 +3,12 @@
 The version shown in the web UI's sidebar matches these entries. Each
 release is also published as `ghcr.io/gaterunner341/curatarr:<version>`.
 
+## 0.18.2
+
+- **Bigger badges:** quality, content rating and rating badges are about 20% bigger by default.
+- **Badge size:** a new option, Small, Medium (the default), Large or Extra large. It's in a collection's **Poster overlays** section and in each **Whole libraries** row. If a title gets badges from more than one place, the largest size is used.
+- Existing posters are redrawn at the new size at the next overlay update (a sync, or **Update overlays now**).
+
 ## 0.18.1
 
 - **Poster overlays** and **Napalm** now have their own pages, listed under **Settings** in the left menu next to History and Logs. Settings stays highlighted while either is open. The Settings page itself is back to connections and general options.

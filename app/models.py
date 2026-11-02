@@ -74,7 +74,8 @@ class Ribbon(BaseModel):
 
 
 class Badges(BaseModel):
-    """Small badges along the bottom of every title's poster in a collection."""
+    """Badges along the bottom of every title's poster in a collection (or library)."""
+    size: Literal["small", "medium", "large", "xlarge"] = "medium"
     quality: bool = False         # resolution, HDR / Dolby Vision, Atmos (movies)
     content_rating: bool = False  # PG-13, TV-MA, ...
     rating: Literal["", "audience", "critic"] = ""

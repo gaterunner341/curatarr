@@ -1135,7 +1135,7 @@ def test_rating_badge_falls_back_to_detail_metadata():
     entry = {"ribbons": [], "badges": {"quality": False, "rating": "audience", "rating_min": 0},
              "item": {"ratingKey": "7", "title": "Inception"}, "type": "movie"}
     specs, _, _ = overlays._specs(plex, "7", entry, None)
-    assert specs == [{"kind": "badges", "quality": [], "rating": {"source": "imdb", "value": "8.8"}}]
+    assert specs == [{"kind": "badges", "quality": [], "rating": {"source": "imdb", "value": "8.8"}, "size": "medium"}]
 
 
 def test_ribbons_in_every_corner():
@@ -1235,7 +1235,8 @@ def test_content_rating_badge_and_fresh_spec():
              "badges": {"quality": False, "content_rating": True, "rating": "", "rating_min": 0},
              "item": {"ratingKey": "5", "contentRating": "TV-MA"}}
     specs, _, _ = overlays._specs(None, "5", entry, None)
-    assert specs == [{"kind": "fresh"}, {"kind": "badges", "quality": [], "rating": None, "content_rating": "TV-MA"}]
+    assert specs == [{"kind": "fresh"}, {"kind": "badges", "quality": [], "rating": None, "size": "medium",
+                                         "content_rating": "TV-MA"}]
     drawn = overlays.render(overlays.sample_poster(), specs)
     assert drawn.startswith(bytes([0xFF, 0xD8]))
 
@@ -1308,7 +1309,8 @@ def test_library_wide_badges(monkeypatch):
     monkeypatch.setattr(plexmod, "from_settings", lambda *a, **k: Plex("http://plex", "t", client=httpx.Client(transport=fake)))
     assert not overlays.needed()
     overlays.save_library_settings({"1": {"content_rating": True}, "9": {}})
-    assert overlays.library_settings() == {"1": {"quality": False, "content_rating": True, "rating": "", "rating_min": 0}}
+    assert overlays.library_settings() == {"1": {"size": "medium", "quality": False, "content_rating": True,
+                                                 "rating": "", "rating_min": 0}}
     assert overlays.apply_all()["drawn"] == 2
     assert fake.posters["1"] != fake.original["1"] and len(db.overlay_rows()) == 2
 
@@ -1463,3 +1465,16 @@ def test_preroll_manager(monkeypatch):
     assert prerolls.parse_value("a;b") == (["a", "b"], "sequence")
     assert prerolls.build_value({"mode": "random"}, []) == ""
     db.save_settings({"prerolls": ""})
+
+
+
+def test_badge_sizes_merge_to_the_largest():
+    from app import overlays
+    entry = {"badges": None}
+    overlays._merge_badges(entry, {"quality": True, "content_rating": False, "rating": "", "rating_min": 0, "size": "small"})
+    overlays._merge_badges(entry, {"quality": False, "content_rating": True, "rating": "", "rating_min": 0, "size": "large"})
+    assert entry["badges"]["size"] == "large" and entry["badges"]["quality"] and entry["badges"]["content_rating"]
+    for size in overlays.BADGE_SIZES:
+        out = overlays.render(overlays.sample_poster(), [{"kind": "badges", "quality": ["4K", "DV"], "content_rating": "R",
+                                                          "rating": {"source": "rottentomatoes", "value": "63%"}, "size": size}])
+        assert out.startswith(bytes([0xFF, 0xD8]))

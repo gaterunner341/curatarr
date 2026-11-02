@@ -37,7 +37,8 @@ FONTS = {
     "mono": ("Mono bold", ["DejaVuSansMono-Bold.ttf", "consolab.ttf"]),
 }
 SIZES = {"small": 0.8, "medium": 1.0, "large": 1.25, "xlarge": 1.5}     # ribbon thickness
-STYLE_VERSION = 2                 # bump when the drawing changes, so posters are redrawn
+STYLE_VERSION = 3                 # bump when the drawing changes, so posters are redrawn
+BADGE_SIZES = {"small": 0.75, "medium": 1.0, "large": 1.3, "xlarge": 1.6}
 W = 1000                          # posters are drawn at this width
 
 _lock = threading.Lock()
@@ -156,7 +157,7 @@ def _badges(img: Image.Image, spec: dict, clear: dict[str, float] | None = None)
     """
     w, h = img.size
     clear = clear or {}
-    pill = w * 0.075
+    pill = w * 0.09 * BADGE_SIZES.get(spec.get("size") or "medium", 1.0)
     margin = w * 0.04
     y = h - margin - pill
     # A badge's bottom sits ``margin`` above the edge, so it clears the band that much sooner.
@@ -281,7 +282,11 @@ def needed() -> bool:
 
 
 def _merge_badges(entry: dict, badges: dict) -> None:
-    merged = entry["badges"] or {"quality": False, "content_rating": False, "rating": "", "rating_min": 0}
+    merged = entry["badges"] or {"quality": False, "content_rating": False, "rating": "", "rating_min": 0,
+                                 "size": badges.get("size") or "medium"}
+    order = list(BADGE_SIZES)                          # the largest size asked for wins
+    if order.index(badges.get("size") or "medium") > order.index(merged.get("size") or "medium"):
+        merged["size"] = badges["size"]
     merged["quality"] = merged["quality"] or badges["quality"]
     merged["content_rating"] = merged["content_rating"] or badges["content_rating"]
     if badges["rating"] and not merged["rating"]:      # the first choice wins
@@ -404,7 +409,7 @@ def _specs(plex: Plex, rk: str, entry: dict, row: dict | None) -> tuple[list[dic
             detail = detail or plex.item(rk) or item
         certificate = content_rating_label((item.get("contentRating") or (detail or {}).get("contentRating")))
     if quality or rating or certificate:
-        badge = {"kind": "badges", "quality": quality, "rating": rating}
+        badge = {"kind": "badges", "quality": quality, "rating": rating, "size": settings.get("size") or "medium"}
         if certificate:             # only when used, so posters drawn before 0.14 keep their signature
             badge["content_rating"] = certificate
         specs.append(badge)
