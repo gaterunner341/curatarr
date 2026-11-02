@@ -3,6 +3,14 @@
 The version shown in the web UI's sidebar matches these entries. Each
 release is also published as `ghcr.io/gaterunner341/curatarr:<version>`.
 
+## 0.13.3
+
+- **See background work as it happens:** the top bar shows what's running on every page.
+  - A sync shows as "Syncing IMDB Top 250…".
+  - Poster overlays show their progress, like "Drawing poster overlays · 45 / 176" or "Restoring original posters · 12 / 40".
+  - When the overlays finish you get a message, and the View page and Dashboard refresh so the new posters show. If any poster failed, the message says so; the details are in Logs.
+  - Curatarr checks every 2 seconds while work is running, every 15 seconds otherwise, and right after you save or start something.
+
 ## 0.13.2
 
 - **Overlays are easier to check:** every overlay pass now writes one line to the log, even when nothing changed. For example: "Overlays: 176 title(s) with overlays: 176 drawn, 0 unchanged, 0 with nothing to show; 0 restored, 0 failed".

@@ -30,6 +30,12 @@ h2 { font-size: 1.1rem; margin: 0 0 12px; }
   background: var(--panel); border-bottom: 1px solid var(--border);
 }
 .brand { display: flex; align-items: center; gap: 10px; color: var(--text); text-decoration: none; font-weight: 700; font-size: 1.15rem; }
+.activity { margin-left: auto; display: inline-flex; align-items: center; gap: 8px; font-size: .85rem; color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent); border-radius: 999px; padding: 4px 12px; white-space: nowrap; }
+.activity:not([hidden]) + .server { margin-left: 12px; }
+.spinner { width: 12px; height: 12px; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%;
+  animation: spin .8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
 .server { margin-left: auto; color: var(--muted); font-size: .85rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .server .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
 .menu-btn { display: none; background: none; border: 0; color: var(--text); font-size: 1.4rem; cursor: pointer; }

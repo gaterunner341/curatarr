@@ -31,6 +31,10 @@ W = 1000                          # posters are drawn at this width
 _lock = threading.Lock()
 _again = threading.Event()
 
+# What the current (or last) pass is doing, for the web UI's progress indicator.
+progress: dict = {"running": False, "phase": "", "done": 0, "total": 0, "drawn": 0, "restored": 0,
+                  "errors": 0, "started": None, "finished": None}
+
 
 class OverlayError(Exception):
     pass
@@ -355,9 +359,22 @@ def apply_all(remove_all: bool = False) -> dict:
 
 def _pass(remove_all: bool) -> dict:
     counts = {"drawn": 0, "restored": 0, "unchanged": 0, "nothing": 0, "errors": 0}
+    progress.update(running=True, phase="Checking collections", done=0, total=0, drawn=0, restored=0,
+                    errors=0, started=db.now(), finished=None)
+    try:
+        _run_pass(remove_all, counts)
+    finally:
+        progress.update(running=False, phase="", finished=db.now())
+    return counts
+
+
+def _run_pass(remove_all: bool, counts: dict) -> None:
     with plexmod.from_settings(db.get_settings()) as plex:
         wanted = {} if remove_all else _wanted(plex)
         rows = db.overlay_rows()
+        restore = [rk for rk in rows if rk not in wanted]
+        progress.update(phase="Restoring original posters" if remove_all else "Drawing poster overlays",
+                        total=len(wanted) + len(restore))
         for rk, entry in wanted.items():
             try:
                 done = _apply_one(plex, rk, entry, rows.get(rk))
@@ -365,16 +382,15 @@ def _pass(remove_all: bool) -> dict:
             except (PlexError, OverlayError, PosterError, OSError) as exc:
                 counts["errors"] += 1
                 log.warning("Overlay for %s failed: %s", rk, exc)
-        for rk, row in rows.items():
-            if rk in wanted:
-                continue
+            progress.update(done=progress["done"] + 1, drawn=counts["drawn"], errors=counts["errors"])
+        for rk in restore:
             try:
-                _restore_one(plex, rk, row)
+                _restore_one(plex, rk, rows[rk])
                 counts["restored"] += 1
             except (PlexError, OSError) as exc:
                 counts["errors"] += 1
                 log.warning("Restoring the poster of %s failed: %s", rk, exc)
+            progress.update(done=progress["done"] + 1, restored=counts["restored"], errors=counts["errors"])
     log.info("Overlays: %d title(s) with overlays: %d drawn, %d unchanged, %d with nothing to show "
              "(e.g. no rating); %d restored, %d failed", len(wanted), counts["drawn"], counts["unchanged"],
              counts["nothing"], counts["restored"], counts["errors"])
-    return counts

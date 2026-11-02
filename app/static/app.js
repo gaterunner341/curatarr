@@ -21,6 +21,8 @@ async function api(method, path, body, raw = false) {
     opts.headers["Content-Type"] = "application/json";
   }
   const resp = await fetch(`/api${path}`, opts);
+  // Saving or starting something may start background work: check on it soon.
+  if (method !== "GET" && !path.startsWith("/overlays/progress")) watchActivity();
   if (raw) return resp;
   const data = resp.headers.get("content-type")?.includes("json") ? await resp.json() : await resp.text();
   if (!resp.ok) {
@@ -59,6 +61,43 @@ async function libraries() {
 async function catalog() {
   if (!state.catalog.length) state.catalog = await api("GET", "/sources");
   return state.catalog;
+}
+
+// ---------- background activity ----------
+// Poster overlays are drawn in the background after syncs. The top bar shows
+// their progress, and the page refreshes when they finish so new posters appear.
+
+const activity = { running: false, overlays: false, timer: null };
+
+async function pollActivity() {
+  clearTimeout(activity.timer);
+  let p = null;
+  try { p = await api("GET", "/overlays/progress"); } catch { /* try again later */ }
+  const el = document.getElementById("activity");
+  const overlaysRunning = Boolean(p && (p.running || p.queued));
+  const syncing = p?.syncing || [];
+  const running = overlaysRunning || syncing.length > 0;
+  el.hidden = !running;
+  if (overlaysRunning) {
+    el.innerHTML = `<span class="spinner"></span>${esc(p.phase || "Poster overlays")}${p.total ? ` · ${p.done} / ${p.total}` : "…"}`;
+    el.title = p.drawn ? `${p.drawn} poster(s) drawn so far` : "";
+  } else if (syncing.length) {
+    el.innerHTML = `<span class="spinner"></span>Syncing ${esc(syncing.length === 1 ? syncing[0] : `${syncing.length} collections`)}…`;
+    el.title = syncing.join(", ");
+  }
+  if (activity.overlays && !overlaysRunning && p) {
+    toast(p.errors ? `Poster overlays finished with ${p.errors} problem(s); see Logs` : "Poster overlays are up to date",
+      Boolean(p.errors));
+    if (/^#\/(collections\/\d+\/items|dashboard)/.test(location.hash)) route();
+  }
+  activity.running = running;
+  activity.overlays = overlaysRunning;
+  activity.timer = setTimeout(pollActivity, running ? 2000 : 15000);
+}
+
+function watchActivity() {
+  clearTimeout(activity.timer);
+  activity.timer = setTimeout(pollActivity, 1500);
 }
 
 // ---------- router ----------
@@ -1940,3 +1979,4 @@ async function importExport() {
 
 loadStatus();
 route();
+pollActivity();

@@ -683,6 +683,14 @@ def overlay_status():
                             or overlays.badge_settings(c)]}
 
 
+@router.get("/overlays/progress")
+def overlay_progress():
+    """Background work for the web UI's indicator: running syncs, and the overlay pass's progress."""
+    from . import overlays
+    syncing = [r["config"]["name"] for r in db.list_collections() if sync.is_running(r["id"])]
+    return {**overlays.progress, "queued": overlays._again.is_set(), "syncing": syncing}
+
+
 @router.post("/overlays/apply")
 def overlay_apply(remove_all: bool = False):
     """Update every overlaid poster now (in the background); ``remove_all`` restores all originals."""
