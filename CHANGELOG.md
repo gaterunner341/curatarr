@@ -3,6 +3,10 @@
 The version shown in the web UI's sidebar matches these entries. Each
 release is also published as `ghcr.io/gaterunner341/curatarr:<version>`.
 
+## 0.20.0
+
+- **Primary libraries:** pick a primary movie library and a primary TV library under **Settings → General**. They're listed first everywhere, and every page and new collection starts on them: the collection editor, starter packs, holidays, Existing Plex collections, Poster overlays and Napalm. Leave them blank to keep Plex's order.
+
 ## 0.19.2
 
 - **Fixed (prerolls):** Curatarr had Plex's separators backwards. In Plex's preroll setting, commas mean "play all of them, in order" and semicolons mean "play one at random". Curatarr now reads and writes them that way, so a semicolon list shows as "one played at random".

@@ -154,11 +154,19 @@ def arr_options(kind: str):
 
 # --- plex ---------------------------------------------------------------------
 
+def _primary_first(sections: list[dict]) -> list[dict]:
+    """Libraries with the primary movie and TV libraries (Settings) first, so pickers start on them."""
+    settings = db.get_settings()
+    primary = [settings.get("primary_movie_library"), settings.get("primary_tv_library")]
+    rank = lambda s: primary.index(s["id"]) if s["id"] in primary else len(primary)  # noqa: E731
+    return [{**s, "primary": s["id"] in primary} for s in sorted(sections, key=rank)]
+
+
 @router.get("/plex/libraries")
 def plex_libraries():
     with _plex() as plex:
         try:
-            return plex.sections()
+            return _primary_first(plex.sections())
         except PlexError as exc:
             raise HTTPException(502, str(exc))
 
@@ -199,7 +207,7 @@ def plex_all_collections():
     result = []
     with _plex() as plex:
         try:
-            for section in plex.sections():
+            for section in _primary_first(plex.sections()):
                 for coll in plex.collections(section["id"]):
                     managed = by_key.get(coll["ratingKey"]) or by_title.get(
                         (section["id"], (coll["title"] or "").strip().lower()))

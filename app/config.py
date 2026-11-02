@@ -2,7 +2,7 @@
 import os
 from pathlib import Path
 
-VERSION = "0.19.2"
+VERSION = "0.20.0"
 APP_NAME = "Curatarr"
 
 
@@ -59,6 +59,8 @@ DEFAULT_SETTINGS = {
     "default_schedule": "0 */6 * * *",
     "arr_max_requests": "25",
     "managed_label": "Curatarr",
+    "primary_movie_library": "",        # section id listed (and picked) first; "" = Plex's order
+    "primary_tv_library": "",
 }
 
 SECRET_SETTINGS = {

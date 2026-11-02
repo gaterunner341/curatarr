@@ -2062,13 +2062,19 @@ const SETTING_GROUPS = [
     ["default_schedule", "Default schedule (cron)", "text", "0 */6 * * *"],
     ["arr_max_requests", "Most titles sent to Radarr/Sonarr per collection sync (0 = no limit)", "text", "25"],
     ["managed_label", "Label added to managed collections", "text", "Curatarr"],
-  ] },
+    ["primary_movie_library", "Primary movie library", "library", "movie"],
+    ["primary_tv_library", "Primary TV library", "library", "show"],
+  ], hint: "The primary libraries are listed first everywhere and are the ones pages and new collections start on." },
 ];
 
 function settingField([key, label, type, extra], values, fromEnv) {
   const env = fromEnv.includes(key) ? ` <span class="badge">env</span>` : "";
   if (type === "bool") {
     return `<div><label class="check"><input type="checkbox" data-key="${key}" ${values[key] !== "false" ? "checked" : ""}> ${label}</label></div>`;
+  }
+  if (type === "library") {      // filled in from Plex once the page is drawn
+    return `<div><label>${label}</label><select data-key="${key}" data-lib-type="${extra}" data-value="${esc(values[key] || "")}">
+      <option value="">Plex's first ${extra === "show" ? "TV" : "movie"} library</option></select></div>`;
   }
   if (type === "select") {
     return `<div><label>${label}</label><select data-key="${key}">${Object.entries(extra).map(([k, v]) =>
@@ -2095,6 +2101,10 @@ async function settings() {
         ${g.arr ? `<div id="${g.arr}-options" class="small muted" style="margin-top:8px"></div>` : ""}
       </div>`).join("")}
     <p class="hint">Values marked <span class="badge">env</span> come from container environment variables; saving a value here overrides them.</p>`;
+  libraries().then((libs) => view.querySelectorAll("[data-lib-type]").forEach((sel) => {
+    sel.insertAdjacentHTML("beforeend", libs.filter((l) => l.type === sel.dataset.libType).map((l) =>
+      `<option value="${esc(l.id)}" ${l.id === sel.dataset.value ? "selected" : ""}>${esc(l.title)}</option>`).join(""));
+  })).catch(() => {});
 
   const gather = () => {
     const out = {};

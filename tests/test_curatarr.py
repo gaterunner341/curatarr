@@ -1573,3 +1573,14 @@ def test_list_overlay(monkeypatch):
     db.delete_collection(cid)
     overlays.apply_all()
     assert db.overlay_rows() == {}
+
+
+def test_primary_libraries_come_first():
+    from app import api as api_mod
+    libs = [{"id": "1", "title": "Movies", "type": "movie"}, {"id": "2", "title": "TV", "type": "show"},
+            {"id": "3", "title": "Movies 4K", "type": "movie"}, {"id": "4", "title": "Kids TV", "type": "show"}]
+    db.save_settings({"primary_movie_library": "3", "primary_tv_library": "4"})
+    ordered = api_mod._primary_first(libs)
+    assert [s["id"] for s in ordered] == ["3", "4", "1", "2"] and ordered[0]["primary"] and not ordered[2]["primary"]
+    db.save_settings({"primary_movie_library": "", "primary_tv_library": ""})
+    assert [s["id"] for s in api_mod._primary_first(libs)] == ["1", "2", "3", "4"]
