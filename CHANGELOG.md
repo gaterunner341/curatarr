@@ -3,6 +3,13 @@
 The version shown in the web UI's sidebar matches these entries. Each
 release is also published as `ghcr.io/gaterunner341/curatarr:<version>`.
 
+## 0.22.0
+
+- **Root folder per library, found automatically:** Curatarr works out each Plex library's Radarr/Sonarr root folder from Radarr/Sonarr's own data. It matches the library's titles to Radarr/Sonarr titles by TMDB/IMDb/TVDB id and uses the root folder most of them are in. Missing titles requested from a collection, by a sync or with **Add to Radarr/Sonarr**, go there. Nothing needs setting.
+  - **Settings → Radarr / Sonarr** shows what was found for each library (e.g. "212 of 215 of this library's titles in Radarr are in /Movies_Special"). You can pick a folder there to override it.
+  - A library with none of its titles in Radarr/Sonarr yet uses the Root folder setting.
+  - The guess by folder name added in 0.21.1 is removed.
+
 ## 0.21.1
 
 - **Root folder per library:** for a library with no folder set yet, Settings preselects the Radarr/Sonarr root folder whose name matches the library, ignoring case and punctuation (e.g. MoviesSpecial → `/Movies_Special`). It's marked "matched by name" and kept when you save.

@@ -1587,11 +1587,35 @@ def test_primary_libraries_come_first():
 
 
 def test_arr_root_folder_per_library():
-    from app import arr as arr_mod
+    import time
+    from app import arr as arr_mod, sync as sync_mod
     settings = {"radarr_url": "http://r", "radarr_api_key": "k", "radarr_root_folder": "/movies",
-                "radarr_quality_profile": "1", "radarr_library_folders": '{"7": "/movies-special"}'}
-    with httpx.Client() as http:
-        assert arr_mod.Arr("radarr", settings, http, "7").root_folder == "/movies-special"
-        assert arr_mod.Arr("radarr", settings, http, "1").root_folder == "/movies"      # not set: the default
+                "radarr_quality_profile": "1"}
+
+    def radarr(request):
+        if request.url.path == "/api/v3/rootfolder":
+            return httpx.Response(200, json=[{"path": "/movies"}, {"path": "/Movies_Special/"}])
+        if request.url.path == "/api/v3/movie":
+            return httpx.Response(200, json=[
+                {"tmdbId": 1, "imdbId": "tt0133093", "rootFolderPath": "/Movies_Special/"},
+                {"tmdbId": 2, "path": "/Movies_Special/Heat (1995)"},          # no rootFolderPath: from its path
+                {"tmdbId": 3, "rootFolderPath": "/movies"},
+                {"tmdbId": 9, "rootFolderPath": "/movies"}])                   # not in this library
+        return httpx.Response(404)
+
+    with httpx.Client(transport=httpx.MockTransport(radarr)) as http:
+        items = arr_mod.Arr("radarr", settings, http).item_folders()
+        found = arr_mod.detect_folder(items, {("tmdb", "1"), ("tmdb", "2"), ("tmdb", "3")})
+        assert found == {"folder": "/Movies_Special/", "matched": 2, "total": 3}
+        assert arr_mod.detect_folder(items, {("tmdb", "77")})["folder"] == ""
+        assert arr_mod.Arr("radarr", settings, http, "/Movies_Special/").root_folder == "/Movies_Special/"
         assert arr_mod.Arr("radarr", settings, http).root_folder == "/movies"
-        assert arr_mod.Arr("radarr", {**settings, "radarr_library_folders": "junk"}, http, "7").root_folder == "/movies"
+
+        # A folder chosen in Settings wins over the one found from Radarr's data
+        sync_mod._folder_cache[("radarr", "7")] = (time.monotonic(), found)
+        section = {"id": "7", "title": "MoviesSpecial", "type": "movie"}
+        assert sync_mod.arr_root_folder("radarr", settings, http, None, section) == "/Movies_Special/"
+        chosen = {**settings, "radarr_library_folders": '{"7": "/movies"}'}
+        assert sync_mod.arr_root_folder("radarr", chosen, http, None, section) == "/movies"
+        assert sync_mod.arr_root_folder("radarr", settings, http, None, None) == ""
+        sync_mod._folder_cache.clear()

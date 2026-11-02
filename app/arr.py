@@ -15,12 +15,12 @@ class ArrError(Exception):
 
 
 class Arr:
-    def __init__(self, kind: str, settings: dict, http: httpx.Client, section_id: str | None = None):
+    def __init__(self, kind: str, settings: dict, http: httpx.Client, root_folder: str | None = None):
         self.kind = kind   # "radarr" or "sonarr"
         self.url = settings.get(f"{kind}_url", "").rstrip("/")
         self.api_key = settings.get(f"{kind}_api_key", "")
-        # The Plex library's own root folder (Settings), else the default one.
-        self.root_folder = library_folder(kind, settings, section_id) or settings.get(f"{kind}_root_folder", "")
+        # A Plex library's own root folder (see sync.arr_root_folder), else the default one.
+        self.root_folder = root_folder or settings.get(f"{kind}_root_folder", "")
         self.quality_profile = settings.get(f"{kind}_quality_profile", "")
         self.search = settings.get(f"{kind}_search", "true") != "false"
         self.http = http
@@ -67,6 +67,26 @@ class Arr:
                 if item.get(field):
                     have[key].add(str(item[field]))
         return have
+
+    def item_folders(self) -> list[tuple[set, str]]:
+        """Every movie/show in Radarr/Sonarr as ({(provider, id)}, root folder it's in)."""
+        roots = [f["path"] for f in self._request("GET", "/rootfolder").json()]
+        resp = self._request("GET", "/series" if self.kind == "sonarr" else "/movie")
+        if resp.status_code >= 400:
+            raise ArrError(f"{self.kind.title()} returned HTTP {resp.status_code}")
+        trim = lambda p: (p or "").replace("\\", "/").rstrip("/")  # noqa: E731
+        out = []
+        for item in resp.json():
+            where = trim(item.get("rootFolderPath")) or trim(item.get("path"))
+            # Report it as one of Radarr/Sonarr's root folders (the longest one the path is under).
+            root = max((r for r in roots if where == trim(r) or where.startswith(trim(r) + "/")),
+                       key=len, default=None)
+            if not root:
+                continue
+            ids = {(key, str(item[field])) for key, field in (("tmdb", "tmdbId"), ("tvdb", "tvdbId"),
+                                                             ("imdb", "imdbId")) if item.get(field)}
+            out.append((ids, root))
+        return out
 
     @staticmethod
     def already_has(ref: MediaRef, have: dict[str, set]) -> bool:
@@ -148,6 +168,22 @@ class Arr:
         raise ArrError(f"{self.kind.title()} add failed: HTTP {resp.status_code} {resp.text[:200]}")
 
 
+def detect_folder(items: list[tuple[set, str]], library_ids: set) -> dict:
+    """Which root folder a Plex library's titles are in: {folder, matched, total}.
+
+    ``library_ids`` are the (provider, id) pairs of the library's titles. Each Radarr/Sonarr
+    title that is also in the library counts for the folder it's in; the most common wins.
+    """
+    votes: dict[str, int] = {}
+    for ids, root in items:
+        if ids & library_ids:
+            votes[root] = votes.get(root, 0) + 1
+    if not votes:
+        return {"folder": "", "matched": 0, "total": 0}
+    folder = max(votes, key=votes.get)
+    return {"folder": folder, "matched": votes[folder], "total": sum(votes.values())}
+
+
 def library_folder(kind: str, settings: dict, section_id: str | None) -> str:
     """The root folder set for one Plex library ("" when none is set)."""
     try:
@@ -158,14 +194,14 @@ def library_folder(kind: str, settings: dict, section_id: str | None) -> str:
 
 
 def request_missing(media_type: str, refs: list[MediaRef], settings: dict,
-                    http: httpx.Client, section_id: str | None = None) -> tuple[int, list[str], bool]:
+                    http: httpx.Client, root_folder: str | None = None) -> tuple[int, list[str], bool]:
     """Add missing refs to Radarr/Sonarr.
 
     At most ``arr_max_requests`` titles are added per call (0 = no limit), and
     titles Radarr/Sonarr already has are skipped without a lookup each.
     Returns (added count, error messages, whether the limit was reached).
     """
-    arr = Arr("sonarr" if media_type == "show" else "radarr", settings, http, section_id)
+    arr = Arr("sonarr" if media_type == "show" else "radarr", settings, http, root_folder)
     if not arr.configured:
         return 0, [f"{arr.kind.title()} is not fully configured; missing titles were not requested"], False
     try:

@@ -47,6 +47,42 @@ class SyncResult:
             self.status = "warning"
 
 
+_folder_cache: dict[tuple[str, str], tuple[float, dict]] = {}
+FOLDER_TTL = 3600
+
+
+def detected_folder(kind: str, settings: dict, http: httpx.Client, plex: Plex, section: dict) -> dict:
+    """Where a Plex library's titles already are in Radarr/Sonarr: {folder, matched, total} (cached)."""
+    key = (kind, section["id"])
+    cached = _folder_cache.get(key)
+    if cached and time.monotonic() - cached[0] < FOLDER_TTL:
+        return cached[1]
+    found = arr.detect_folder(arr.Arr(kind, settings, http).item_folders(),
+                              set(library_index(plex, section).by_id))
+    _folder_cache[key] = (time.monotonic(), found)
+    return found
+
+
+def arr_root_folder(kind: str, settings: dict, http: httpx.Client, plex: Plex, section: dict | None) -> str:
+    """The root folder for titles requested for a Plex library: the one chosen in Settings, else
+    the folder most of the library's titles are already in (from Radarr/Sonarr's own data),
+    else "" (the default Root folder)."""
+    if not section:
+        return ""
+    chosen = arr.library_folder(kind, settings, section["id"])
+    if chosen:
+        return chosen
+    try:
+        found = detected_folder(kind, settings, http, plex, section)
+    except (arr.ArrError, PlexError, httpx.HTTPError, ValueError) as exc:
+        log.warning("Could not work out the %s folder for '%s': %s", kind.title(), section["title"], exc)
+        return ""
+    if found["folder"]:
+        log.info("'%s': %d of %d title(s) also in %s are in %s, so requests go there", section["title"],
+                 found["matched"], found["total"], kind.title(), found["folder"])
+    return found["folder"]
+
+
 def library_index(plex: Plex, section: dict, refresh: bool = False) -> LibraryIndex:
     key = (plex.url, section["id"])
     with _index_lock:
@@ -721,9 +757,11 @@ def _run_collection(collection_id: int, trigger: str, dry_run: bool) -> dict:
                     by_type.setdefault(kind, []).append(ref)
                 limited = False
                 for kind, missing_refs in by_type.items():
+                    service = "sonarr" if kind == "show" else "radarr"
+                    target = next((s for s in sections if s["type"] == kind), None)
                     requested, arr_errors, hit_limit = arr.request_missing(
                         kind, missing_refs, settings, http,
-                        section["id"] if kind == section["type"] else None)
+                        arr_root_folder(service, settings, http, plex, target))
                     result.requested += requested
                     limited = limited or hit_limit
                     for err in arr_errors:

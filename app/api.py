@@ -1,5 +1,6 @@
 """REST API used by the web UI (and available for scripting)."""
 import logging
+import time
 import os
 from datetime import date, datetime
 from pathlib import Path
@@ -139,6 +140,26 @@ def test_service(service: str):
     except (PlexError, SourceError, arr.ArrError, httpx.HTTPError) as exc:
         return {"ok": False, "message": str(exc)}
     raise HTTPException(404, f"Unknown service '{service}'")
+
+
+@router.get("/arr/{kind}/detect")
+def arr_detect(kind: str):
+    """For each Plex library of that type: the root folder its titles are in, from Radarr/Sonarr's data."""
+    if kind not in ("radarr", "sonarr"):
+        raise HTTPException(404)
+    settings = db.get_settings()
+    out = {}
+    with _plex() as plex, httpx.Client(timeout=60) as http:
+        try:
+            items = arr.Arr(kind, settings, http).item_folders()
+            for section in plex.sections():
+                if section["type"] == ("show" if kind == "sonarr" else "movie"):
+                    found = arr.detect_folder(items, set(sync.library_index(plex, section).by_id))
+                    sync._folder_cache[(kind, section["id"])] = (time.monotonic(), found)
+                    out[section["id"]] = found
+        except (arr.ArrError, PlexError, httpx.HTTPError, ValueError) as exc:
+            raise HTTPException(400, str(exc))
+    return out
 
 
 @router.get("/arr/{kind}/options")
@@ -691,7 +712,16 @@ def request_title(collection_id: int, body: dict = Body(...)):
     ref = sources.MediaRef(media_type=body.get("media_type"), **{k: v for k, v in fields.items() if v})
     settings = db.get_settings()
     with httpx.Client(timeout=30) as http:
-        client = arr.Arr(kind, settings, http, row["config"].get("section_id"))   # that library's root folder
+        section_id = str(row["config"].get("section_id") or "")
+        folder = ""
+        if section_id:                   # that library's root folder
+            with _plex() as plex:
+                try:
+                    section = next((s for s in plex.sections() if s["id"] == section_id), None)
+                except PlexError:
+                    section = None
+                folder = sync.arr_root_folder(kind, settings, http, plex, section)
+        client = arr.Arr(kind, settings, http, folder)
         if not client.configured:
             raise HTTPException(400, f"{kind.title()} isn't set up in Settings")
         try:
