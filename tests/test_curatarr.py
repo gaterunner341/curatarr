@@ -1395,3 +1395,71 @@ def test_upload_title_poster(monkeypatch):
     assert r.status_code == 200 and not r.json()["keep"] and unmatched.KEEP_LABEL not in fake.labels["2"]
     assert client.post("/api/titles/1/poster", files={"file": ("p.gif", b"GIF89a", "image/gif")}).status_code == 415
     assert client.post("/api/titles/1/poster", data={"url": "ftp://x"}).status_code == 422
+
+
+class FakePrerollPlex(httpx.BaseTransport):
+    """A PreRolls library of three clips and the server's preroll setting."""
+
+    def __init__(self, current=""):
+        self.pref = current
+        self.puts: list[str] = []
+
+    def handle_request(self, request):
+        path, method, q = request.url.path, request.method, request.url.params
+        mc = lambda body: httpx.Response(200, json={"MediaContainer": body})  # noqa: E731
+        if path == "/library/sections":
+            return mc({"Directory": [{"key": "1", "title": "Movies", "type": "movie"},
+                                     {"key": "5", "title": "PreRolls", "type": "movie"}]})
+        if path == "/library/sections/5/all":
+            return mc({"totalSize": 3, "Metadata": [
+                {"ratingKey": str(n), "title": name, "duration": 15000,
+                 "Media": [{"Part": [{"file": f"/data/prerolls/{name}.mp4"}]}]}
+                for n, name in ((51, "Classic"), (52, "Pumpkin"), (53, "Snow"))]})
+        if path == "/:/prefs" and method == "GET":
+            return mc({"Setting": [{"id": "FriendlyName", "value": "PhillFlix"},
+                                   {"id": "CinemaTrailersPrerollID", "value": self.pref}]})
+        if path == "/:/prefs" and method == "PUT":
+            self.pref = q["CinemaTrailersPrerollID"]
+            self.puts.append(self.pref)
+            return mc({})
+        return mc({})
+
+
+def test_preroll_manager(monkeypatch):
+    from datetime import date
+    from app import plex as plexmod, prerolls
+
+    db.save_settings({"prerolls": ""})
+    fake = FakePrerollPlex("/data/prerolls/Classic.mp4,/data/prerolls/Old.mp4")
+    monkeypatch.setattr(plexmod, "from_settings", lambda *a, **k: Plex("http://plex", "t", client=httpx.Client(transport=fake)))
+    view = prerolls.overview()
+    assert view["settings"]["section_id"] == "5"                      # found "PreRolls" by name
+    assert [c["title"] for c in view["clips"]] == ["Classic", "Pumpkin", "Snow"]
+    assert view["current"]["matched"] == ["51"] and view["current"]["unmatched"] == ["/data/prerolls/Old.mp4"]
+    assert view["current"]["mode"] == "random"
+
+    with pytest.raises(prerolls.PrerollError):
+        prerolls.save({"sets": [{"name": "Bad", "start": "13-01", "end": "10-31", "items": []}]})
+    prerolls.save({"enabled": True, "section_id": "5", "mode": "random", "default": ["51", "53"],
+                   "sets": [{"name": "Halloween", "start": "10-01", "end": "10-31", "items": ["52"]}]})
+    assert prerolls.apply(date(2026, 6, 1))["set"] == "Default"
+    assert fake.pref == "/data/prerolls/Classic.mp4,/data/prerolls/Snow.mp4"
+    assert prerolls.load()["backup"] == "/data/prerolls/Classic.mp4,/data/prerolls/Old.mp4"   # the original, kept
+    prerolls.apply(date(2026, 10, 5))
+    assert fake.pref == "/data/prerolls/Pumpkin.mp4"
+    assert prerolls.next_change(prerolls.load(), date(2026, 10, 5)) == {"date": "2026-11-01", "set": "Default"}
+
+    prerolls.save({"mode": "sequence"})
+    prerolls.apply(date(2026, 6, 1))
+    assert fake.pref == "/data/prerolls/Classic.mp4;/data/prerolls/Snow.mp4"
+    prerolls.save({"mode": "daily", "daily_count": 1})
+    prerolls.apply(date(2026, 6, 1))
+    first = fake.pref
+    prerolls.apply(date(2026, 6, 1))
+    assert fake.pref == first and ";" not in first                        # one clip, the same all day
+
+    prerolls.restore()
+    assert fake.pref == "/data/prerolls/Classic.mp4,/data/prerolls/Old.mp4" and not prerolls.load()["enabled"]
+    assert prerolls.parse_value("a;b") == (["a", "b"], "sequence")
+    assert prerolls.build_value({"mode": "random"}, []) == ""
+    db.save_settings({"prerolls": ""})

@@ -3,6 +3,16 @@
 The version shown in the web UI's sidebar matches these entries. Each
 release is also published as `ghcr.io/gaterunner341/curatarr:<version>`.
 
+## 0.18.0
+
+- **Prerolls:** a new page in the left menu that manages Plex's preroll list from a Plex library instead of the typed list of paths in Plex's settings.
+  - **Your preroll library:** a library with "preroll" in its name, such as **PreRolls**, is picked automatically, or you can choose another. Its clips are listed with thumbnail, name, length and file. Paths come from Plex itself, so they're always the ones the server can play.
+  - **Matched to Plex's current list:** the page shows what Plex plays now, marks those clips "in Plex's list now", and lists any paths in Plex's list that aren't in the library. **Use Plex's current list** copies it into the default set.
+  - **Sets:** a **Default** set, plus **seasonal sets** with dates (e.g. Halloween Oct 1–31) that take over during their dates every year and switch automatically just after midnight. Windows can span New Year.
+  - **Play mode:** one clip at random before each movie, all of them in order, or a new random pick of N clips each day.
+  - **Safe:** before Curatarr first changes Plex's preroll list, it saves the list Plex had. **Restore Plex's original list** puts it back and stops managing. The page shows today's set and when it next changes.
+  - Plex plays prerolls before movies only, on apps with Cinema Trailers turned on, and they need Plex Pass.
+
 ## 0.17.2
 
 - **Fan edits on the Unmatched page:** titles with a Plex label like **Fan Edit** or **FanEdit** are now listed too, even when they're properly matched. Case, spaces, hyphens and underscores don't matter, and "Fan Edits" counts too.

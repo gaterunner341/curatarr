@@ -2,7 +2,7 @@
 import os
 from pathlib import Path
 
-VERSION = "0.17.2"
+VERSION = "0.18.0"
 APP_NAME = "Curatarr"
 
 

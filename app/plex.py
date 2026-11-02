@@ -216,6 +216,23 @@ class Plex:
         log.warning("Stopped paging %s after %d pages", path, MAX_PAGES)
         return items
 
+    def all_sections(self) -> list[dict]:
+        """Every library, of any type (sections() lists movie and TV libraries only)."""
+        data = self._request("GET", "/library/sections")
+        return [{"id": str(d["key"]), "title": d.get("title"), "type": d.get("type")}
+                for d in data.get("Directory", [])]
+
+    def pref(self, pref_id: str) -> str | None:
+        """A server setting's value (e.g. CinemaTrailersPrerollID), or None if Plex has no such setting."""
+        for setting in self._request("GET", "/:/prefs").get("Setting") or []:
+            if setting.get("id") == pref_id:
+                return str(setting.get("value") or "")
+        return None
+
+    def set_server_prefs(self, values: dict) -> None:
+        """Change server settings (PUT /:/prefs)."""
+        self._request("PUT", "/:/prefs", params=values)
+
     def filter_values(self, section_id: str, field: str) -> list[dict]:
         """Values Plex offers for a library filter, e.g. genres: [{id, title}]."""
         data = self._request("GET", f"/library/sections/{section_id}/{field}")

@@ -31,6 +31,12 @@ def start() -> None:
                            replace_existing=True)
         _scheduler.add_job(sync.apply_home_calendars, id="home-calendars-startup",
                            name="Home screen calendars (startup)", replace_existing=True)
+        # Preroll sets switch on their dates (and daily picks change) just after midnight.
+        from . import prerolls
+        _scheduler.add_job(prerolls.daily, CronTrigger(hour=0, minute=2), id="prerolls",
+                           name="Prerolls", replace_existing=True)
+        _scheduler.add_job(prerolls.daily, id="prerolls-startup", name="Prerolls (startup)",
+                           replace_existing=True)
     reload_jobs()
 
 

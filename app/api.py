@@ -717,6 +717,38 @@ def unmatched_keep(body: dict = Body(...)):
     return {"updated": done, "label": unmatched.KEEP_LABEL}
 
 
+@router.get("/prerolls")
+def prerolls_overview():
+    """Preroll settings, the preroll library's clips, and Plex's current list matched to them."""
+    from . import prerolls
+    try:
+        return prerolls.overview()
+    except (PlexError, prerolls.PrerollError) as exc:
+        raise HTTPException(400, str(exc))
+
+
+@router.put("/prerolls")
+def prerolls_save(body: dict = Body(...)):
+    """Save preroll settings; when managing is on, Plex is updated right away."""
+    from . import prerolls
+    try:
+        prerolls.save(body)
+        result = prerolls.apply(force=True)
+    except (PlexError, prerolls.PrerollError, ValueError) as exc:
+        raise HTTPException(400, str(exc))
+    return {**prerolls.overview(), "result": result}
+
+
+@router.post("/prerolls/restore")
+def prerolls_restore():
+    from . import prerolls
+    try:
+        prerolls.restore()
+    except (PlexError, prerolls.PrerollError) as exc:
+        raise HTTPException(400, str(exc))
+    return prerolls.overview()
+
+
 @router.get("/napalm/preview")
 def napalm_preview(section: list[str] = Query(default=[])):
     """A sample of titles with their current poster and the fresh one they'd get."""

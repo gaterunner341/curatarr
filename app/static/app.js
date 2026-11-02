@@ -139,6 +139,7 @@ const routes = [
   [/^#\/packs\/(movie|show)$/, (m) => packsPage(m[1])],
   [/^#\/dashboard$/, dashboardPage],
   [/^#\/unmatched$/, () => unmatchedPage()],
+  [/^#\/prerolls$/, prerollsPage],
   [/^#\/collections$/, () => location.replace("#/movies")],   // the old single Collections page
   [/^.*$/, () => location.replace("#/dashboard")],
 ];
@@ -911,6 +912,159 @@ function posterUploadPanel(box, t, done) {
       e.target.disabled = false;
     }
   });
+}
+
+// ---------- prerolls ----------
+// Plex's preroll list (CinemaTrailersPrerollID), built from clips picked in a Plex library.
+
+async function prerollsPage() {
+  let data = await api("GET", "/prerolls");
+  const cfg = JSON.parse(JSON.stringify(data.settings));
+  let tab = "default";
+  const fmtTime = (s) => (s >= 60 ? `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}` : `0:${String(s).padStart(2, "0")}`);
+  const md = (v) => {
+    if (!v) return "";
+    const [m, d] = v.split("-").map(Number);
+    return new Date(2000, m - 1, d).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  };
+  const clipName = (rk) => data.clips.find((c) => c.ratingKey === rk)?.title || rk;
+  const items = () => (tab === "default" ? cfg.default : cfg.sets.find((s) => s.id === tab)?.items || []);
+  const setItems = (list) => {
+    if (tab === "default") cfg.default = list;
+    else cfg.sets.find((s) => s.id === tab).items = list;
+  };
+
+  const render = () => {
+    const cur = data.current;
+    const set = cfg.sets.find((s) => s.id === tab);
+    const chosen = new Set(items());
+    view.innerHTML = `
+      <div class="page-head"><h1>Prerolls</h1>
+        <div class="actions">
+          ${cfg.backup !== null && cfg.backup !== undefined ? `<button id="prRestore" class="danger">Restore Plex's original list</button>` : ""}
+          <button class="primary" id="prSave">Save${cfg.enabled ? " &amp; apply" : ""}</button>
+        </div></div>
+      <p class="hint" style="margin-top:-8px">Pick preroll clips from a Plex library instead of typing paths into Plex's settings.
+        A default set plays most of the year; seasonal sets take over on their dates and switch automatically just after midnight.
+        Plex plays prerolls before <strong>movies only</strong>, on apps with Cinema Trailers turned on, and needs Plex Pass.</p>
+
+      <div class="card">
+        <h2>Plex's preroll list right now</h2>
+        ${cur.value ? `<p>${cur.matched.length + cur.unmatched.length} clip(s), ${cur.mode === "sequence" ? "all played in order" : "one played at random"}:
+            ${cur.matched.map((rk) => `<span class="chip">${esc(clipName(rk))}</span>`).join("")}</p>
+          ${cur.unmatched.length ? `<div class="notice small">Not in the preroll library (kept only in Plex's list):
+            ${cur.unmatched.map((p) => `<div class="mono">${esc(p)}</div>`).join("")}</div>` : ""}`
+          : `<p class="muted">Plex has no prerolls set.</p>`}
+        <div class="small muted">${cfg.enabled
+          ? `Managed by Curatarr. Today: <strong>${esc(data.active.name)}</strong> (${data.active.count} clip(s))${data.next_change
+            ? ` · switches to <strong>${esc(data.next_change.set)}</strong> on ${esc(new Date(data.next_change.date + "T00:00").toLocaleDateString())}` : ""}.`
+          : "Not managed by Curatarr yet: tick the clips below, turn on managing and save."}</div>
+      </div>
+
+      <div class="card"><div class="grid">
+        <div><label for="prLib">Preroll library</label><select id="prLib">
+          <option value="">Choose a library</option>${data.libraries.map((l) =>
+            `<option value="${esc(l.id)}" ${cfg.section_id === l.id ? "selected" : ""}>${esc(l.title)}</option>`).join("")}</select></div>
+        <div><label for="prMode">Play mode</label><select id="prMode">
+          <option value="random" ${cfg.mode === "random" ? "selected" : ""}>One at random before each movie</option>
+          <option value="sequence" ${cfg.mode === "sequence" ? "selected" : ""}>All of them, in order</option>
+          <option value="daily" ${cfg.mode === "daily" ? "selected" : ""}>A new random pick each day, played in order</option></select></div>
+        <div ${cfg.mode === "daily" ? "" : "hidden"}><label for="prCount">Clips per day</label>
+          <input type="number" id="prCount" min="1" max="50" value="${esc(cfg.daily_count)}"></div>
+        <div><label class="check" style="margin-top:22px"><input type="checkbox" id="prOn" ${cfg.enabled ? "checked" : ""}>
+          Let Curatarr manage Plex's preroll list</label></div>
+      </div></div>
+
+      <div class="card">
+        <div class="tabs">
+          <button type="button" class="tab ${tab === "default" ? "active" : ""}" data-tab="default">Default <span class="muted">${cfg.default.length}</span></button>
+          ${cfg.sets.map((s) => `<button type="button" class="tab ${tab === s.id ? "active" : ""}" data-tab="${esc(s.id)}">${esc(s.name)}
+            <span class="muted">${s.items.length}</span></button>`).join("")}
+          <button type="button" class="tab" id="prAddSet">+ Seasonal set</button>
+        </div>
+        ${set ? `<div class="row" style="margin:12px 0">
+            <div><label>Name</label><input type="text" id="prSetName" value="${esc(set.name)}"></div>
+            <div><label>From</label><input type="date" id="prSetStart" value="2000-${esc(set.start)}"></div>
+            <div><label>Until (inclusive)</label><input type="date" id="prSetEnd" value="2000-${esc(set.end)}"></div>
+            <button type="button" class="small danger" id="prDelSet">Delete set</button>
+          </div>
+          <p class="hint" style="margin-top:0">Plays ${esc(md(set.start))} – ${esc(md(set.end))} every year, instead of the default set.</p>`
+          : `<p class="hint">Plays whenever no seasonal set is in its dates.
+              ${cur.matched.length ? `<button type="button" class="small" id="prImport">Use Plex's current list</button>` : ""}</p>`}
+        <div class="row" style="margin-bottom:10px">
+          <button type="button" class="small" id="prAll">Select all</button>
+          <button type="button" class="small" id="prNone">Select none</button>
+          <span class="small muted">${chosen.size} of ${data.clips.length} clips</span>
+        </div>
+        ${data.clips.length ? `<div class="preroll-list">${data.clips.map((c) => `
+          <label class="preroll ${chosen.has(c.ratingKey) ? "on" : ""}">
+            <input type="checkbox" data-clip="${esc(c.ratingKey)}" ${chosen.has(c.ratingKey) ? "checked" : ""}>
+            <div class="preroll-thumb">${c.thumb ? `<img loading="lazy" src="/api/plex/image?path=${encodeURIComponent(c.thumb)}" alt="">` : "▶"}</div>
+            <div class="preroll-info"><div class="item-title" title="${esc(c.title)}">${esc(c.title)}</div>
+              <div class="small muted">${fmtTime(c.duration)}${cur.matched.includes(c.ratingKey) ? " · in Plex's list now" : ""}</div>
+              <div class="unmatched-file muted" title="${esc(c.file)}">${esc(c.file)}</div></div>
+          </label>`).join("")}</div>`
+          : `<div class="card empty">${cfg.section_id ? "No clips in that library." : "Choose your preroll library above."}</div>`}
+      </div>`;
+
+    const q = (s) => view.querySelector(s);
+    q("#prLib").onchange = (e) => guard(async () => {
+      cfg.section_id = e.target.value;
+      const wasOn = cfg.enabled;
+      data = await api("PUT", "/prerolls", { ...cfg, enabled: false });       // load that library's clips
+      Object.assign(cfg, { enabled: false });
+      if (wasOn) toast("Managing paused while you switch libraries: tick clips from this one, then turn it back on and save.");
+      render();
+    });
+    q("#prMode").onchange = (e) => { cfg.mode = e.target.value; render(); };
+    q("#prCount") && (q("#prCount").onchange = (e) => { cfg.daily_count = Number(e.target.value) || 3; });
+    q("#prOn").onchange = (e) => { cfg.enabled = e.target.checked; render(); };
+    view.querySelectorAll("[data-tab]").forEach((b) => b.onclick = () => { tab = b.dataset.tab; render(); });
+    q("#prAddSet").onclick = () => {
+      const id = `set${Date.now()}`;
+      cfg.sets.push({ id, name: "Halloween", start: "10-01", end: "10-31", items: [] });
+      tab = id;
+      render();
+    };
+    if (set) {
+      q("#prSetName").onchange = (e) => { set.name = e.target.value; render(); };
+      q("#prSetStart").onchange = (e) => { set.start = e.target.value.slice(5); render(); };
+      q("#prSetEnd").onchange = (e) => { set.end = e.target.value.slice(5); render(); };
+      q("#prDelSet").onclick = () => {
+        if (!confirm(`Delete the set "${set.name}"?`)) return;
+        cfg.sets = cfg.sets.filter((s) => s !== set);
+        tab = "default";
+        render();
+      };
+    }
+    q("#prImport")?.addEventListener("click", () => { cfg.default = [...cur.matched]; render(); });
+    q("#prAll").onclick = () => { setItems(data.clips.map((c) => c.ratingKey)); render(); };
+    q("#prNone").onclick = () => { setItems([]); render(); };
+    view.querySelectorAll("[data-clip]").forEach((box) => box.onchange = () => {
+      const list = items().filter((k) => k !== box.dataset.clip);
+      if (box.checked) list.push(box.dataset.clip);
+      setItems(data.clips.map((c) => c.ratingKey).filter((k) => list.includes(k)));     // library order
+      render();
+    });
+    q("#prSave").onclick = () => guard(async () => {
+      if (cfg.enabled && !cfg.default.length && !cfg.sets.some((s) => s.items.length)
+          && !confirm("No clips are ticked, so Plex's preroll list will be emptied. Continue?")) return;
+      if (cfg.enabled && cfg.backup == null && data.current.value
+          && !confirm("Curatarr will now manage Plex's preroll list. Your current list is saved first, so you can restore it. Continue?")) return;
+      data = await api("PUT", "/prerolls", cfg);
+      Object.assign(cfg, JSON.parse(JSON.stringify(data.settings)));
+      toast(cfg.enabled ? `Saved. Plex now plays the "${data.active.name}" set (${data.active.count} clip(s)).` : "Saved. Curatarr isn't managing Plex's prerolls.");
+      render();
+    });
+    q("#prRestore")?.addEventListener("click", () => guard(async () => {
+      if (!confirm("Put back the preroll list Plex had before Curatarr changed it, and stop managing it?")) return;
+      data = await api("POST", "/prerolls/restore");
+      Object.assign(cfg, JSON.parse(JSON.stringify(data.settings)));
+      toast("Plex's original preroll list is back");
+      render();
+    }));
+  };
+  render();
 }
 
 // ---------- starter packs ----------
