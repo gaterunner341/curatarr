@@ -2142,18 +2142,28 @@ async function settings() {
     if (!libs.length || !folders.length) { box.innerHTML = ""; return; }
     let saved = {};
     try { saved = JSON.parse(store.value || "{}"); } catch { saved = {}; }
+    // Not set yet: suggest the folder named like the library ("MoviesSpecial" -> /Movies_Special).
+    const squash = (t) => (t || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+    const guessed = new Set();
+    libs.forEach((l) => {
+      const match = !saved[l.id] && folders.find((f) => squash(f.split("/").filter(Boolean).pop()) === squash(l.title));
+      if (match) { saved[l.id] = match; guessed.add(l.id); }
+    });
     box.innerHTML = `<label>Root folder for each Plex library</label>
       <p class="hint" style="margin-top:0">Titles requested from a collection go to its library's folder. "Default" uses the Root folder above.</p>
-      <div class="grid">${libs.map((l) => `<div><label class="small">${esc(l.title)}</label>
+      <div class="grid">${libs.map((l) => `<div><label class="small">${esc(l.title)}${guessed.has(l.id)
+        ? ` <span class="badge" title="Picked because the folder has the library's name. Save to keep it.">matched by name</span>` : ""}</label>
         <select data-libfolder="${esc(l.id)}"><option value="">Default</option>${folders.map((f) =>
           `<option value="${esc(f)}" ${saved[l.id] === f ? "selected" : ""}>${esc(f)}</option>`).join("")}
           ${saved[l.id] && !folders.includes(saved[l.id]) ? `<option selected value="${esc(saved[l.id])}">${esc(saved[l.id])} (not in ${kind === "sonarr" ? "Sonarr" : "Radarr"})</option>` : ""}
         </select></div>`).join("")}</div>`;
-    box.querySelectorAll("[data-libfolder]").forEach((sel) => sel.onchange = () => {
+    const collect = () => {
       const out = {};
       box.querySelectorAll("[data-libfolder]").forEach((s) => { if (s.value) out[s.dataset.libfolder] = s.value; });
       store.value = Object.keys(out).length ? JSON.stringify(out) : "";
-    });
+    };
+    box.querySelectorAll("[data-libfolder]").forEach((sel) => sel.onchange = collect);
+    if (guessed.size) collect();             // saved with the next Save
   };
   ["radarr", "sonarr"].forEach((kind) => {
     if (values[`${kind}_url`] && values[`${kind}_api_key`]) {

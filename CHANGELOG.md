@@ -3,6 +3,10 @@
 The version shown in the web UI's sidebar matches these entries. Each
 release is also published as `ghcr.io/gaterunner341/curatarr:<version>`.
 
+## 0.21.1
+
+- **Root folder per library:** for a library with no folder set yet, Settings preselects the Radarr/Sonarr root folder whose name matches the library, ignoring case and punctuation (e.g. MoviesSpecial → `/Movies_Special`). It's marked "matched by name" and kept when you save.
+
 ## 0.21.0
 
 - **Root folder per library:** Radarr and Sonarr can now use a different root folder for each Plex library. Before this, every request went to the single Root folder in Settings, whichever library the collection was in.
