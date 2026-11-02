@@ -503,6 +503,26 @@ def apply_manual_order(collection_id: int, order: list[str]) -> CollectionConfig
         lock.release()
 
 
+def sync_overlay_list(cfg: CollectionConfig, members: list[str], plex: Plex, sections: list[dict],
+                      refs: list[MediaRef]) -> SyncResult:
+    """A list overlay: find which titles are on its lists. Nothing changes in Plex here; the
+    overlay pass draws its ribbon and badges on those titles (and restores ones that left)."""
+    result = SyncResult()
+    indexes = [(s, library_index(plex, s)) for s in sections]
+    matched, titles = match_refs(cfg, refs, indexes, result)
+    before = set(members)
+    added = [rk for rk in matched if rk not in before]
+    removed = [rk for rk in members if rk not in set(matched)]
+    result.added, result.removed = len(added), len(removed)
+    result.added_items = [{"rk": rk, "title": titles.get(rk, "")} for rk in added]
+    result.removed_items = [{"rk": rk, "title": ""} for rk in removed]
+    result.state["members"] = matched
+    result.messages.append(f"{len(matched)} title(s) get this overlay: +{len(added)} / -{len(removed)}, "
+                           f"{len(result.missing)} not in the library")
+    log.info("'%s': list overlay matches %d title(s) (+%d / -%d)", cfg.name, len(matched), len(added), len(removed))
+    return result
+
+
 def resolve_sections(plex: Plex, cfg: CollectionConfig) -> list[dict]:
     """The Plex libraries a collection (one) or playlist (one or more) uses."""
     if cfg.kind != "playlist" or not (cfg.section_ids or cfg.libraries):
@@ -680,6 +700,8 @@ def _run_collection(collection_id: int, trigger: str, dry_run: bool) -> dict:
                     raise SyncError("; ".join(source_errors))
                 if cfg.kind == "playlist":
                     result = sync_playlist(cfg, state, plex, sections, refs, settings, dry_run=dry_run)
+                elif cfg.kind == "overlay":
+                    result = sync_overlay_list(cfg, row.get("members") or [], plex, sections, refs)
                 else:
                     result = sync_collection(cfg, state, plex, section, refs, settings, dry_run=dry_run)
             for err in source_errors:
@@ -714,6 +736,8 @@ def _run_collection(collection_id: int, trigger: str, dry_run: bool) -> dict:
             db.update_collection_state(collection_id, **{
                 k: result.state.get(k) for k in STATE_KEYS
             })
+            if "members" in result.state:      # a list overlay's titles
+                db.update_collection_state(collection_id, members=result.state["members"])
     except (PlexError, SyncError) as exc:
         run["message"] = str(exc)
         log.error("Sync of '%s' failed: %s", cfg.name, exc)

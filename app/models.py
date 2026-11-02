@@ -84,7 +84,8 @@ class Badges(BaseModel):
 
 class CollectionConfig(BaseModel):
     name: str = Field(min_length=1, max_length=200)
-    kind: Literal["collection", "playlist"] = "collection"
+    # "overlay": a list overlay. Its titles get the ribbon/badges, but no Plex collection is made.
+    kind: Literal["collection", "playlist", "overlay"] = "collection"
     library: str = ""            # Plex library title (portable across servers)
     section_id: str = ""         # Plex library section id (preferred when valid)
     # Playlists can draw from several libraries (movies and TV together).
@@ -162,6 +163,9 @@ class CollectionConfig(BaseModel):
             # Home screen spots and seasons are collection features.
             self.promote_home = self.promote_shared = self.promote_recommended = False
             self.promote_window = self.seasonal_only = False
+        if self.kind == "overlay":           # no Plex collection: nothing to show on the home screen
+            self.promote_home = self.promote_shared = self.promote_recommended = False
+            self.promote_window = self.seasonal_only = self.pin_top = False
         return self
 
     @model_validator(mode="after")

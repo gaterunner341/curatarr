@@ -3,6 +3,17 @@
 The version shown in the web UI's sidebar matches these entries. Each
 release is also published as `ghcr.io/gaterunner341/curatarr:<version>`.
 
+## 0.19.0
+
+- **List overlays:** put a ribbon and/or badges on every title from a list, such as Oscar Best Picture winners or other awards, without making a Plex collection.
+  - Create one with **+ New list overlay** under **Settings → Poster overlays**.
+  - It uses the same editor and sources as a collection (TMDB, IMDb, Trakt, MDBList, static IDs, Plex filters), plus exclusions, the rating limit and Radarr/Sonarr requests. The collection-only options are hidden.
+  - It syncs on the same schedule. Titles new to the list get the overlay, and titles that leave it get their original poster back.
+  - **View** shows the titles it found. History records what each sync added and removed.
+  - A title on several list overlays, collections or libraries with overlays gets them all combined on one poster.
+  - Napalm turns off list overlays in the libraries it refreshes, like collection overlays.
+- **The preroll library is hidden** from **Whole libraries** and **Napalm**. That's the one set on the Prerolls page, or one named like "PreRolls".
+
 ## 0.18.2
 
 - **Bigger badges:** quality, content rating and rating badges are about 20% bigger by default.

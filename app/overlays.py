@@ -230,20 +230,22 @@ def preview(specs: list[dict], plex: Plex | None = None, thumb: str = "", rating
 # --- what goes where ---------------------------------------------------------------
 
 def ribbon_spec(cfg: CollectionConfig) -> dict | None:
-    if cfg.kind != "collection" or not cfg.ribbon.enabled:
+    if cfg.kind not in ("collection", "overlay") or not cfg.ribbon.enabled:
         return None
     return {"kind": "ribbon", **cfg.ribbon.model_dump(exclude={"enabled"})}
 
 
 def badge_settings(cfg: CollectionConfig) -> dict | None:
-    if cfg.kind != "collection" or not (cfg.badges.quality or cfg.badges.rating or cfg.badges.content_rating):
+    if cfg.kind not in ("collection", "overlay") or not (cfg.badges.quality or cfg.badges.rating
+                                                         or cfg.badges.content_rating):
         return None
     return cfg.badges.model_dump()
 
 
 def uses_overlays(cfg: CollectionConfig) -> bool:
     """Whether a collection changes its titles' posters at all (ribbon, badges or a fresh poster)."""
-    return bool(ribbon_spec(cfg) or badge_settings(cfg) or (cfg.kind == "collection" and cfg.fresh_poster))
+    return bool(ribbon_spec(cfg) or badge_settings(cfg)
+                or (cfg.kind in ("collection", "overlay") and cfg.fresh_poster))
 
 
 # --- whole-library badges ------------------------------------------------------------
@@ -349,10 +351,16 @@ def _wanted(plex: Plex) -> dict[str, dict]:
     for row in db.list_collections():
         cfg = CollectionConfig(**row["config"])
         ribbon, badges = ribbon_spec(cfg), badge_settings(cfg)
-        if not uses_overlays(cfg) or not row.get("plex_rating_key"):
+        if not uses_overlays(cfg):
+            continue
+        if cfg.kind == "overlay":           # a list overlay: the titles its last sync found
+            if not row.get("members"):
+                continue
+            items = plex.items_meta(row["members"])
+        elif not row.get("plex_rating_key"):
             continue
         try:
-            items = plex.collection_raw(row["plex_rating_key"])
+            items = items if cfg.kind == "overlay" else plex.collection_raw(row["plex_rating_key"])
         except PlexError as exc:
             if exc.status != 404:
                 raise

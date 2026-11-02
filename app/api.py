@@ -432,12 +432,13 @@ def dashboard():
     rows = db.list_collections()
     latest = db.latest_runs()
     today = date.today()
-    kinds = {"collections": 0, "holidays": 0, "playlists": 0}
+    kinds = {"collections": 0, "holidays": 0, "playlists": 0, "overlays": 0}
     attention, coming, missing_rank = [], [], []
     titles = missing = 0
     for r in rows:
         cfg = r["config"]
-        kind = "playlists" if cfg.get("kind") == "playlist" else "holidays" if cfg.get("holiday") else "collections"
+        kind = "playlists" if cfg.get("kind") == "playlist" else "overlays" if cfg.get("kind") == "overlay" \
+            else "holidays" if cfg.get("holiday") else "collections"
         kinds[kind] += 1
         run = latest.get(r["id"])
         brief = {"id": r["id"], "name": cfg["name"], "kind": kind}
@@ -601,6 +602,18 @@ def collection_items(collection_id: int):
     row = db.get_collection(collection_id)
     if not row:
         raise HTTPException(404, "Collection not found")
+    if row["config"].get("kind") == "overlay":     # a list overlay: the titles it found
+        if not row.get("members"):
+            return {"in_plex": False, "items": []}
+        with _plex() as plex:
+            try:
+                items = plex.items_contents(row["members"])
+            except PlexError as exc:
+                raise HTTPException(502, str(exc))
+        overlaid = db.overlay_rows()
+        for item in items:
+            item["overlay"] = item["ratingKey"] in overlaid
+        return {"in_plex": True, "items": items}
     if not row.get("plex_rating_key"):
         return {"in_plex": False, "items": []}
     with _plex() as plex:
@@ -725,6 +738,17 @@ def prerolls_overview():
         return prerolls.overview()
     except (PlexError, prerolls.PrerollError) as exc:
         raise HTTPException(400, str(exc))
+
+
+@router.get("/prerolls/library")
+def prerolls_library():
+    """The preroll library's id, so other pages can leave it out."""
+    from . import prerolls
+    with _plex() as plex:
+        try:
+            return {"section_id": prerolls.library_id(plex)}
+        except PlexError as exc:
+            raise HTTPException(502, str(exc))
 
 
 @router.put("/prerolls")

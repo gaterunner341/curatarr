@@ -149,14 +149,24 @@ def clips(plex: Plex, section_id: str) -> list[dict]:
     return sorted(out, key=lambda c: c["title"].lower())
 
 
+def _guess_library(libraries: list[dict]) -> str:
+    """A library called "PreRolls", "Pre-rolls", ... ("" when there's none)."""
+    guess = next((s for s in libraries if "preroll" in "".join(c for c in (s["title"] or "").lower() if c.isalnum())), None)
+    return guess["id"] if guess else ""
+
+
+def library_id(plex: Plex) -> str:
+    """The preroll library: the one chosen on the Prerolls page, else one named like "PreRolls"."""
+    return load()["section_id"] or _guess_library(plex.all_sections())
+
+
 def overview(today: date | None = None) -> dict:
     """Everything the Prerolls page shows: settings, clips, Plex's current value matched to clips."""
     cfg = load()
     with plexmod.from_settings(db.get_settings()) as plex:
         libraries = plex.all_sections()
         if not cfg["section_id"]:        # a library called "PreRolls", "Pre-rolls", ... by default
-            guess = next((s for s in libraries if "preroll" in "".join(c for c in s["title"].lower() if c.isalnum())), None)
-            cfg["section_id"] = guess["id"] if guess else ""
+            cfg["section_id"] = _guess_library(libraries)
         current = plex.pref(PREF) or ""
         items = clips(plex, cfg["section_id"]) if cfg["section_id"] else []
     paths, current_mode = parse_value(current)

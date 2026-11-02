@@ -308,10 +308,27 @@ class Plex:
         """A collection's titles as Plex sends them (ratings, media info and all)."""
         return self._paged(f"/library/collections/{rating_key}/items")
 
+    def items_meta(self, rating_keys: list[str]) -> list[dict]:
+        """Metadata for many titles at once, in the order given (missing ones left out)."""
+        found: dict[str, dict] = {}
+        for i in range(0, len(rating_keys), 50):
+            chunk = ",".join(rating_keys[i:i + 50])
+            for m in self._request("GET", f"/library/metadata/{chunk}").get("Metadata") or []:
+                found[str(m["ratingKey"])] = m
+        return [found[rk] for rk in rating_keys if rk in found]
+
+    def items_contents(self, rating_keys: list[str]) -> list[dict]:
+        """Titles for display (like collection_contents), for a list overlay's titles."""
+        return self._display(self.items_meta(rating_keys))
+
     def collection_contents(self, rating_key: str) -> list[dict]:
         """The titles in a collection, in collection order, for display."""
+        return self._display(self._paged(f"/library/collections/{rating_key}/items"))
+
+    @staticmethod
+    def _display(items: list[dict]) -> list[dict]:
         result = []
-        for m in self._paged(f"/library/collections/{rating_key}/items"):
+        for m in items:
             episodes = int(m.get("leafCount") or 0)
             # Shows are watched when every episode is; movies when played at least once.
             watched = (int(m.get("viewedLeafCount") or 0) >= episodes) if episodes else bool(m.get("viewCount"))

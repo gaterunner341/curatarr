@@ -36,7 +36,7 @@ def affected(section_ids: list[str]) -> list[dict]:
     out = [{"id": None, "name": "Library-wide badges", "library": sid} for sid in library_settings() if sid in wanted]
     for row in db.list_collections():
         cfg = CollectionConfig(**row["config"])
-        if cfg.kind == "collection" and str(cfg.section_id) in wanted and uses_overlays(cfg):
+        if cfg.kind in ("collection", "overlay") and str(cfg.section_id) in wanted and uses_overlays(cfg):
             out.append({"id": row["id"], "name": cfg.name, "library": cfg.library})
     return out
 

@@ -83,6 +83,8 @@ def _migrate(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE collections ADD COLUMN plex_owned INTEGER")
     if "hub_pinned" not in columns:     # 0.11.0: hub that was first before Curatarr pinned this one
         conn.execute("ALTER TABLE collections ADD COLUMN hub_pinned TEXT")
+    if "members" not in columns:        # 0.19.0: a list overlay's titles (JSON list of rating keys)
+        conn.execute("ALTER TABLE collections ADD COLUMN members TEXT")
     overlay_columns = {r[1] for r in conn.execute("PRAGMA table_info(overlays)")}
     for column in ("media_key", "media"):          # 0.13.0: cached quality info for badges
         if column not in overlay_columns:
@@ -152,6 +154,7 @@ def plex_client_identifier() -> str:
 
 def _decode_collection(row: dict) -> dict:
     row["config"] = json.loads(row["config"])
+    row["members"] = json.loads(row.get("members") or "[]")
     return row
 
 
@@ -179,6 +182,7 @@ _STATE_COLUMNS = {
     "plex_rating_key",
     "plex_owned",
     "hub_pinned",
+    "members",
     "poster_applied",
     "art_applied",
     "last_run",
@@ -189,6 +193,8 @@ _STATE_COLUMNS = {
 
 def update_collection_state(collection_id: int, **fields) -> None:
     fields = {k: v for k, v in fields.items() if k in _STATE_COLUMNS}
+    if isinstance(fields.get("members"), list):
+        fields["members"] = json.dumps(fields["members"])
     if not fields:
         return
     assignments = ", ".join(f"{k} = ?" for k in fields)

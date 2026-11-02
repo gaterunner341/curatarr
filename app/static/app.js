@@ -272,7 +272,7 @@ async function collections(kind) {
   ]);
   // Without Plex the library types are unknown, so show everything rather than hide collections.
   // Holiday collections live on the Holidays page, playlists on the Playlists page.
-  const regular = allRows.filter((r) => !r.config.holiday && r.config.kind !== "playlist");
+  const regular = allRows.filter((r) => !r.config.holiday && (r.config.kind || "collection") === "collection");
   const rows = libs ? regular.filter((r) => collectionKind(r.config, libs) === kind) : regular;
   const meta = KINDS[kind];
   const cards = rows.map(collectionCard).join("");
@@ -469,7 +469,7 @@ async function collectionItems({ id = null, ratingKey = null, playlist = false, 
     title = row.config.name;
     playlist = row.config.kind === "playlist";
     library = playlist && row.config.libraries?.length ? row.config.libraries.join(" + ") : row.config.library;
-    back = row.config.holiday ? "#/holidays" : playlist ? "#/playlists"
+    back = row.config.holiday ? "#/holidays" : playlist ? "#/playlists" : row.config.kind === "overlay" ? "#/overlays"
       : (KINDS[libs && collectionKind(row.config, libs)] || KINDS.movie).hash;
   } else {
     items = await api("GET", `/plex/${playlist ? "playlists" : "collections"}/${ratingKey}/items`);
@@ -544,7 +544,8 @@ async function collectionItems({ id = null, ratingKey = null, playlist = false, 
       ${items.length ? `<div class="items">${items.map(tile).join("")}</div>` : `<div class="card empty">This ${playlist ? "playlist" : "collection"} is empty in Plex.</div>`}`
     : `<div class="notice">
         This ${playlist ? "playlist" : "collection"} isn't in Plex right now.
-        ${row?.config.seasonal_only ? "It's only in Plex during its dates." : "It's created in Plex on its next sync."}
+        ${row?.config.kind === "overlay" ? "Its titles are found when it next syncs."
+          : row?.config.seasonal_only ? "It's only in Plex during its dates." : "It's created in Plex on its next sync."}
         Below are the titles from your library it will have.
       </div>
       <div id="planned"><p class="muted">Fetching lists and matching against Plex…</p></div>`}`;
@@ -1228,9 +1229,11 @@ async function editor(id, params = new URLSearchParams()) {
   const cfg = { ...DEFAULTS, ...(row?.config || {}) };
   cfg.sources = cfg.sources.map((s) => ({ ...s }));
   cfg.exclude = [...cfg.exclude];
-  if (!id && params.get("kind") === "playlist") cfg.kind = "playlist";
+  if (!id && ["playlist", "overlay"].includes(params.get("kind"))) cfg.kind = params.get("kind");
   const isPlaylist = cfg.kind === "playlist";
-  const noun = isPlaylist ? "playlist" : "collection";
+  const isOverlay = cfg.kind === "overlay";          // a list overlay: no Plex collection
+  if (isOverlay && !id) cfg.ribbon = { ...(cfg.ribbon || {}), enabled: true };
+  const noun = isPlaylist ? "playlist" : isOverlay ? "list overlay" : "collection";
   cfg.section_ids = [...(cfg.section_ids || [])];
   if (isPlaylist && !id && !cfg.section_ids.length) {
     // New playlists start with every movie and TV library ticked.
@@ -1251,11 +1254,13 @@ async function editor(id, params = new URLSearchParams()) {
   const backHash = () => {
     if (cfg.holiday) return "#/holidays";
     if (isPlaylist) return "#/playlists";
+    if (isOverlay) return "#/overlays";
     const opt = view.querySelector("#f-lib")?.selectedOptions[0];
     return KINDS[opt?.dataset.type || kind].hash;
   };
   document.querySelectorAll("[data-nav]").forEach((a) => a.classList.toggle("active",
-    a.getAttribute("href") === (cfg.holiday ? "#/holidays" : isPlaylist ? "#/playlists" : KINDS[kind].hash)));
+    a.getAttribute("href") === (cfg.holiday ? "#/holidays" : isPlaylist ? "#/playlists"
+      : isOverlay ? "#/overlays" : KINDS[kind].hash)));
   // Libraries picked for the lists: one for a collection, any number for a playlist.
   const pickedLibs = () => isPlaylist
     ? [...view.querySelectorAll("[data-lib]:checked")].map((b) => ({ id: b.value, title: b.dataset.title, type: b.dataset.type }))
@@ -1294,7 +1299,7 @@ async function editor(id, params = new URLSearchParams()) {
     <div class="card">
       <h2>Basics</h2>
       <div class="grid">
-        <div><label for="f-name">${isPlaylist ? "Playlist" : "Collection"} name</label><input type="text" id="f-name" value="${esc(cfg.name)}" placeholder="${isPlaylist ? "MCU in order" : "IMDb Top 250"}" ${link ? "readonly" : ""}></div>
+        <div><label for="f-name">${isPlaylist ? "Playlist" : isOverlay ? "List overlay" : "Collection"} name</label><input type="text" id="f-name" value="${esc(cfg.name)}" placeholder="${isPlaylist ? "MCU in order" : isOverlay ? "Oscar Best Picture" : "IMDb Top 250"}" ${link ? "readonly" : ""}></div>
         ${isPlaylist ? `<div><label>Libraries to take titles from</label>${libs.map((l) => `
           <label class="check"><input type="checkbox" data-lib value="${esc(l.id)}" data-title="${esc(l.title)}" data-type="${esc(l.type)}"
             ${cfg.section_ids.includes(l.id) ? "checked" : ""}> ${esc(l.title)} (${l.type === "show" ? "TV" : "Movies"})</label>`).join("")
@@ -1319,7 +1324,7 @@ async function editor(id, params = new URLSearchParams()) {
     <div class="card">
       <h2>Sync behaviour</h2>
       <div class="grid">
-        <div><label for="f-mode">Mode</label>
+        <div ${isOverlay ? "hidden" : ""}><label for="f-mode">Mode</label>
           <select id="f-mode">
             <option value="sync" ${cfg.sync_mode === "sync" ? "selected" : ""}>Sync: add new and remove titles no longer listed</option>
             <option value="append" ${cfg.sync_mode === "append" ? "selected" : ""}>Append: only add titles</option>
@@ -1331,7 +1336,7 @@ async function editor(id, params = new URLSearchParams()) {
             <option value="alpha" ${cfg.order === "alpha" ? "selected" : ""}>Alphabetical</option>
           </select></div>
         <div><label for="f-limit">Max items (0 = no limit)</label><input type="number" id="f-limit" min="0" value="${cfg.item_limit}"></div>
-        <div><label for="f-min">Minimum matched items</label><input type="number" id="f-min" min="0" value="${cfg.min_items}">
+        <div ${isOverlay ? "hidden" : ""}><label for="f-min">Minimum matched items</label><input type="number" id="f-min" min="0" value="${cfg.min_items}">
           <label class="check"><input type="checkbox" id="f-delmin" ${cfg.delete_below_min ? "checked" : ""}> Delete the Plex ${noun} when below minimum</label></div>
         <div><label for="f-schedule">Schedule (cron)</label><input type="text" id="f-schedule" value="${esc(cfg.schedule)}" placeholder="${esc(defaultSchedule)} (default)">
           <div class="hint">Five-field cron, e.g. <code>0 */6 * * *</code> for every 6 hours.</div></div>
@@ -1347,7 +1352,7 @@ async function editor(id, params = new URLSearchParams()) {
       </div>
     </div>
 
-    <div class="card">
+    <div class="card" ${isOverlay ? "hidden" : ""}>
       <h2>Appearance in Plex</h2>
       <div class="grid">
         <div class="full"><label for="f-summary">Summary</label><textarea id="f-summary">${esc(cfg.summary)}</textarea></div>
@@ -1425,7 +1430,7 @@ async function editor(id, params = new URLSearchParams()) {
       </div>
     </div>
 
-    <div class="card">
+    <div class="card" ${isOverlay ? "hidden" : ""}>
       <h2>Artwork</h2>
       <div class="images">
         ${imageSlot(id, cfg, "poster", "Poster (2:3)")}
@@ -2136,7 +2141,22 @@ async function settings() {
 // Poster overlays: how many posters Curatarr changed, with redraw and remove-all.
 // Settings sub-pages: Poster overlays and Napalm.
 async function overlaysPage() {
-  view.innerHTML = `<div class="page-head"><h1>Poster overlays</h1></div><div class="card" id="overlayCard"></div>`;
+  await catalog();
+  const lists = (await api("GET", "/collections")).filter((r) => r.config.kind === "overlay");
+  view.innerHTML = `
+    <div class="page-head"><h1>Poster overlays</h1></div>
+    <div class="card" id="overlayCard"></div>
+    <div class="card">
+      <div class="page-head" style="margin-bottom:6px"><h2 style="margin:0">List overlays</h2>
+        <div class="actions"><a class="btn primary" href="#/collections/new?kind=overlay">+ New list overlay</a></div></div>
+      <p class="hint" style="margin-top:0">A ribbon and/or badges on every title from a list, without making a Plex collection.
+        Good for things like Oscar winners or other awards. Built from the same sources as collections (TMDB, IMDb, Trakt,
+        MDBList, Plex filters) and kept up to date on the same schedule. Titles that leave the list get their poster back.</p>
+      ${lists.length ? `<div class="collections">${lists.map(collectionCard).join("")}</div>`
+        : `<p class="muted small">No list overlays yet.</p>`}
+    </div>`;
+  bindCardActions("list overlay");
+  if (lists.some((r) => r.running)) refreshTimer = setInterval(route, 4000);
   await overlayCard(view.querySelector("#overlayCard"));
 }
 
@@ -2170,8 +2190,15 @@ async function overlayCard(card) {
 }
 
 // Badges on every movie or show in a library, not just those in a collection.
+// Movie and TV libraries without the preroll library (no posters to dress up there).
+async function posterLibraries() {
+  const [libs, pre] = await Promise.all([libraries().catch(() => []),
+    api("GET", "/prerolls/library").catch(() => ({ section_id: "" }))]);
+  return libs.filter((l) => l.id !== pre.section_id);
+}
+
 async function libraryBadges(card) {
-  const [libs, saved] = await Promise.all([libraries().catch(() => []), api("GET", "/overlays/libraries").catch(() => ({}))]);
+  const [libs, saved] = await Promise.all([posterLibraries(), api("GET", "/overlays/libraries").catch(() => ({}))]);
   if (!libs.length) return;
   const box = document.createElement("div");
   box.className = "library-badges";
@@ -2242,7 +2269,7 @@ function napalmTarget(c, libs) {
 
 // "I love the smell of napalm in the morning": a fresh poster for every title.
 async function napalmCard(card) {
-  const libs = await libraries().catch(() => []);
+  const libs = await posterLibraries();
   if (!libs.length) { card.hidden = true; return; }
   card.innerHTML = `
     <h2>I love the smell of napalm in the morning</h2>

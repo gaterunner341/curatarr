@@ -1478,3 +1478,43 @@ def test_badge_sizes_merge_to_the_largest():
         out = overlays.render(overlays.sample_poster(), [{"kind": "badges", "quality": ["4K", "DV"], "content_rating": "R",
                                                           "rating": {"source": "rottentomatoes", "value": "63%"}, "size": size}])
         assert out.startswith(bytes([0xFF, 0xD8]))
+
+
+def test_list_overlay(monkeypatch):
+    from app import overlays, plex as plexmod, sync as sync_mod
+
+    # Sync finds the list's titles in the library; nothing is created in Plex.
+    sync_mod.clear_index_cache()
+    fake = FakePlex()
+    cfg = CollectionConfig(name="Oscar Best Picture", kind="overlay", library="Movies", section_id="1",
+                           sources=[Source(type="static", value="x")], ribbon={"enabled": True, "text": "OSCAR"},
+                           promote_home=True)
+    assert not cfg.promote_home                                         # no home screen for list overlays
+    result = sync_mod.sync_overlay_list(cfg, ["1", "4"], plex_with(fake), [SECTION], refs_for(1, 2, 9))
+    assert result.state["members"] == ["1", "2"] and (result.added, result.removed) == (1, 1)
+    assert not fake.collections and len(result.missing) == 1
+
+    # The overlay pass draws on the stored titles, fetched in one batch.
+    for row in db.list_collections():
+        db.delete_collection(row["id"])
+
+    class Batch(FakeOverlayPlex):
+        def handle_request(self, request):
+            parts = request.url.path.strip("/").split("/")
+            if len(parts) == 3 and parts[1] == "metadata" and "," in parts[2]:
+                return httpx.Response(200, json={"MediaContainer": {"Metadata": [
+                    {"ratingKey": rk, "title": f"T{rk}", "type": "movie", "thumb": self.thumb(rk)}
+                    for rk in parts[2].split(",") if rk in self.version]}})
+            return super().handle_request(request)
+
+    oplex = Batch()
+    monkeypatch.setattr(plexmod, "from_settings", lambda *a, **k: Plex("http://plex", "t", client=httpx.Client(transport=oplex)))
+    cid = db.create_collection(cfg.model_dump())
+    db.update_collection_state(cid, members=["1", "2", "77"])
+    assert db.get_collection(cid)["members"] == ["1", "2", "77"]
+    assert overlays.apply_all()["drawn"] == 2 and set(db.overlay_rows()) == {"1", "2"}
+    db.update_collection_state(cid, members=["1"])                      # title 2 left the list
+    assert overlays.apply_all()["restored"] == 1 and set(db.overlay_rows()) == {"1"}
+    db.delete_collection(cid)
+    overlays.apply_all()
+    assert db.overlay_rows() == {}
