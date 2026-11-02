@@ -1677,3 +1677,18 @@ def test_sonarr_finds_show_without_tvdb_link_on_tmdb():
         ref = MediaRef(media_type="show", title="Quokka's Wild Life", year=2025, tmdb=303726)
         assert client.add(ref) == "added" and added["tvdbId"] == 455000
         assert client.add(MediaRef(media_type="show", title="Nothing", tmdb=1)) == "not_found"
+
+
+def test_dashboard_rogue_filenames_count():
+    from fastapi.testclient import TestClient
+    from app.main import app
+    db.save_settings({"naming_scan": ""})
+    assert TestClient(app).get("/api/dashboard").json()["rogue"] is None          # no scan yet
+    db.save_settings({"naming_scan": json.dumps({"finished": "2026-11-02T10:00:00+00:00", "services": {
+        "radarr": {"items": [{"files": [{}, {}]}, {"files": [{}]}]},
+        "sonarr": {"items": [{"files": [{}] * 9}]},
+        "broken": {"error": "unreachable", "items": []}}})})
+    rogue = TestClient(app).get("/api/dashboard").json()["rogue"]
+    assert rogue["files"] == 12 and rogue["titles"] == 3
+    assert rogue["services"]["radarr"] == {"titles": 2, "files": 3} and "broken" not in rogue["services"]
+    db.save_settings({"naming_scan": ""})

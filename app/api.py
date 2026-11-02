@@ -530,7 +530,21 @@ def dashboard():
         "coming": sorted(coming, key=lambda c: c["date"])[:5],
         "most_missing": sorted(missing_rank, key=lambda m: -m["missing"])[:5],
         "recent": recent,
+        "rogue": _rogue_summary(),
     }
+
+
+def _rogue_summary() -> dict | None:
+    """Rogue Filenames counts from the last scan, or None when there hasn't been one."""
+    from . import naming
+    last = naming.last()
+    if not last.get("finished"):
+        return None
+    services = {k: {"titles": len(s["items"]), "files": sum(len(i["files"]) for i in s["items"])}
+                for k, s in (last.get("services") or {}).items() if not s.get("error")}
+    return {"finished": last["finished"], "services": services,
+            "titles": sum(s["titles"] for s in services.values()),
+            "files": sum(s["files"] for s in services.values())}
 
 
 @router.get("/packs")

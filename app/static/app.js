@@ -750,7 +750,12 @@ async function dashboardPage() {
     </div>
     <div class="dash">
       <div class="card"><h2>Needs attention</h2>
-        ${d.attention.length ? `<ul class="dash-list">${d.attention.map((a) => `
+        ${d.attention.length || d.rogue?.files ? `<ul class="dash-list">${d.rogue?.files ? `
+          <li><a href="#/rogue">Rogue Filenames</a> <span class="badge">${d.rogue.files}</span>
+            <div class="small muted">${d.rogue.files} file${d.rogue.files === 1 ? "" : "s"} in ${d.rogue.titles} title${d.rogue.titles === 1 ? "" : "s"}
+              ${d.rogue.files === 1 ? "doesn't" : "don't"} follow the naming format${Object.entries(d.rogue.services).filter(([, s]) => s.files).length > 1
+              ? ` (${Object.entries(d.rogue.services).filter(([, s]) => s.files).map(([k, s]) => `${k === "radarr" ? "Radarr" : "Sonarr"} ${s.files}`).join(", ")})` : ""}
+              · scanned ${esc(when(d.rogue.finished))}</div></li>` : ""}${d.attention.map((a) => `
           <li><a href="${link(a)}">${esc(a.name)}</a> ${badge(a.status)}
             <div class="small muted" title="${esc(a.message)}">${esc(a.message || (a.status === "paused" ? "Syncing is paused" : ""))}</div></li>`).join("")}</ul>`
           : `<p class="muted small">Everything synced fine.</p>`}</div>

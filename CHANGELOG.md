@@ -3,6 +3,12 @@
 The version shown in the web UI's sidebar matches these entries. Each
 release is also published as `ghcr.io/gaterunner341/curatarr:<version>`.
 
+## 0.24.0
+
+- **Dashboard:** "Needs attention" shows the Rogue Filenames count from the last scan, e.g. "11 files in 2 titles don't follow the naming format (Radarr 2, Sonarr 9)", with a link to the page.
+  - It appears only once a scan has run and found files.
+  - Services that couldn't be scanned aren't counted.
+
 ## 0.23.2
 
 - **Dashboard:** removed the Watched % card.
