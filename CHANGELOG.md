@@ -3,6 +3,16 @@
 The version shown in the web UI's sidebar matches these entries. Each
 release is also published as `ghcr.io/gaterunner341/curatarr:<version>`.
 
+## 0.17.0
+
+- **Unmatched titles:** a new page in the left menu that finds movies and shows not tied to IMDb, TMDB or TVDB, such as fan edits. They're sorted into two groups:
+  - **Not matched:** Plex has no metadata match at all. Its poster is the one you uploaded or the one in its folder.
+  - **No IMDb/TMDB IDs:** matched in Plex, but not to an IMDb, TMDB or TVDB entry. A fan edit matched to the wrong title shows up here.
+  - Each title shows its poster, library and file name, with **Keep poster** and **Open in Plex**, which is where you fix a match.
+  - Filter by library, kind and whether the poster is kept, or search by title, year or file name. **Keep posters for all shown** protects everything listed at once.
+  - Totals at the top. The scan is cached for 10 minutes; **Scan again** refreshes it.
+- **Keep poster** adds the Plex label `Curatarr Keep Poster`. Napalm and the fresh-poster option never change a poster with that label, and napalm counts those titles as "kept". Ribbons and badges are still drawn on the poster. The label works on any title, not just ones on this page.
+
 ## 0.16.0
 
 - **Badges for whole libraries:** in **Settings → Poster overlays → Whole libraries**, give every movie or show in a library a content rating badge, plus quality badges (movies) and a rating badge if you like. It isn't limited to titles in a collection.

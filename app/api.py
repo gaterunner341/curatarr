@@ -693,6 +693,30 @@ def overlay_progress():
             "napalm": napalm.progress}
 
 
+@router.get("/unmatched")
+def unmatched_titles(refresh: bool = False):
+    """Titles not tied to IMDb, TMDB or TVDB, in every library (cached for 10 minutes)."""
+    from . import unmatched
+    try:
+        return unmatched.scan(refresh=refresh)
+    except PlexError as exc:
+        raise HTTPException(502, str(exc))
+
+
+@router.post("/unmatched/keep")
+def unmatched_keep(body: dict = Body(...)):
+    """Add or remove the "Curatarr Keep Poster" label: {items: [{ratingKey, section_id, type}], keep}."""
+    from . import unmatched
+    items = body.get("items") or []
+    if not items:
+        raise HTTPException(422, "No titles given")
+    try:
+        done = unmatched.set_keep(items, bool(body.get("keep", True)))
+    except PlexError as exc:
+        raise HTTPException(502, str(exc))
+    return {"updated": done, "label": unmatched.KEEP_LABEL}
+
+
 @router.get("/napalm/preview")
 def napalm_preview(section: list[str] = Query(default=[])):
     """A sample of titles with their current poster and the fresh one they'd get."""

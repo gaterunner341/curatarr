@@ -16,12 +16,13 @@ import threading
 
 from . import db, plex as plexmod
 from .plex import Plex, PlexError
+from .unmatched import keep_set
 
 log = logging.getLogger(__name__)
 
 _lock = threading.Lock()
 progress: dict = {"running": False, "done": 0, "total": 0, "changed": 0, "unchanged": 0, "no_poster": 0,
-                  "errors": 0, "stopping": False, "started": None, "finished": None, "overlays_off": []}
+                  "kept": 0, "errors": 0, "stopping": False, "started": None, "finished": None, "overlays_off": []}
 
 
 def affected(section_ids: list[str]) -> list[dict]:
@@ -109,10 +110,12 @@ def preview(section_ids: list[str], count: int = 8, max_checks: int = 30) -> lis
     from .sync import library_index
     overlaid = set(db.overlay_rows())
     with plexmod.from_settings(db.get_settings()) as plex:
-        candidates = []
+        candidates, keep = [], set()
         for section in _sections(plex, section_ids):
             index = library_index(plex, section)
             candidates += [(rk, index) for rk in index.details]
+            keep |= keep_set(plex, section)
+        candidates = [c for c in candidates if c[0] not in keep]       # never changed, so not worth showing
         random.shuffle(candidates)
         candidates.sort(key=lambda c: c[0] not in overlaid)      # overlaid titles first (stable sort)
         changes, others = [], []
@@ -153,7 +156,7 @@ def run(section_ids: list[str]) -> dict:
     from . import overlays
     if not _lock.acquire(blocking=False):
         return {"running": True}
-    progress.update(running=True, done=0, total=0, changed=0, unchanged=0, no_poster=0, errors=0,
+    progress.update(running=True, done=0, total=0, changed=0, unchanged=0, no_poster=0, kept=0, errors=0,
                     stopping=False, started=db.now(), finished=None, overlays_off=[])
     # No overlay pass may run meanwhile: it would put the old posters back on titles being refreshed.
     overlays._lock.acquire()
@@ -161,15 +164,20 @@ def run(section_ids: list[str]) -> dict:
         progress["overlays_off"] = _overlays_off(section_ids)
         overlaid = db.overlay_rows()
         with plexmod.from_settings(db.get_settings()) as plex:
-            items = []
+            items, keep = [], set()
             for section in _sections(plex, section_ids):
                 items += [(str(i["ratingKey"]), i.get("title")) for i in plex.section_items(section["id"], section["type"])]
+                keep |= keep_set(plex, section)        # titles labelled "Curatarr Keep Poster" are skipped
             progress["total"] = len(items)
             log.info("Napalm: refreshing the posters of %d title(s)", len(items))
             for rk, title in items:
                 if progress["stopping"]:
                     log.info("Napalm: stopped by the user after %d title(s)", progress["done"])
                     break
+                if rk in keep:
+                    progress["kept"] += 1
+                    progress["done"] += 1
+                    continue
                 try:
                     fresh = plex.fresh_choice(rk)
                     if not fresh:
@@ -186,7 +194,8 @@ def run(section_ids: list[str]) -> dict:
                     log.warning("Napalm: '%s' (%s) failed: %s", title, rk, exc)
                 progress["done"] += 1
         log.info("Napalm: %d poster(s) changed, %d already fresh, %d with no poster from Plex's sources, "
-                 "%d failed", progress["changed"], progress["unchanged"], progress["no_poster"], progress["errors"])
+                 "%d kept (Keep Poster label), %d failed", progress["changed"], progress["unchanged"],
+                 progress["no_poster"], progress["kept"], progress["errors"])
     finally:
         overlays._lock.release()
         progress.update(running=False, stopping=False, finished=db.now())

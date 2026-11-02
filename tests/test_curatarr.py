@@ -1322,3 +1322,50 @@ def test_library_wide_badges(monkeypatch):
     overlays.save_library_settings({})
     assert overlays.apply_all()["restored"] == 2
     assert fake.posters["1"] == fake.original["1"] and db.overlay_rows() == {}
+
+
+def test_unmatched_titles_and_keep_label(monkeypatch):
+    from app import napalm, plex as plexmod, sync as sync_mod, unmatched
+
+    assert unmatched.classify({"guid": "local://123"}) == "unmatched"
+    assert unmatched.classify({"guid": "com.plexapp.agents.none://abc"}) == "unmatched"
+    assert unmatched.classify({"guid": "plex://movie/5d77", "Guid": []}) == "no_ids"
+    assert unmatched.classify({"guid": "plex://movie/5d77", "Guid": [{"id": "tmdb://11"}]}) is None
+    assert unmatched.classify({"guid": "com.plexapp.agents.imdb://tt0076759?lang=en"}) is None
+
+    class Fake(FakePosterPlex):
+        labels: dict = {}
+
+        def handle_request(self, request):
+            path, method, q = request.url.path, request.method, request.url.params
+            mc = lambda body: httpx.Response(200, json={"MediaContainer": body})  # noqa: E731
+            if path == "/library/sections/1/label":
+                return mc({"Directory": [{"key": "77", "title": unmatched.KEEP_LABEL}]})
+            if path == "/library/sections/1/all" and method == "GET" and q.get("label") == "77":
+                return mc({"totalSize": 1, "Metadata": [{"ratingKey": "1"}]})
+            if path == "/library/sections/1/all" and method == "GET":
+                return mc({"totalSize": 3, "Metadata": [
+                    {"ratingKey": "1", "title": "Ahsoka: The Patterson Cut", "guid": "local://1",
+                     "Media": [{"Part": [{"file": "/movies/Fan Edits/Ahsoka (2024).mkv"}]}]},
+                    {"ratingKey": "2", "title": "Odd Match", "guid": "plex://movie/x", "Guid": []},
+                    {"ratingKey": "3", "title": "Normal", "guid": "plex://movie/y", "Guid": [{"id": "imdb://tt1"}]}]})
+            if path == "/library/sections/1/all" and method == "PUT":
+                self.labels[q["id"]] = dict(q)
+                return mc({})
+            return super().handle_request(request)
+
+    fake = Fake()
+    monkeypatch.setattr(plexmod, "from_settings", lambda *a, **k: Plex("http://plex", "t", client=httpx.Client(transport=fake)))
+    monkeypatch.setattr(sync_mod, "run_overlays", lambda: None)
+    result = unmatched.scan(refresh=True)
+    found = {t["ratingKey"]: t for t in result["titles"]}
+    assert set(found) == {"1", "2"} and found["1"]["kind"] == "unmatched" and found["2"]["kind"] == "no_ids"
+    assert found["1"]["file"] == "Ahsoka (2024).mkv" and found["1"]["keep"] and not found["2"]["keep"]
+    assert result["libraries"] == [{"id": "1", "title": "Movies", "type": "movie", "total": 3, "found": 2}]
+
+    unmatched.set_keep([{"ratingKey": "2", "section_id": "1", "type": "movie"}], True)
+    assert fake.labels["2"]["label[0].tag.tag"] == unmatched.KEEP_LABEL
+
+    # Napalm leaves the kept title (1) alone, even though it has a fresh poster waiting.
+    progress = napalm.run(["1"])
+    assert "1" not in fake.selected and progress["kept"] == 1

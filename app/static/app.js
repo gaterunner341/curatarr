@@ -98,6 +98,7 @@ async function pollActivity() {
     activity.napalmStarted = 0;
     const n = p.napalm;
     toast(`Poster refresh done: ${n.changed} changed, ${n.unchanged} already fresh, ${n.no_poster} without a source poster`
+      + (n.kept ? `, ${n.kept} kept (Keep Poster label)` : "")
       + (n.errors ? `, ${n.errors} failed (see Logs)` : "")
       + (n.overlays_off?.length ? `. Poster overlays turned off on: ${n.overlays_off.map((c) => c.name).join(", ")}` : ""),
       Boolean(n.errors));
@@ -137,6 +138,7 @@ const routes = [
   [/^#\/holidays$/, holidaysPage],
   [/^#\/packs\/(movie|show)$/, (m) => packsPage(m[1])],
   [/^#\/dashboard$/, dashboardPage],
+  [/^#\/unmatched$/, () => unmatchedPage()],
   [/^#\/collections$/, () => location.replace("#/movies")],   // the old single Collections page
   [/^.*$/, () => location.replace("#/dashboard")],
 ];
@@ -173,6 +175,7 @@ async function loadStatus() {
   try {
     const s = await api("GET", "/status");
     document.getElementById("version").textContent = `v${s.version}`;
+    state.machineId = s.plex?.machine_id || "";
     el.innerHTML = s.plex
       ? `<span class="dot" style="background:var(--ok)"></span>${esc(s.plex.name)} · Plex ${esc(s.plex.version)}`
       : `<span class="dot" style="background:var(--err)"></span>${esc(s.plex_error || "Plex not connected")}`;
@@ -754,6 +757,96 @@ async function dashboardPage() {
     const el = view.querySelector("#watchedStat .stat-value");
     if (el) el.textContent = "—";
   }
+}
+
+// ---------- unmatched titles ----------
+// Titles not tied to IMDb, TMDB or TVDB (fan edits and the like), to check and protect.
+
+const UNMATCHED_KINDS = {
+  unmatched: ["Not matched", "Plex has no metadata match for it. Its poster is the one you uploaded or that's in its folder."],
+  no_ids: ["No IMDb/TMDB IDs", "Matched in Plex, but not to an IMDb, TMDB or TVDB entry. If it's a fan edit matched to the wrong title, fix the match in Plex or keep its poster."],
+};
+
+async function unmatchedPage(refresh = false) {
+  view.innerHTML = `<div class="page-head"><h1>Unmatched titles</h1></div><p class="muted">Scanning your libraries…</p>`;
+  const r = await api("GET", `/unmatched${refresh ? "?refresh=true" : ""}`);
+  const f = state.unmatchedFilter ||= { library: "", kind: "", keep: "", q: "" };
+  const plexLink = (t) => state.machineId
+    ? `https://app.plex.tv/desktop/#!/server/${encodeURIComponent(state.machineId)}/details?key=${encodeURIComponent(`/library/metadata/${t.ratingKey}`)}`
+    : "";
+  const shown = () => r.titles.filter((t) => (!f.library || t.section_id === f.library) && (!f.kind || t.kind === f.kind)
+    && (!f.keep || String(t.keep) === f.keep)
+    && (!f.q || `${t.title} ${t.year || ""} ${t.file}`.toLowerCase().includes(f.q.toLowerCase())));
+  const tile = (t) => `
+    <div class="item" data-rk="${esc(t.ratingKey)}">
+      <div class="item-poster">
+        ${t.thumb ? `<img loading="lazy" src="/api/plex/image?path=${encodeURIComponent(t.thumb)}" alt="">` : "▦"}
+        ${t.keep ? `<span class="keep-flag" title="Curatarr Keep Poster: napalm and fresh posters leave it alone">🔒</span>` : ""}
+      </div>
+      <div class="item-title" title="${esc(t.title)}">${esc(t.title)}</div>
+      <div class="small muted">${esc(t.year || "")}${t.year ? " · " : ""}${esc(t.library)}</div>
+      <div class="small"><span class="badge ${t.kind === "unmatched" ? "warning" : ""}" title="${esc(UNMATCHED_KINDS[t.kind][1])}">${esc(UNMATCHED_KINDS[t.kind][0])}</span></div>
+      ${t.file ? `<div class="small muted unmatched-file" title="${esc(t.file)}">${esc(t.file)}</div>` : ""}
+      <div class="coll-actions">
+        <button type="button" class="small" data-keep="${esc(t.ratingKey)}">${t.keep ? "Unlock poster" : "Keep poster"}</button>
+        ${plexLink(t) ? `<a class="btn small" href="${esc(plexLink(t))}" target="_blank" rel="noopener" style="padding:4px 10px;font-size:.8rem">Open in Plex</a>` : ""}
+      </div>
+    </div>`;
+  const render = () => {
+    const list = shown();
+    const counts = (kind) => r.titles.filter((t) => t.kind === kind).length;
+    view.innerHTML = `
+      <div class="page-head"><h1>Unmatched titles</h1>
+        <div class="actions"><button id="umRescan">Scan again</button></div></div>
+      <p class="hint" style="margin-top:-8px">Movies and shows not tied to IMDb, TMDB or TVDB, such as fan edits.
+        <strong>Keep poster</strong> adds the Plex label <span class="mono">Curatarr Keep Poster</span>: napalm and the fresh-poster
+        option never change that title's poster (ribbons and badges are still drawn on it).
+        <strong>Open in Plex</strong> is where you fix a wrong match. Scanned ${esc(when(r.scanned))}.</p>
+      <div class="stats" style="margin-bottom:12px">
+        <div class="stat"><div class="stat-value">${counts("unmatched")}</div><div class="stat-label">Not matched</div></div>
+        <div class="stat"><div class="stat-value">${counts("no_ids")}</div><div class="stat-label">No IMDb/TMDB IDs</div></div>
+        <div class="stat"><div class="stat-value">${r.titles.filter((t) => t.keep).length}</div><div class="stat-label">Posters kept</div></div>
+      </div>
+      <div class="row" style="margin-bottom:14px">
+        <div><label for="umLib">Library</label><select id="umLib"><option value="">All libraries</option>${r.libraries.map((l) =>
+          `<option value="${esc(l.id)}" ${f.library === l.id ? "selected" : ""}>${esc(l.title)} (${l.found} of ${l.total.toLocaleString()})</option>`).join("")}</select></div>
+        <div><label for="umKind">Kind</label><select id="umKind"><option value="">Both</option>${Object.entries(UNMATCHED_KINDS).map(([k, [label]]) =>
+          `<option value="${k}" ${f.kind === k ? "selected" : ""}>${label}</option>`).join("")}</select></div>
+        <div><label for="umKeep">Poster</label><select id="umKeep"><option value="">Any</option>
+          <option value="false" ${f.keep === "false" ? "selected" : ""}>Not kept</option>
+          <option value="true" ${f.keep === "true" ? "selected" : ""}>Kept</option></select></div>
+        <div class="grow"><label for="umQ">Search</label><input type="text" id="umQ" value="${esc(f.q)}" placeholder="Title, year or file name"></div>
+        <button type="button" id="umKeepAll" ${list.some((t) => !t.keep) ? "" : "disabled"}>Keep posters for all ${list.filter((t) => !t.keep).length} shown</button>
+      </div>
+      ${list.length ? `<div class="items">${list.map(tile).join("")}</div>`
+        : `<div class="card empty">${r.titles.length ? "Nothing matches these filters." : "Every title is tied to IMDb, TMDB or TVDB."}</div>`}`;
+    const bindFilter = (sel, key, ev = "onchange") => { view.querySelector(sel)[ev] = (e) => { f[key] = e.target.value; render(); }; };
+    bindFilter("#umLib", "library");
+    bindFilter("#umKind", "kind");
+    bindFilter("#umKeep", "keep");
+    const q = view.querySelector("#umQ");
+    q.onchange = (e) => { f.q = e.target.value; render(); };
+    q.onkeydown = (e) => { if (e.key === "Enter") { f.q = e.target.value; render(); } };
+    view.querySelector("#umRescan").onclick = () => unmatchedPage(true);
+    const setKeep = async (titles, keep) => {
+      await api("POST", "/unmatched/keep", { keep, items: titles.map((t) => ({ ratingKey: t.ratingKey, section_id: t.section_id, type: t.type })) });
+      titles.forEach((t) => { t.keep = keep; });
+      toast(keep ? `Poster kept for ${titles.length} title(s)` : `Poster unlocked for ${titles.length} title(s)`);
+      render();
+    };
+    view.querySelectorAll("[data-keep]").forEach((b) => b.onclick = () => guard(async () => {
+      const t = r.titles.find((x) => x.ratingKey === b.dataset.keep);
+      b.disabled = true;
+      await setKeep([t], !t.keep);
+    }));
+    view.querySelector("#umKeepAll").onclick = () => guard(async () => {
+      const todo = list.filter((t) => !t.keep);
+      if (!confirm(`Keep the posters of all ${todo.length} title(s) shown?\n\nNapalm and the fresh-poster option will never change them.`)) return;
+      view.querySelector("#umKeepAll").disabled = true;
+      await setKeep(todo, true);
+    });
+  };
+  render();
 }
 
 // ---------- starter packs ----------
@@ -1932,6 +2025,8 @@ async function napalmCard(card) {
           collection in these libraries, so the new posters stay clean. You can turn them back on in each collection's settings.</li>
         <li>Big libraries take a while, about one Plex request or two per title. You can stop it part way.</li>
         <li>Everyone using your server sees the new posters.</li>
+        <li>Titles labelled <strong>Curatarr Keep Poster</strong> are skipped. Set it on fan edits and custom posters
+          from <a href="#/unmatched">Unmatched titles</a>.</li>
       </ul>
     </div>
     <div id="napalmLast"></div>
@@ -2035,7 +2130,7 @@ async function napalmLastRun(el) {
   if (!el || !n || !n.finished || n.running) { if (el) el.innerHTML = ""; return; }
   el.innerHTML = `<div class="notice small" style="margin:10px 0 0">
     <strong>Last refresh</strong> (${esc(when(n.finished))}): ${n.changed} poster(s) changed, ${n.unchanged} already fresh,
-    ${n.no_poster} without a source poster${n.errors ? `, ${n.errors} failed` : ""}.
+    ${n.no_poster} without a source poster${n.kept ? `, ${n.kept} kept (Keep Poster label)` : ""}${n.errors ? `, ${n.errors} failed` : ""}.
     ${n.overlays_off.length ? `<br>Poster overlays were turned off on: ${n.overlays_off.map((c) =>
       napalmTarget(c, state.libraries)).join(", ")}.` : ""}</div>`;
 }

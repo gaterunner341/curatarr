@@ -450,7 +450,7 @@ def _apply_one(plex: Plex, rk: str, entry: dict, row: dict | None) -> bool | Non
         ORIGINALS.mkdir(parents=True, exist_ok=True)
         path.write_bytes(original)
     base = path.read_bytes()
-    if entry.get("fresh"):          # a clean poster from Plex's sources, when there is one
+    if entry.get("fresh") and not _keeps_poster(plex, rk):     # a clean poster from Plex's sources
         fresh = plex.fresh_choice(rk)
         if fresh:
             base = plex.poster_bytes(fresh)
@@ -463,6 +463,12 @@ def _apply_one(plex: Plex, rk: str, entry: dict, row: dict | None) -> bool | Non
         except PlexError as exc:
             log.debug("Could not label %s: %s", rk, exc)
     return True
+
+
+def _keeps_poster(plex: Plex, rk: str) -> bool:
+    """Titles labelled "Curatarr Keep Poster" keep their own poster under any overlays."""
+    from .unmatched import has_keep_label
+    return has_keep_label(plex.item(rk) or {})
 
 
 def _restore_one(plex: Plex, rk: str, row: dict) -> bool:
