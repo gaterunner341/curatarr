@@ -1,7 +1,8 @@
 """"I love the smell of napalm in the morning": a fresh poster for every title.
 
-Switches every movie and show in the chosen libraries to the first poster from
-Plex's metadata sources (not an uploaded or local file). It uses Plex's own
+Switches every movie and show in the chosen libraries to the first poster-shaped
+(about 2:3) image from Plex's metadata sources, not an uploaded or local file, nor a
+wide video frame. It uses Plex's own
 poster selection, so nothing is deleted: the previous posters stay in each
 title's poster list in Plex and can be picked again there.
 
@@ -94,13 +95,13 @@ def preview(section_ids: list[str], count: int = 8) -> list[dict]:
             entry = {"ratingKey": rk, "title": index.titles.get(rk, ""), "year": info.get("year"),
                      "current": _image_url(info["thumb"]) if info.get("thumb") else "", "fresh": "", "status": ""}
             try:
-                fresh = plex.fresh_poster(plex.posters(rk))
+                fresh = plex.fresh_choice(rk)
             except PlexError as exc:
                 entry["status"] = f"error: {exc}"
                 out.append(entry)
                 continue
             if not fresh:
-                entry["status"] = "no poster from Plex's sources; it keeps its current one"
+                entry["status"] = "no poster-shaped image from Plex's sources; it keeps its current one"
             else:
                 entry["fresh"] = _image_url(fresh.get("thumb") or fresh["key"])
                 entry["status"] = "already using it" if _selected(fresh) else "changes"
@@ -136,7 +137,7 @@ def run(section_ids: list[str]) -> dict:
                     log.info("Napalm: stopped by the user after %d title(s)", progress["done"])
                     break
                 try:
-                    fresh = plex.fresh_poster(plex.posters(rk))
+                    fresh = plex.fresh_choice(rk)
                     if not fresh:
                         progress["no_poster"] += 1
                     elif _selected(fresh):

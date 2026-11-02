@@ -493,6 +493,28 @@ class Plex:
             return poster
         return None
 
+    def fresh_choice(self, rating_key: str, tries: int = 6) -> dict | None:
+        """The first poster from Plex's sources that really is poster-shaped.
+
+        Sources sometimes offer wide images (video frames, banners) as posters, so
+        each candidate's small thumbnail is checked: it must be about 2:3, between
+        1.25 and 1.8 times as tall as it is wide. Returns None when none is.
+        """
+        from io import BytesIO
+
+        from PIL import Image
+        candidates = [p for p in self.posters(rating_key)
+                      if Plex.fresh_poster([p]) is not None][:tries]
+        for poster in candidates:
+            try:
+                data = self.poster_bytes({"key": poster.get("thumb") or poster["key"]})
+                width, height = Image.open(BytesIO(data)).size
+            except (PlexError, OSError, KeyError):
+                continue
+            if width and 1.25 <= height / width <= 1.8:
+                return poster
+        return None
+
     def poster_bytes(self, poster: dict) -> bytes:
         """Download a poster choice: from Plex, or straight from the source (e.g. TMDB)."""
         key = poster.get("key") or ""

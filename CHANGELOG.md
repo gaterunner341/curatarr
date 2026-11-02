@@ -3,6 +3,11 @@
 The version shown in the web UI's sidebar matches these entries. Each
 release is also published as `ghcr.io/gaterunner341/curatarr:<version>`.
 
+## 0.15.2
+
+- **Fixed:** napalm and the fresh-poster option could pick a wide image, such as a video frame, because Plex's sources sometimes offer those as posters. Each candidate is now checked, and only a properly shaped poster is used (between 1.25 and 1.8 times as tall as wide, like the usual 2:3). Titles with none keep their current poster.
+- Running napalm again fixes titles that got a wide image: their proper poster isn't the selected one, so they're switched to it.
+
 ## 0.15.1
 
 - **Napalm now leaves posters clean.** It turns off Curatarr's poster overlays (ribbon, badges and fresh poster) on every collection in the libraries it refreshes, so they aren't drawn back on afterwards.

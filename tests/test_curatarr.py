@@ -1157,6 +1157,8 @@ class FakePosterPlex(httpx.BaseTransport):
     def __init__(self):
         self.posters = {
             "1": [{"ratingKey": "upload://posters/abc", "key": "/library/metadata/1/file?url=upload", "selected": 1},
+                  {"ratingKey": "metadata://posters/frame", "key": "https://image.tmdb.org/t/p/original/wide.jpg",
+                   "provider": "tmdb", "selected": 0},          # a video frame offered as a poster: skipped
                   {"ratingKey": "metadata://posters/tmdb_1", "key": "https://image.tmdb.org/t/p/original/one.jpg",
                    "thumb": "https://image.tmdb.org/t/p/w300/one.jpg", "provider": "tmdb", "selected": 0}],
             "2": [{"ratingKey": "metadata://posters/tmdb_2", "key": "https://image.tmdb.org/t/p/original/two.jpg",
@@ -1169,6 +1171,12 @@ class FakePosterPlex(httpx.BaseTransport):
     def handle_request(self, request):
         path, method, q = request.url.path, request.method, request.url.params
         mc = lambda body: httpx.Response(200, json={"MediaContainer": body})  # noqa: E731
+        if request.url.host == "image.tmdb.org":          # wide.jpg is landscape, the rest are posters
+            import io
+            from PIL import Image
+            out = io.BytesIO()
+            Image.new("RGB", (300, 169) if "wide" in path else (200, 300)).save(out, "JPEG")
+            return httpx.Response(200, content=out.getvalue(), headers={"content-type": "image/jpeg"})
         if path == "/library/sections":
             return mc({"Directory": [{"key": "1", "title": "Movies", "type": "movie"}]})
         if path == "/library/sections/1/all":
@@ -1188,7 +1196,9 @@ def test_napalm_refreshes_posters(monkeypatch):
     fake = FakePosterPlex()
     monkeypatch.setattr(plexmod, "from_settings", lambda *a, **k: Plex("http://plex", "t", client=httpx.Client(transport=fake)))
     monkeypatch.setattr(sync_mod, "run_overlays", lambda: None)
-    assert Plex.fresh_poster(fake.posters["1"])["ratingKey"] == "metadata://posters/tmdb_1"
+    plex = Plex("http://plex", "t", client=httpx.Client(transport=fake))
+    assert Plex.fresh_poster(fake.posters["1"])["ratingKey"] == "metadata://posters/frame"   # first from a source
+    assert plex.fresh_choice("1")["ratingKey"] == "metadata://posters/tmdb_1"               # first poster-shaped one
     assert Plex.fresh_poster(fake.posters["3"]) is None
     result = napalm.run(["1"])
     assert fake.selected == {"1": "metadata://posters/tmdb_1"}                  # only the one that needed it

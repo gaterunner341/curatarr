@@ -1850,8 +1850,8 @@ async function napalmCard(card) {
   if (!libs.length) { card.hidden = true; return; }
   card.innerHTML = `
     <h2>I love the smell of napalm in the morning</h2>
-    <p class="hint" style="margin-top:-6px">Gives every movie and show in the libraries you pick a fresh poster: the first one
-      from Plex's metadata sources, such as TMDB. Use it to clear out posters with old overlays or artwork from other tools.</p>
+    <p class="hint" style="margin-top:-6px">Gives every movie and show in the libraries you pick a fresh poster: the first proper
+      (tall, 2:3) poster from Plex's metadata sources, such as TMDB. Wide images like video frames are skipped. Use it to clear out posters with old overlays or artwork from other tools.</p>
     <div class="notice napalm-warning">
       <strong>Before you light it up:</strong>
       <ul>

@@ -217,7 +217,7 @@ def preview(specs: list[dict], plex: Plex | None = None, thumb: str = "", rating
         try:
             base = plex.image(thumb)[0]
             if fresh and rating_key:
-                choice = plex.fresh_poster(plex.posters(rating_key))
+                choice = plex.fresh_choice(rating_key)
                 if choice:
                     base = plex.poster_bytes(choice)
             return render(base, specs)
@@ -405,7 +405,7 @@ def _apply_one(plex: Plex, rk: str, entry: dict, row: dict | None) -> bool | Non
         path.write_bytes(original)
     base = path.read_bytes()
     if entry.get("fresh"):          # a clean poster from Plex's sources, when there is one
-        fresh = plex.fresh_poster(plex.posters(rk))
+        fresh = plex.fresh_choice(rk)
         if fresh:
             base = plex.poster_bytes(fresh)
     plex.upload_image(rk, "poster", data=render(base, specs))
