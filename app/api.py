@@ -703,6 +703,20 @@ def napalm_preview(section: list[str] = Query(default=[])):
         raise HTTPException(400, str(exc))
 
 
+@router.get("/napalm/affected")
+def napalm_affected(section: list[str] = Query(default=[])):
+    """Collections whose poster overlays a refresh of these libraries turns off."""
+    from . import napalm
+    return napalm.affected(section)
+
+
+@router.get("/napalm/last")
+def napalm_last():
+    """The current or last refresh's summary (since Curatarr started)."""
+    from . import napalm
+    return napalm.progress
+
+
 @router.post("/napalm/run")
 def napalm_run(body: dict = Body(...)):
     """Switch every title in the chosen libraries to a fresh poster (in the background)."""

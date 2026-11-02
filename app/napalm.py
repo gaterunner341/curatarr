@@ -3,8 +3,11 @@
 Switches every movie and show in the chosen libraries to the first poster from
 Plex's metadata sources (not an uploaded or local file). It uses Plex's own
 poster selection, so nothing is deleted: the previous posters stay in each
-title's poster list in Plex and can be picked again there. Titles with Curatarr
-overlays are redrawn on their fresh poster afterwards.
+title's poster list in Plex and can be picked again there.
+
+Collections in those libraries have their poster overlays (ribbon, badges,
+fresh poster) turned off, so the clean posters stay clean. The fresh posters
+are kept: Curatarr forgets its backups of the old ones instead of restoring them.
 """
 import logging
 import random
@@ -17,7 +20,46 @@ log = logging.getLogger(__name__)
 
 _lock = threading.Lock()
 progress: dict = {"running": False, "done": 0, "total": 0, "changed": 0, "unchanged": 0, "no_poster": 0,
-                  "errors": 0, "stopping": False, "started": None, "finished": None}
+                  "errors": 0, "stopping": False, "started": None, "finished": None, "overlays_off": []}
+
+
+def affected(section_ids: list[str]) -> list[dict]:
+    """Collections in these libraries whose poster overlays napalm turns off: [{id, name, library}]."""
+    from .models import CollectionConfig
+    from .overlays import uses_overlays
+    wanted = {str(s) for s in section_ids}
+    out = []
+    for row in db.list_collections():
+        cfg = CollectionConfig(**row["config"])
+        if cfg.kind == "collection" and str(cfg.section_id) in wanted and uses_overlays(cfg):
+            out.append({"id": row["id"], "name": cfg.name, "library": cfg.library})
+    return out
+
+
+def _overlays_off(section_ids: list[str]) -> list[dict]:
+    """Turn off ribbons, badges and fresh posters on the collections in these libraries."""
+    from .models import CollectionConfig
+    collections = affected(section_ids)
+    for c in collections:
+        cfg = CollectionConfig(**db.get_collection(c["id"])["config"])
+        cfg.ribbon.enabled = False
+        cfg.badges.quality = cfg.badges.content_rating = False
+        cfg.badges.rating = ""
+        cfg.fresh_poster = False
+        db.update_collection_config(c["id"], cfg.model_dump())
+        log.info("Napalm: turned off poster overlays on '%s' (%s)", c["name"], c["library"])
+    return collections
+
+
+def _forget_overlay(plex: Plex, rk: str, row: dict) -> None:
+    """The title has a fresh poster now: drop Curatarr's backup and label instead of restoring the old poster."""
+    from .overlays import LABEL, _original_path
+    _original_path(rk).unlink(missing_ok=True)
+    db.delete_overlay(rk)
+    try:
+        plex.set_item_label(row["section_id"], rk, row["item_type"], LABEL, False)
+    except PlexError as exc:
+        log.debug("Could not unlabel %s: %s", rk, exc)
 
 
 def _selected(poster: dict) -> bool:
@@ -73,11 +115,16 @@ def stop() -> None:
 
 def run(section_ids: list[str]) -> dict:
     """Switch every title in the libraries to a fresh poster. One run at a time."""
+    from . import overlays
     if not _lock.acquire(blocking=False):
         return {"running": True}
     progress.update(running=True, done=0, total=0, changed=0, unchanged=0, no_poster=0, errors=0,
-                    stopping=False, started=db.now(), finished=None)
+                    stopping=False, started=db.now(), finished=None, overlays_off=[])
+    # No overlay pass may run meanwhile: it would put the old posters back on titles being refreshed.
+    overlays._lock.acquire()
     try:
+        progress["overlays_off"] = _overlays_off(section_ids)
+        overlaid = db.overlay_rows()
         with plexmod.from_settings(db.get_settings()) as plex:
             items = []
             for section in _sections(plex, section_ids):
@@ -97,6 +144,8 @@ def run(section_ids: list[str]) -> dict:
                     else:
                         plex.select_poster(rk, fresh)
                         progress["changed"] += 1
+                    if fresh and rk in overlaid:
+                        _forget_overlay(plex, rk, overlaid[rk])
                 except PlexError as exc:
                     progress["errors"] += 1
                     log.warning("Napalm: '%s' (%s) failed: %s", title, rk, exc)
@@ -104,9 +153,11 @@ def run(section_ids: list[str]) -> dict:
         log.info("Napalm: %d poster(s) changed, %d already fresh, %d with no poster from Plex's sources, "
                  "%d failed", progress["changed"], progress["unchanged"], progress["no_poster"], progress["errors"])
     finally:
+        overlays._lock.release()
         progress.update(running=False, stopping=False, finished=db.now())
         _lock.release()
-    # Titles with overlays now have a new poster underneath: redraw them on it.
+    # Overlays still wanted elsewhere are redrawn, and titles napalm didn't reach (stopped early,
+    # or no source poster) get their original posters back.
     from .sync import run_overlays
     run_overlays()
     return dict(progress)

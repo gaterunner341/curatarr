@@ -1237,3 +1237,33 @@ def test_ribbon_sizes_and_fonts():
         assert out.startswith(bytes([0xFF, 0xD8]))
     with pytest.raises(ValueError):
         Ribbon(font="comic-sans")
+
+
+def test_napalm_turns_off_overlays_and_keeps_fresh_posters(monkeypatch):
+    from app import napalm, overlays, plex as plexmod, sync as sync_mod
+    for row in db.list_collections():
+        db.delete_collection(row["id"])
+    fake = FakePosterPlex()
+    monkeypatch.setattr(plexmod, "from_settings", lambda *a, **k: Plex("http://plex", "t", client=httpx.Client(transport=fake)))
+    monkeypatch.setattr(sync_mod, "run_overlays", lambda: None)
+    cid = db.create_collection({"name": "Halloween Collection", "library": "Movies", "section_id": "1",
+                                "sources": [{"type": "static", "value": "tt1"}], "ribbon": {"enabled": True, "text": "BOO"},
+                                "badges": {"quality": True, "rating": "audience"}})
+    other = db.create_collection({"name": "Elsewhere", "library": "TV", "section_id": "2",
+                                  "sources": [{"type": "static", "value": "tt1"}], "ribbon": {"enabled": True}})
+    assert [c["id"] for c in napalm.affected(["1"])] == [cid]
+    overlays.ORIGINALS.mkdir(parents=True, exist_ok=True)
+    for rk in ("1", "3"):
+        overlays._original_path(rk).write_bytes(b"old")
+        db.save_overlay(rk, "1", "movie", "sig", f"/library/metadata/{rk}/thumb/9")
+
+    result = napalm.run(["1"])
+    assert [c["name"] for c in result["overlays_off"]] == ["Halloween Collection"]
+    cfg = db.get_collection(cid)["config"]
+    assert not cfg["ribbon"]["enabled"] and not cfg["badges"]["quality"] and cfg["badges"]["rating"] == ""
+    assert db.get_collection(other)["config"]["ribbon"]["enabled"]          # other libraries are left alone
+    rows = db.overlay_rows()
+    assert "1" not in rows and not overlays._original_path("1").exists()    # refreshed: the fresh poster stays
+    assert "3" in rows                  # no source poster: left for the overlay pass to restore its original
+    db.delete_overlay("3")
+    overlays._original_path("3").unlink(missing_ok=True)

@@ -3,6 +3,14 @@
 The version shown in the web UI's sidebar matches these entries. Each
 release is also published as `ghcr.io/gaterunner341/curatarr:<version>`.
 
+## 0.15.1
+
+- **Napalm now leaves posters clean.** It turns off Curatarr's poster overlays (ribbon, badges and fresh poster) on every collection in the libraries it refreshes, so they aren't drawn back on afterwards.
+  - The fresh posters are kept. Curatarr drops its backups of the old posters instead of restoring them.
+  - Titles napalm didn't reach (because it was stopped early, or there was no source poster) get their original posters back.
+  - You'll see which collections are affected in three places: on the card as soon as you tick a library, in the confirmation, and in the message when it finishes. The card also keeps a **Last refresh** summary that links to those collections, so you can turn their overlays back on.
+  - No overlay update runs while napalm is working, so old posters can't come back part way through.
+
 ## 0.15.0
 
 - **Bigger ribbons by default:** the band is thicker and reaches further along the edges, so the text is larger.

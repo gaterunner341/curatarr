@@ -98,7 +98,10 @@ async function pollActivity() {
     activity.napalmStarted = 0;
     const n = p.napalm;
     toast(`Poster refresh done: ${n.changed} changed, ${n.unchanged} already fresh, ${n.no_poster} without a source poster`
-      + (n.errors ? `, ${n.errors} failed (see Logs)` : ""), Boolean(n.errors));
+      + (n.errors ? `, ${n.errors} failed (see Logs)` : "")
+      + (n.overlays_off?.length ? `. Poster overlays turned off on: ${n.overlays_off.map((c) => c.name).join(", ")}` : ""),
+      Boolean(n.errors));
+    napalmLastRun(document.getElementById("napalmLast"));
   }
   activity.napalm = Boolean(napalm);
   if (activity.overlays && !overlaysRunning && p) {
@@ -1855,11 +1858,13 @@ async function napalmCard(card) {
         <li>Every title's poster changes, <strong>including posters you picked by hand</strong> in Plex.</li>
         <li>Nothing is deleted: the old posters stay in each title's poster list in Plex (Edit → Poster), where you can pick them again.
           Curatarr can't undo it in one click.</li>
-        <li>Titles with Curatarr ribbons or badges get them redrawn on their new poster.</li>
+        <li><strong>Curatarr's own poster overlays are turned off</strong> (ribbon, badges and fresh poster) on every
+          collection in these libraries, so the new posters stay clean. You can turn them back on in each collection's settings.</li>
         <li>Big libraries take a while, about one Plex request or two per title. You can stop it part way.</li>
         <li>Everyone using your server sees the new posters.</li>
       </ul>
     </div>
+    <div id="napalmLast"></div>
     <div class="row" style="gap:16px;margin:10px 0">${libs.map((l) => `
       <label class="check"><input type="checkbox" data-napalm-lib value="${esc(l.id)}">
         ${esc(l.title)} (${l.type === "show" ? "TV" : "Movies"})</label>`).join("")}</div>
@@ -1869,12 +1874,26 @@ async function napalmCard(card) {
       <button type="button" class="danger" id="napalmRun" disabled>Refresh every poster</button>
       <button type="button" id="napalmStop" hidden>Stop</button>
     </div>
+    <div id="napalmAffected" class="small"></div>
     <div id="napalmOut"></div>`;
   const picked = () => [...card.querySelectorAll("[data-napalm-lib]:checked")].map((b) => b.value);
   const run = card.querySelector("#napalmRun");
   const agree = card.querySelector("#napalmAgree");
   const update = () => { run.disabled = !(agree.checked && picked().length); };
-  card.querySelectorAll("[data-napalm-lib]").forEach((b) => b.onchange = update);
+  // Which collections lose their overlays, for the libraries ticked.
+  const showAffected = async () => {
+    const el = card.querySelector("#napalmAffected");
+    if (!picked().length) { el.innerHTML = ""; return; }
+    const params = new URLSearchParams();
+    picked().forEach((s) => params.append("section", s));
+    const hit = await api("GET", `/napalm/affected?${params}`).catch(() => []);
+    el.innerHTML = hit.length
+      ? `<div class="notice" style="margin:10px 0 0">Poster overlays will be turned off on: ${hit.map((c) =>
+          `<a href="#/collections/${c.id}">${esc(c.name)}</a> <span class="muted">(${esc(c.library)})</span>`).join(", ")}.</div>`
+      : `<p class="muted" style="margin:10px 0 0">No collections in these libraries have poster overlays.</p>`;
+  };
+  napalmLastRun(card.querySelector("#napalmLast"));
+  card.querySelectorAll("[data-napalm-lib]").forEach((b) => b.onchange = () => { update(); showAffected(); });
   agree.onchange = update;
   card.querySelector("#napalmPreview").onclick = (e) => guard(async () => {
     if (!picked().length) return toast("Pick at least one library", true);
@@ -1906,10 +1925,12 @@ async function napalmCard(card) {
   });
   run.onclick = () => guard(async () => {
     const names = libs.filter((l) => picked().includes(l.id)).map((l) => l.title).join(", ");
-    if (!confirm(`Give every title in ${names} a fresh poster?\n\nPosters you picked by hand are replaced too. `
-      + "The old ones stay in Plex's poster list, but Curatarr can't undo this in one click.")) return;
+    if (!confirm(`Give every title in ${names} a fresh poster?\n\nPosters you picked by hand are replaced too, and `
+      + "Curatarr's poster overlays are turned off on the collections in these libraries. "
+      + "The old posters stay in Plex's poster list, but Curatarr can't undo this in one click.")) return;
     activity.napalmStarted = Date.now();
     await api("POST", "/napalm/run", { section_ids: picked(), confirm: "napalm" });
+    card.querySelector("#napalmAffected").innerHTML = "";
     toast("Refreshing posters in the background. Progress is in the top bar.");
     agree.checked = false;
     update();
@@ -1918,6 +1939,17 @@ async function napalmCard(card) {
     await api("POST", "/napalm/stop");
     toast("Stopping after the current title");
   });
+}
+
+// The current or last poster refresh, with the collections whose overlays it turned off.
+async function napalmLastRun(el) {
+  const n = await api("GET", "/napalm/last").catch(() => null);
+  if (!el || !n || !n.finished || n.running) { if (el) el.innerHTML = ""; return; }
+  el.innerHTML = `<div class="notice small" style="margin:10px 0 0">
+    <strong>Last refresh</strong> (${esc(when(n.finished))}): ${n.changed} poster(s) changed, ${n.unchanged} already fresh,
+    ${n.no_poster} without a source poster${n.errors ? `, ${n.errors} failed` : ""}.
+    ${n.overlays_off.length ? `<br>Poster overlays were turned off on: ${n.overlays_off.map((c) =>
+      `<a href="#/collections/${c.id}">${esc(c.name)}</a> <span class="muted">(${esc(c.library)})</span>`).join(", ")}.` : ""}</div>`;
 }
 
 async function plexCard(card, values, editing = false) {
