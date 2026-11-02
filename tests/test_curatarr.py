@@ -1052,7 +1052,7 @@ def test_overlays_draw_skip_redraw_and_restore(monkeypatch):
     assert overlays.apply_all()["drawn"] == 2
     assert fake.posters["1"] != fake.original["1"] and overlays._original_path("1").read_bytes() == fake.original["1"]
     assert fake.labels["1"] == ["Kids", overlays.LABEL]                    # other labels kept
-    assert overlays.apply_all() == {"drawn": 0, "restored": 0, "unchanged": 2, "errors": 0}
+    assert overlays.apply_all() == {"drawn": 0, "restored": 0, "unchanged": 2, "nothing": 0, "errors": 0}
 
     cfg.ribbon.text = "BEST"                                              # a change redraws both
     db.update_collection_config(cid, cfg.model_dump())
@@ -1098,7 +1098,8 @@ def test_quality_and_rating_badges(monkeypatch):
                            badges={"quality": True, "rating": "audience", "rating_min": 7})
     cid = db.create_collection(cfg.model_dump())
     db.update_collection_state(cid, plex_rating_key="100")
-    assert overlays.apply_all()["drawn"] == 2
+    first = overlays.apply_all()
+    assert first["drawn"] == 2, first
     rows = db.overlay_rows()
     assert json.loads(rows["1"]["media"]) == ["4K", "DV", "ATMOS"] and json.loads(rows["2"]["media"]) == ["4K", "HDR", "ATMOS"]
     fake.details = 0
@@ -1122,3 +1123,16 @@ def test_planned_contents_for_off_season_collection(monkeypatch):
     planned = sync_mod.planned_contents(cid)
     assert [(i["ratingKey"], i["title"]) for i in planned["items"]] == [("3", "T3"), ("1", "T1")]
     assert planned["missing"] == 1 and not fake.collections          # nothing was created in Plex
+
+
+def test_rating_badge_falls_back_to_detail_metadata():
+    from app import overlays
+
+    def handler(request):
+        return httpx.Response(200, json={"MediaContainer": {"Metadata": [
+            {"ratingKey": "7", "audienceRating": 8.8, "audienceRatingImage": "imdb://image.rating"}]}})
+    plex = Plex("http://plex", "t", client=httpx.Client(transport=httpx.MockTransport(handler)))
+    entry = {"ribbons": [], "badges": {"quality": False, "rating": "audience", "rating_min": 0},
+             "item": {"ratingKey": "7", "title": "Inception"}, "type": "movie"}
+    specs, _, _ = overlays._specs(plex, "7", entry, None)
+    assert specs == [{"kind": "badges", "quality": [], "rating": {"source": "imdb", "value": "8.8"}}]

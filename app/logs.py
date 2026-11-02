@@ -122,6 +122,16 @@ def diagnostics(settings: dict, collections: list[dict]) -> str:
                      f"last={row.get('last_status')} {row.get('last_run') or ''}")
         if row.get("last_message"):
             lines.append(f"      {redact(row['last_message'])}")
+        ribbon, badges = cfg.get("ribbon") or {}, cfg.get("badges") or {}
+        if ribbon.get("enabled") or badges.get("quality") or badges.get("rating"):
+            lines.append(f"      overlays: ribbon={'on' if ribbon.get('enabled') else 'off'} "
+                         f"quality={'on' if badges.get('quality') else 'off'} "
+                         f"rating={badges.get('rating') or 'off'} (min {badges.get('rating_min', 0)})")
+    try:
+        from . import db
+        lines += ["", f"Posters with overlays: {len(db.overlay_rows())}"]
+    except Exception:          # diagnostics must never fail
+        pass
     return "\n".join(lines) + "\n"
 
 

@@ -254,14 +254,20 @@ def _specs(plex: Plex, rk: str, entry: dict, row: dict | None) -> tuple[list[dic
     """The overlays to draw on one title, plus its media key and quality labels to cache."""
     specs = sorted(entry["ribbons"], key=lambda s: s["collection"])
     settings, item = entry["badges"], entry["item"]
-    key, quality = media_key(item), []
+    key, quality, detail = media_key(item), [], None
     if settings and settings["quality"] and entry["type"] == "movie":
         if row and row.get("media_key") == key and row.get("media"):
             quality = json.loads(row["media"])
         else:                       # HDR and Atmos are only in the detailed metadata
-            quality = quality_labels(plex.item(rk) or item)
-    rating = rating_badge(item, settings["rating"], settings["rating_min"]) \
-        if settings and settings["rating"] else None
+            detail = plex.item(rk) or item
+            quality = quality_labels(detail)
+    rating = None
+    if settings and settings["rating"]:
+        field = "audienceRating" if settings["rating"] == "audience" else "rating"
+        if item.get(field) is None:  # some Plex versions leave ratings out of collection listings
+            detail = detail or plex.item(rk) or item
+            item = {**item, **{k: detail.get(k) for k in (field, f"{field}Image")}}
+        rating = rating_badge(item, settings["rating"], settings["rating_min"])
     if quality or rating:
         specs.append({"kind": "badges", "quality": quality, "rating": rating})
     return specs, key, quality
@@ -277,13 +283,17 @@ def _original_path(rating_key: str):
     return ORIGINALS / f"{rating_key}.jpg"
 
 
-def _apply_one(plex: Plex, rk: str, entry: dict, row: dict | None) -> bool:
-    """Draw a title's overlays if they changed. Returns True when its poster was uploaded."""
+def _apply_one(plex: Plex, rk: str, entry: dict, row: dict | None) -> bool | None:
+    """Draw a title's overlays if they changed.
+
+    Returns True when its poster was uploaded, False when it was already up to
+    date, and None when there's nothing to draw on it.
+    """
     specs, key, quality = _specs(plex, rk, entry, row)
     if not specs:                   # e.g. badges only, and nothing to show for this title
         if row:
             _restore_one(plex, rk, row)
-        return False
+        return None
     sig = signature(specs)
     thumb = entry["thumb"]
     replaced = not row or row["applied_thumb"] != thumb      # first time, or Plex changed the poster
@@ -344,16 +354,14 @@ def apply_all(remove_all: bool = False) -> dict:
 
 
 def _pass(remove_all: bool) -> dict:
-    counts = {"drawn": 0, "restored": 0, "unchanged": 0, "errors": 0}
+    counts = {"drawn": 0, "restored": 0, "unchanged": 0, "nothing": 0, "errors": 0}
     with plexmod.from_settings(db.get_settings()) as plex:
         wanted = {} if remove_all else _wanted(plex)
         rows = db.overlay_rows()
         for rk, entry in wanted.items():
             try:
-                if _apply_one(plex, rk, entry, rows.get(rk)):
-                    counts["drawn"] += 1
-                else:
-                    counts["unchanged"] += 1
+                done = _apply_one(plex, rk, entry, rows.get(rk))
+                counts["drawn" if done else "unchanged" if done is False else "nothing"] += 1
             except (PlexError, OverlayError, PosterError, OSError) as exc:
                 counts["errors"] += 1
                 log.warning("Overlay for %s failed: %s", rk, exc)
@@ -366,7 +374,7 @@ def _pass(remove_all: bool) -> dict:
             except (PlexError, OSError) as exc:
                 counts["errors"] += 1
                 log.warning("Restoring the poster of %s failed: %s", rk, exc)
-    if counts["drawn"] or counts["restored"] or counts["errors"]:
-        log.info("Overlays: %d drawn, %d restored, %d unchanged, %d failed", counts["drawn"],
-                 counts["restored"], counts["unchanged"], counts["errors"])
+    log.info("Overlays: %d title(s) with overlays: %d drawn, %d unchanged, %d with nothing to show "
+             "(e.g. no rating); %d restored, %d failed", len(wanted), counts["drawn"], counts["unchanged"],
+             counts["nothing"], counts["restored"], counts["errors"])
     return counts

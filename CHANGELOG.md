@@ -3,6 +3,12 @@
 The version shown in the web UI's sidebar matches these entries. Each
 release is also published as `ghcr.io/gaterunner341/curatarr:<version>`.
 
+## 0.13.2
+
+- **Overlays are easier to check:** every overlay pass now writes one line to the log, even when nothing changed. For example: "Overlays: 176 title(s) with overlays: 176 drawn, 0 unchanged, 0 with nothing to show; 0 restored, 0 failed".
+- The log bundle's diagnostics now show each collection's overlay settings and how many posters have overlays.
+- **Fixed:** a rating badge could be missing when Plex left ratings out of a collection's title list. Curatarr now reads the rating from the title's full details instead.
+
 ## 0.13.1
 
 - **See what's in a collection even when it isn't in Plex.** An off-season holiday, or any collection not created in Plex yet, now lists on its View page the titles from your library it will have, with their posters.
