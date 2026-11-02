@@ -1185,8 +1185,11 @@ function sourceRow(src, idx) {
     input = `<div class="row" style="flex-wrap:nowrap"><input type="text" data-field="value" value="${esc(src.value)}"
       placeholder="${esc(meta.placeholder || "")}"><button type="button" class="small" data-build>Build filter</button></div>`;
   } else {
-    input = `<textarea data-field="value" wrap="off" rows="${src.type === "static" && src.value.includes("\n") ? 3 : 1}"
-      placeholder="Paste a TMDB, IMDb, Trakt or MDBList link, title ids (tt0133093, tmdb:603) or a TMDB discover query">${esc(src.value)}</textarea>`;
+    // One line for links; several lines (an IMDb CSV export, ids one per line) get a bigger box.
+    const placeholder = "Paste a TMDB, IMDb, Trakt or MDBList link, title ids (tt0133093, tmdb:603) or a TMDB discover query";
+    input = src.value.includes("\n")
+      ? `<textarea data-field="value" rows="4" placeholder="${placeholder}">${esc(src.value)}</textarea>`
+      : `<input type="text" data-field="value" value="${esc(src.value)}" placeholder="${placeholder}">`;
   }
   const tag = kind === "chart" ? "Chart" : kind === "plex" ? "Plex filter" : src.value ? (src.label || meta.label || "") : "";
   return `
@@ -1517,10 +1520,18 @@ async function editor(id, params = new URLSearchParams()) {
       if (valueEl) valueEl.oninput = (e) => {
         src.value = e.target.value;
         if (sourceKind(src.type) !== "list") return;
-        if (e.target.tagName === "TEXTAREA") e.target.rows = e.target.value.includes("\n") ? 3 : 1;
         clearTimeout(timer);
         timer = setTimeout(recognise, 400);
       };
+      // A one-line box would drop the line breaks of a pasted CSV export, so it becomes a bigger box.
+      if (valueEl?.tagName === "INPUT" && sourceKind(src.type) === "list") valueEl.addEventListener("paste", (e) => {
+        const text = e.clipboardData?.getData("text") || "";
+        if (!text.includes("\n")) return;
+        e.preventDefault();
+        src.value = (valueEl.value.slice(0, valueEl.selectionStart) + text + valueEl.value.slice(valueEl.selectionEnd));
+        src.label = "";
+        renderSources();
+      });
       el.querySelector("[data-test-src]").onclick = (e) => guard(async () => {
         const libs = pickedLibs();
         if (!libs.length) return toast("Pick a library first", true);

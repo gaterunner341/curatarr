@@ -3,6 +3,11 @@
 The version shown in the web UI's sidebar matches these entries. Each
 release is also published as `ghcr.io/gaterunner341/curatarr:<version>`.
 
+## 0.26.1
+
+- **List boxes:** a link sits in a normal one-line box again, with no scrollbar over it in a narrow window. Pasting several lines, like an IMDb CSV export or ids one per line, switches to a bigger box.
+- **Narrow windows:** the type tag moves above its box, so the box keeps its width.
+
 ## 0.26.0
 
 - **No more source-type dropdown:** each list is one box. Paste a link, title ids or a TMDB discover query and Curatarr works out what it is. A tag next to the box says what it recognised, e.g. "TMDB studio", "IMDb watchlist", "Trakt list" or "3 title ids". Anything it doesn't recognise is flagged.
