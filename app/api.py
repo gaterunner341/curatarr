@@ -6,7 +6,7 @@ from pathlib import Path
 
 import httpx
 import yaml
-from fastapi import APIRouter, Body, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Body, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse, PlainTextResponse, Response
 from pydantic import ValidationError
 
@@ -976,6 +976,37 @@ async def upload_image(collection_id: int, kind: str, file: UploadFile = File(..
     cfg[field] = filename
     db.update_collection_config(collection_id, cfg)
     return {"file": filename}
+
+
+@router.post("/titles/{rating_key}/poster")
+async def upload_title_poster(rating_key: str, file: UploadFile | None = File(None), url: str = Form(""),
+                              keep: bool = Form(True), section_id: str = Form(""), type: str = Form("movie")):
+    """Give a movie or show a new poster (a file or an image URL), and by default keep it:
+    the "Curatarr Keep Poster" label stops napalm and fresh posters replacing it."""
+    from . import unmatched
+    data = None
+    if file is not None and file.filename:
+        if not IMAGE_TYPES.get(file.content_type or ""):
+            raise HTTPException(415, "Upload a JPEG, PNG or WebP image")
+        data = await file.read()
+        if len(data) > MAX_IMAGE_BYTES:
+            raise HTTPException(413, "Images must be 10 MB or smaller")
+    url = url.strip()
+    if not data and not url.startswith(("http://", "https://")):
+        raise HTTPException(422, "Choose an image file or enter an image URL")
+    with _plex() as plex:
+        try:
+            plex.upload_image(rating_key, "poster", data=data, url=None if data else url)
+            if keep and section_id:
+                plex.set_item_label(section_id, rating_key, type, unmatched.KEEP_LABEL, True)
+            thumb = (plex.item(rating_key) or {}).get("thumb") or ""
+        except PlexError as exc:
+            raise HTTPException(502, str(exc))
+    unmatched.update_cached(rating_key, thumb=thumb, keep=True if keep and section_id else None)
+    log.info("New poster uploaded for %s%s", rating_key, " (kept)" if keep and section_id else "")
+    if rating_key in db.overlay_rows():        # redraw its ribbons and badges on the new poster
+        scheduler.run_task(sync.run_overlays, "Poster overlays")
+    return {"thumb": thumb, "keep": bool(keep and section_id)}
 
 
 @router.get("/collections/{collection_id}/image/{kind}")

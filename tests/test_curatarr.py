@@ -1369,3 +1369,23 @@ def test_unmatched_titles_and_keep_label(monkeypatch):
     # Napalm leaves the kept title (1) alone, even though it has a fresh poster waiting.
     progress = napalm.run(["1"])
     assert "1" not in fake.selected and progress["kept"] == 1
+
+
+def test_upload_title_poster(monkeypatch):
+    from contextlib import nullcontext
+    from fastapi.testclient import TestClient
+    from app import api as api_mod, overlays, unmatched
+    from app.main import app
+
+    fake = FakeOverlayPlex()
+    monkeypatch.setattr(api_mod, "_plex", lambda: nullcontext(Plex("http://plex", "t", client=httpx.Client(transport=fake))))
+    client = TestClient(app)
+    image = overlays.sample_poster()
+    r = client.post("/api/titles/1/poster", files={"file": ("p.jpg", image, "image/jpeg")},
+                    data={"keep": "true", "section_id": "1", "type": "movie"})
+    assert r.status_code == 200 and r.json()["keep"] and r.json()["thumb"] == "/library/metadata/1/thumb/2"
+    assert fake.posters["1"] == image and unmatched.KEEP_LABEL in fake.labels["1"]
+    r = client.post("/api/titles/2/poster", data={"url": "https://example.com/p.jpg", "keep": "false", "section_id": "1"})
+    assert r.status_code == 200 and not r.json()["keep"] and unmatched.KEEP_LABEL not in fake.labels["2"]
+    assert client.post("/api/titles/1/poster", files={"file": ("p.gif", b"GIF89a", "image/gif")}).status_code == 415
+    assert client.post("/api/titles/1/poster", data={"url": "ftp://x"}).status_code == 422

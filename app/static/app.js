@@ -788,6 +788,7 @@ async function unmatchedPage(refresh = false) {
       <div class="small"><span class="badge ${t.kind === "unmatched" ? "warning" : ""}" title="${esc(UNMATCHED_KINDS[t.kind][1])}">${esc(UNMATCHED_KINDS[t.kind][0])}</span></div>
       ${t.file ? `<div class="small muted unmatched-file" title="${esc(t.file)}">${esc(t.file)}</div>` : ""}
       <div class="coll-actions">
+        <button type="button" class="small" data-upload="${esc(t.ratingKey)}">Upload poster</button>
         <button type="button" class="small" data-keep="${esc(t.ratingKey)}">${t.keep ? "Unlock poster" : "Keep poster"}</button>
         ${plexLink(t) ? `<a class="btn small" href="${esc(plexLink(t))}" target="_blank" rel="noopener" style="padding:4px 10px;font-size:.8rem">Open in Plex</a>` : ""}
       </div>
@@ -818,6 +819,7 @@ async function unmatchedPage(refresh = false) {
         <div class="grow"><label for="umQ">Search</label><input type="text" id="umQ" value="${esc(f.q)}" placeholder="Title, year or file name"></div>
         <button type="button" id="umKeepAll" ${list.some((t) => !t.keep) ? "" : "disabled"}>Keep posters for all ${list.filter((t) => !t.keep).length} shown</button>
       </div>
+      <div id="umUpload" class="card upload-panel" hidden></div>
       ${list.length ? `<div class="items">${list.map(tile).join("")}</div>`
         : `<div class="card empty">${r.titles.length ? "Nothing matches these filters." : "Every title is tied to IMDb, TMDB or TVDB."}</div>`}`;
     const bindFilter = (sel, key, ev = "onchange") => { view.querySelector(sel)[ev] = (e) => { f[key] = e.target.value; render(); }; };
@@ -839,6 +841,8 @@ async function unmatchedPage(refresh = false) {
       b.disabled = true;
       await setKeep([t], !t.keep);
     }));
+    view.querySelectorAll("[data-upload]").forEach((b) => b.onclick = () =>
+      posterUploadPanel(view.querySelector("#umUpload"), r.titles.find((x) => x.ratingKey === b.dataset.upload), render));
     view.querySelector("#umKeepAll").onclick = () => guard(async () => {
       const todo = list.filter((t) => !t.keep);
       if (!confirm(`Keep the posters of all ${todo.length} title(s) shown?\n\nNapalm and the fresh-poster option will never change them.`)) return;
@@ -847,6 +851,61 @@ async function unmatchedPage(refresh = false) {
     });
   };
   render();
+}
+
+// Upload a new poster (file or URL) for one title; kept by default so napalm won't replace it.
+function posterUploadPanel(box, t, done) {
+  box.hidden = false;
+  box.innerHTML = `
+    <div class="upload-grid">
+      <div class="image-box poster-img" id="upPreview">${t.thumb ? `<img src="/api/plex/image?path=${encodeURIComponent(t.thumb)}" alt="">` : "▦"}</div>
+      <div>
+        <h2 style="margin-bottom:4px">New poster for ${esc(t.title)}${t.year ? ` <span class="muted">(${esc(t.year)})</span>` : ""}</h2>
+        <p class="hint" style="margin-top:0">A tall image works best (2:3, e.g. 1000 × 1500). JPEG, PNG or WebP, up to 10 MB.</p>
+        <label for="upFile">Image file</label><input type="file" id="upFile" accept="image/jpeg,image/png,image/webp">
+        <label for="upUrl" style="margin-top:10px">…or image URL</label><input type="url" id="upUrl" placeholder="https://…">
+        <label class="check" style="margin-top:10px"><input type="checkbox" id="upKeep" checked>
+          Keep this poster (napalm and fresh posters won't replace it)</label>
+        <div class="row" style="margin-top:10px">
+          <button type="button" class="primary" id="upGo">Upload to Plex</button>
+          <button type="button" id="upCancel">Cancel</button>
+        </div>
+      </div>
+    </div>`;
+  box.scrollIntoView({ behavior: "smooth", block: "start" });
+  const preview = (src) => { box.querySelector("#upPreview").innerHTML = src ? `<img src="${esc(src)}" alt="" referrerpolicy="no-referrer">` : "▦"; };
+  const file = box.querySelector("#upFile");
+  const url = box.querySelector("#upUrl");
+  file.onchange = () => {
+    const f = file.files[0];
+    if (!f) return;
+    if (!IMAGE_TYPES.includes(f.type)) { file.value = ""; return toast("Choose a JPEG, PNG or WebP image", true); }
+    if (f.size > MAX_IMAGE_BYTES) { file.value = ""; return toast("Images must be 10 MB or smaller", true); }
+    url.value = "";
+    preview(URL.createObjectURL(f));
+  };
+  url.oninput = () => { if (url.value.trim()) { file.value = ""; preview(url.value.trim()); } };
+  box.querySelector("#upCancel").onclick = () => { box.hidden = true; };
+  box.querySelector("#upGo").onclick = (e) => guard(async () => {
+    if (!file.files[0] && !url.value.trim()) return toast("Choose an image file or enter an image URL", true);
+    const form = new FormData();
+    if (file.files[0]) form.append("file", file.files[0]);
+    form.append("url", url.value.trim());
+    form.append("keep", box.querySelector("#upKeep").checked ? "true" : "false");
+    form.append("section_id", t.section_id);
+    form.append("type", t.type);
+    e.target.disabled = true;
+    try {
+      const res = await api("POST", `/titles/${encodeURIComponent(t.ratingKey)}/poster`, form);
+      if (res.thumb) t.thumb = res.thumb;
+      if (res.keep) t.keep = true;
+      toast(`New poster uploaded for ${t.title}${res.keep ? " and kept" : ""}`);
+      box.hidden = true;
+      done();
+    } finally {
+      e.target.disabled = false;
+    }
+  });
 }
 
 // ---------- starter packs ----------

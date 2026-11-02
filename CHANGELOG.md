@@ -3,6 +3,13 @@
 The version shown in the web UI's sidebar matches these entries. Each
 release is also published as `ghcr.io/gaterunner341/curatarr:<version>`.
 
+## 0.17.1
+
+- **Upload posters for unmatched titles:** each title on **Unmatched titles** has an **Upload poster** button.
+  - Choose an image file (JPEG, PNG or WebP, up to 10 MB) or paste an image URL, and see a preview before uploading. Plex then uses it as the title's poster.
+  - The new poster is **kept** by default (the `Curatarr Keep Poster` label), so napalm and fresh posters won't replace it. Untick that to leave it unprotected.
+  - Titles with Curatarr ribbons or badges get them redrawn on the new poster.
+
 ## 0.17.0
 
 - **Unmatched titles:** a new page in the left menu that finds movies and shows not tied to IMDb, TMDB or TVDB, such as fan edits. They're sorted into two groups:

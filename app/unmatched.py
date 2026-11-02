@@ -97,3 +97,13 @@ def set_keep(rating_keys: list[dict], keep: bool) -> int:
             if title["ratingKey"] in wanted:
                 title["keep"] = keep
     return done
+
+
+def update_cached(rating_key: str, thumb: str | None = None, keep: bool | None = None) -> None:
+    """Keep the cached scan in step after a change to one title."""
+    for title in (_cache.get("result") or {}).get("titles", []):
+        if title["ratingKey"] == str(rating_key):
+            if thumb:
+                title["thumb"] = thumb
+            if keep is not None:
+                title["keep"] = keep
