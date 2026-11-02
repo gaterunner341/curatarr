@@ -1106,3 +1106,19 @@ def test_quality_and_rating_badges(monkeypatch):
     cfg.badges.quality, cfg.badges.rating = False, ""
     db.update_collection_config(cid, cfg.model_dump())
     assert overlays.apply_all()["restored"] == 2 and db.overlay_rows() == {}
+
+
+def test_planned_contents_for_off_season_collection(monkeypatch):
+    from app import plex as plexmod, sync as sync_mod
+    sync_mod.clear_index_cache()
+    fake = FakePlex()
+    monkeypatch.setattr(plexmod, "from_settings", lambda *a, **k: plex_with(fake))
+    monkeypatch.setattr(sync_mod, "resolve_sections", lambda plex, cfg: [SECTION])
+    cid = db.create_collection({"name": "Xmas", "library": "Movies", "section_id": "1",
+                                "sources": [{"type": "static", "value": "tt0000003, tt0000001, tt0000002, tt0000009"}],
+                                "exclude": [{"id": "plex:2"}], "promote_window": True, "seasonal_only": True,
+                                "promote_start": "2000-11-25", "promote_end": "2000-12-26",
+                                "promote_recommended": True})
+    planned = sync_mod.planned_contents(cid)
+    assert [(i["ratingKey"], i["title"]) for i in planned["items"]] == [("3", "T3"), ("1", "T1")]
+    assert planned["missing"] == 1 and not fake.collections          # nothing was created in Plex

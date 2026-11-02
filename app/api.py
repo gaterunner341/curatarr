@@ -605,11 +605,26 @@ def collection_items(collection_id: int):
     with _plex() as plex:
         try:
             contents = plex.playlist_contents if row["config"].get("kind") == "playlist"                 else plex.collection_contents
-            return {"in_plex": True, "items": contents(row["plex_rating_key"])}
+            items = contents(row["plex_rating_key"])
+            overlaid = db.overlay_rows()
+            for item in items:            # so the View page can show which posters have overlays
+                item["overlay"] = item["ratingKey"] in overlaid
+            return {"in_plex": True, "items": items}
         except PlexError as exc:
             if exc.status == 404:    # deleted in Plex, or removed off season
                 return {"in_plex": False, "items": []}
             raise HTTPException(502, str(exc))
+
+
+@router.get("/collections/{collection_id}/planned")
+def collection_planned(collection_id: int):
+    """What a collection that isn't in Plex right now (e.g. off season) would contain."""
+    if not db.get_collection(collection_id):
+        raise HTTPException(404, "Collection not found")
+    try:
+        return sync.planned_contents(collection_id)
+    except (PlexError, sync.SyncError) as exc:
+        raise HTTPException(400, str(exc))
 
 
 @router.post("/collections/{collection_id}/exclude")

@@ -128,6 +128,7 @@ a.coll-title:hover { color: var(--accent); }
 .chip button { padding: 0 6px; border: 0; background: none; color: var(--muted); }
 .chip button:hover { color: var(--err); }
 ul.changes { margin: 6px 0 0; padding-left: 0; list-style: none; max-height: 240px; overflow: auto; }
+.overlay-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); margin-right: 6px; vertical-align: middle; }
 .item-title { margin-top: 6px; font-size: .9rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .coll-actions { margin-top: auto; display: flex; gap: 6px; flex-wrap: wrap; padding-top: 8px; }
 

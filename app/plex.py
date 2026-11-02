@@ -71,9 +71,11 @@ class LibraryIndex:
         self.by_title: dict[str, str] = {}
         self.titles: dict[str, str] = {}
         self.ratings: dict[str, str] = {}
+        self.details: dict[str, dict] = {}     # year, poster and type, for showing titles
         for item in items:
             rk = str(item.get("ratingKey"))
             self.titles[rk] = item.get("title", "")
+            self.details[rk] = {"year": item.get("year"), "thumb": item.get("thumb"), "type": item.get("type")}
             if item.get("contentRating"):
                 self.ratings[rk] = item["contentRating"]
             guids = [g.get("id", "") for g in item.get("Guid") or []]

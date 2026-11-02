@@ -3,6 +3,14 @@
 The version shown in the web UI's sidebar matches these entries. Each
 release is also published as `ghcr.io/gaterunner341/curatarr:<version>`.
 
+## 0.13.1
+
+- **See what's in a collection even when it isn't in Plex.** An off-season holiday, or any collection not created in Plex yet, now lists on its View page the titles from your library it will have, with their posters.
+  - Exclusions, the rating cap and any order you set by hand are applied.
+  - You can exclude titles from there too.
+  - **Show missing titles** still lists what isn't in your library.
+- **Check your poster overlays:** on a collection's View page, a line shows how many of its posters have overlays so far, and those titles get a small gold dot. The posters shown are Plex's own, so ribbons and badges appear right on them.
+
 ## 0.13.0
 
 - **Poster overlays: quality and rating badges.** Under **Poster overlays** in a collection's settings, every title's poster can show small badges along the bottom:

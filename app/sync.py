@@ -428,6 +428,37 @@ def apply_pin(plex: Plex, section_id: str, rk: str, cfg: CollectionConfig, today
         log.info("'%s': unpinned from the top of the home screen", cfg.name)
 
 
+def planned_contents(collection_id: int) -> dict:
+    """The titles a collection would have if it synced now, without changing Plex.
+
+    Used to show an off-season (or not yet created) collection's titles. Applies
+    exclusions, the rating cap, the item limit and any order set by hand.
+    """
+    row = db.get_collection(collection_id)
+    if not row:
+        raise SyncError(f"Collection {collection_id} does not exist")
+    cfg = CollectionConfig(**row["config"])
+    settings = db.get_settings()
+    with plexmod.from_settings(settings) as plex, httpx.Client(timeout=30) as http:
+        sections = resolve_sections(plex, cfg)
+        types = {s["type"] for s in sections}
+        ctx = SourceContext(settings=settings, http=http,
+                            media_type=sections[0]["type"] if len(types) == 1 else None,
+                            plex=plex, section=sections[0] if len(sections) == 1 else None)
+        refs, errors = resolve(cfg.sources, ctx, cfg.item_limit)
+        indexes = [(s, library_index(plex, s)) for s in sections]
+    result = SyncResult()
+    matched, _ = match_refs(cfg, refs, indexes, result)
+    details = {rk: (index, index.details.get(rk, {})) for _, index in indexes for rk in index.details}
+    items = []
+    for rk in desired_order(cfg, matched):
+        index, info = details.get(rk, (None, {}))
+        items.append({"ratingKey": rk, "title": index.titles.get(rk, "") if index else "",
+                      "year": info.get("year"), "type": info.get("type"), "thumb": info.get("thumb"),
+                      "episodes": None, "watched": False})
+    return {"items": items, "missing": len(result.missing), "errors": errors}
+
+
 def desired_order(cfg: CollectionConfig, matched: list[str]) -> list[str]:
     """``matched`` with the order dragged on the View page applied first."""
     if not cfg.manual_order:

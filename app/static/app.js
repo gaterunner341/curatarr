@@ -417,6 +417,13 @@ async function collectionItems({ id = null, ratingKey = null, playlist = false, 
   document.querySelector(`[data-nav="${back.slice(2)}"]`)?.classList.add("active");
 
   const watched = items.filter((i) => i.watched).length;
+  // Poster overlays on this collection: how many posters have them so far.
+  const wantsOverlay = row && (row.config.ribbon?.enabled || row.config.badges?.quality || row.config.badges?.rating);
+  const overlaid = items.filter((i) => i.overlay).length;
+  const overlayLine = wantsOverlay && inPlex && items.length ? `<p class="small muted" style="margin-top:-8px">
+    <span class="overlay-dot"></span>Poster overlays on <strong>${overlaid}</strong> of ${items.length} posters${overlaid < items.length
+      ? " (the rest are drawn at the next sync; titles with nothing to show, such as no rating, are left alone)" : ""}.
+    The posters below are the ones in Plex.</p>` : "";
   // Arranging by hand works for playlists and collections in list order.
   const canArrange = row && items.length > 1 && (playlist || row.config.order === "custom");
   const tile = (i) => `
@@ -427,7 +434,7 @@ async function collectionItems({ id = null, ratingKey = null, playlist = false, 
         ${row ? `<button type="button" class="item-exclude" data-exclude="${esc(i.ratingKey)}" data-title="${esc(i.title)}"
           title="Remove and keep out of this collection">✕</button>` : ""}
       </div>
-      <div class="item-title" title="${esc(i.title)}">${esc(i.title)}</div>
+      <div class="item-title" title="${esc(i.title)}">${i.overlay ? `<span class="overlay-dot" title="Has a Curatarr poster overlay"></span>` : ""}${esc(i.title)}</div>
       <div class="small muted">${esc(i.year || "")}${i.episodes ? ` · ${i.episodes} episode${i.episodes === 1 ? "" : "s"}` : ""}</div>
     </div>`;
 
@@ -454,6 +461,7 @@ async function collectionItems({ id = null, ratingKey = null, playlist = false, 
       <a href="#/history">details</a>
       <button type="button" class="small" id="undo" style="margin-left:8px">${change.trigger === "undo" ? "Redo" : "Undo"} this change</button>
     </div>` : ""}
+    ${overlayLine}
     <div id="missingOut"></div>
     ${inPlex ? `
       <div class="row" style="margin-bottom:16px">
@@ -469,10 +477,13 @@ async function collectionItems({ id = null, ratingKey = null, playlist = false, 
       <p class="hint arrange-tools" hidden style="margin-top:-8px">Drag titles into the order you want, then click <strong>Save order</strong>.
         New titles from your lists are added at the end.</p>
       ${items.length ? `<div class="items">${items.map(tile).join("")}</div>` : `<div class="card empty">This ${playlist ? "playlist" : "collection"} is empty in Plex.</div>`}`
-    : `<div class="card empty">
-        <p>This ${playlist ? "playlist" : "collection"} isn't in Plex right now.</p>
-        <p class="small">${row?.config.seasonal_only ? "It's only in Plex during its dates." : "It's created in Plex on its next sync."}</p>
-      </div>`}`;
+    : `<div class="notice">
+        This ${playlist ? "playlist" : "collection"} isn't in Plex right now.
+        ${row?.config.seasonal_only ? "It's only in Plex during its dates." : "It's created in Plex on its next sync."}
+        Below are the titles from your library it will have.
+      </div>
+      <div id="planned"><p class="muted">Fetching lists and matching against Plex…</p></div>`}`;
+  if (!inPlex && row) loadPlanned(row, tile);
 
   const filter = view.querySelector("#itemFilter");
   if (filter) filter.oninput = () => {
@@ -558,6 +569,29 @@ async function collectionItems({ id = null, ratingKey = null, playlist = false, 
       e.target.disabled = false;
     }
   });
+}
+
+// The titles an off-season (or not yet created) collection will have.
+async function loadPlanned(row, tile) {
+  const el = view.querySelector("#planned");
+  try {
+    const p = await api("GET", `/collections/${row.id}/planned`);
+    el.innerHTML = `
+      ${p.errors.map((e) => `<p class="no small">${esc(e)}</p>`).join("")}
+      <p class="small muted">${p.items.length} title${p.items.length === 1 ? "" : "s"} from your library${p.missing
+        ? `, plus ${p.missing} not in your library (see <strong>Show missing titles</strong>)` : ""}.</p>
+      ${p.items.length ? `<div class="items">${p.items.map(tile).join("")}</div>` : `<div class="card empty">None of its titles are in your library yet.</div>`}`;
+    el.querySelectorAll("[data-exclude]").forEach((b) => b.onclick = () => guard(async () => {
+      if (!confirm(`Keep "${b.dataset.title}" out of this collection?
+
+You can allow it again in the collection's settings.`)) return;
+      await api("POST", `/collections/${row.id}/exclude`, { id: `plex:${b.dataset.exclude}`, title: b.dataset.title });
+      b.closest(".item").remove();
+      toast(`Excluded "${b.dataset.title}"`);
+    }));
+  } catch (err) {
+    el.innerHTML = `<p class="no">${esc(err.message)}</p>`;
+  }
 }
 
 // Drag-and-drop ordering on the View page.
