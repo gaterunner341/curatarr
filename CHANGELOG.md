@@ -3,6 +3,11 @@
 The version shown in the web UI's sidebar matches these entries. Each
 release is also published as `ghcr.io/gaterunner341/curatarr:<version>`.
 
+## 0.13.4
+
+- **Ribbons can go in any corner:** bottom right and bottom left join top right and top left.
+- When a ribbon is in a bottom corner, the badges on that side move inward along the bottom edge to clear it. If the rating badge then doesn't fit beside the quality badges, it moves up one row. Posters with top-corner ribbons look the same as before.
+
 ## 0.13.3
 
 - **See background work as it happens:** the top bar shows what's running on every page.

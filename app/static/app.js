@@ -1056,7 +1056,9 @@ async function editor(id, params = new URLSearchParams()) {
             value="${esc(cfg.ribbon?.text || "")}" placeholder="${esc(cfg.name.replace(/^!\d+_/, "").replace(/ Collection$/i, "").toUpperCase() || "TOP 250")}"></div>
           <div><label for="r-corner">Corner</label><select id="r-corner">
             <option value="top-right" ${cfg.ribbon?.corner !== "top-left" ? "selected" : ""}>Top right</option>
-            <option value="top-left" ${cfg.ribbon?.corner === "top-left" ? "selected" : ""}>Top left</option></select></div>
+            <option value="top-left" ${cfg.ribbon?.corner === "top-left" ? "selected" : ""}>Top left</option>
+            <option value="bottom-right" ${cfg.ribbon?.corner === "bottom-right" ? "selected" : ""}>Bottom right</option>
+            <option value="bottom-left" ${cfg.ribbon?.corner === "bottom-left" ? "selected" : ""}>Bottom left</option></select></div>
           <div><label for="r-color">Ribbon colour</label><input type="color" id="r-color" value="${esc(cfg.ribbon?.color || "#f5c518")}"></div>
           <div><label for="r-tcolor">Text colour</label><input type="color" id="r-tcolor" value="${esc(cfg.ribbon?.text_color || "#000000")}"></div>
           <div class="full"><label class="check"><input type="checkbox" id="b-quality" ${cfg.badges?.quality ? "checked" : ""}>

@@ -63,7 +63,7 @@ class Ribbon(BaseModel):
     text: str = Field(default="", max_length=40)
     color: str = Field(default="#f5c518", pattern=HEX_COLOR)
     text_color: str = Field(default="#000000", pattern=HEX_COLOR)
-    corner: Literal["top-right", "top-left"] = "top-right"
+    corner: Literal["top-right", "top-left", "bottom-right", "bottom-left"] = "top-right"
 
     @field_validator("text")
     @classmethod

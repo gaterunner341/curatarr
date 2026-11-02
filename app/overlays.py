@@ -42,8 +42,16 @@ class OverlayError(Exception):
 
 # --- drawing -------------------------------------------------------------------------
 
-def _ribbon(img: Image.Image, spec: dict, slot: int) -> None:
-    """A diagonal band across a top corner; ``slot`` stacks ribbons sharing a corner."""
+# Rotation of the band, and which edges it crosses, for each corner. Text runs left to right.
+CORNERS = {"top-right": (-45, "right", "top"), "top-left": (45, "left", "top"),
+           "bottom-right": (45, "right", "bottom"), "bottom-left": (-45, "left", "bottom")}
+
+
+def _ribbon(img: Image.Image, spec: dict, slot: int) -> float:
+    """A diagonal band across a corner; ``slot`` stacks ribbons sharing a corner.
+
+    Returns how far from the corner, along each edge, the band's outer edge reaches.
+    """
     w, h = img.size
     thick = w * 0.10
     # Distance from the corner, along each edge, to where the band's middle crosses it.
@@ -65,28 +73,35 @@ def _ribbon(img: Image.Image, spec: dict, slot: int) -> None:
                 break
             size -= 2
         draw.text((length / 2, thick / 2), text, font=fnt, fill=hex_rgb(spec["text_color"]), anchor="mm")
-    angle = -45 if spec["corner"] == "top-right" else 45
+    angle, side, end = CORNERS.get(spec["corner"], CORNERS["top-right"])
     band = strip.rotate(angle, expand=True, resample=Image.BICUBIC)
-    cx = w - reach / 2 if spec["corner"] == "top-right" else reach / 2
-    cy = reach / 2
+    cx = w - reach / 2 if side == "right" else reach / 2
+    cy = reach / 2 if end == "top" else h - reach / 2
     pos = (int(cx - band.width / 2), int(cy - band.height / 2))
     shadow = Image.new("RGBA", img.size, (0, 0, 0, 0))
     shadow.paste((0, 0, 0, 110), (pos[0], pos[1] + int(thick * 0.08)), band.getchannel("A"))
     img.alpha_composite(shadow.filter(ImageFilter.GaussianBlur(thick * 0.12)))
     img.alpha_composite(band, pos)
+    return reach + thick * 0.75          # the band's half-width, measured along an edge
 
 
 # Rating sources are shown as text in each site's colour, not with their logos.
 PROVIDERS = {"imdb": ("IMDb", "#f5c518"), "themoviedb": ("TMDB", "#01b4e4"), "rottentomatoes": ("RT", "#fa320a")}
 
 
-def _pill(img: Image.Image, x: float, y: float, h: float, parts: list[tuple[str, str]], right: bool = False) -> float:
-    """A rounded dark badge with coloured text parts; returns its width. ``right`` anchors x at its right edge."""
+def _pill(img: Image.Image, x: float, y: float, h: float, parts: list[tuple[str, str]], right: bool = False,
+          measure: bool = False) -> float:
+    """A rounded dark badge with coloured text parts; returns its width.
+
+    ``right`` anchors x at its right edge; ``measure`` only returns the width.
+    """
     draw = ImageDraw.Draw(img)
     fnt = font(RIBBON_FONTS, int(h * 0.56))
     gap = h * 0.22
     widths = [draw.textlength(text, font=fnt) for text, _ in parts]
     width = sum(widths) + gap * (len(parts) - 1) + h * 0.8
+    if measure:
+        return width
     left = x - width if right else x
     layer = Image.new("RGBA", img.size, (0, 0, 0, 0))
     ImageDraw.Draw(layer).rounded_rectangle([left, y, left + width, y + h], radius=h * 0.28, fill=(10, 10, 12, 215),
@@ -99,19 +114,31 @@ def _pill(img: Image.Image, x: float, y: float, h: float, parts: list[tuple[str,
     return width
 
 
-def _badges(img: Image.Image, spec: dict) -> None:
-    """Quality badges along the bottom left, the rating badge at the bottom right."""
+def _badges(img: Image.Image, spec: dict, clear: dict[str, float] | None = None) -> None:
+    """Quality badges along the bottom left, the rating badge at the bottom right.
+
+    ``clear`` is how far a ribbon in a bottom corner reaches along the bottom
+    edge on each side; that side's badges move inward past it.
+    """
     w, h = img.size
+    clear = clear or {}
     pill = w * 0.075
     margin = w * 0.04
     y = h - margin - pill
-    x = margin
+    # A badge's bottom sits ``margin`` above the edge, so it clears the band that much sooner.
+    x = max(margin, clear.get("left", 0) - margin)
     for label in spec.get("quality") or []:
         x += _pill(img, x, y, pill, [(label, "#ffffff")]) + pill * 0.25
     rating = spec.get("rating")
     if rating:
         name, color = PROVIDERS.get(rating["source"], (rating["source"], "#ffffff"))
-        _pill(img, w - margin, y, pill, [(name, color), (rating["value"], "#ffffff")], right=True)
+        parts = [(name, color), (rating["value"], "#ffffff")]
+        right = w - max(margin, clear.get("right", 0) - margin)
+        if right - _pill(img, 0, 0, pill, parts, measure=True) < x:
+            # No room beside the quality badges: one row up, where a ribbon needs less room.
+            y -= pill * 1.3
+            right = w - max(margin, clear.get("right", 0) - margin - pill * 1.3)
+        _pill(img, right, y, pill, parts, right=True)
 
 
 def render(original: bytes, specs: list[dict]) -> bytes:
@@ -123,13 +150,16 @@ def render(original: bytes, specs: list[dict]) -> bytes:
     if img.width != W:
         img = img.resize((W, round(img.height * W / img.width)), Image.LANCZOS)
     corners: dict[str, int] = {}
-    for spec in specs:
-        if spec["kind"] == "ribbon":
-            slot = corners.get(spec["corner"], 0)
-            corners[spec["corner"]] = slot + 1
-            _ribbon(img, spec, slot)
-        elif spec["kind"] == "badges":
-            _badges(img, spec)
+    clear: dict[str, float] = {}      # how far bottom-corner ribbons reach along the bottom edge
+    for spec in (s for s in specs if s["kind"] == "ribbon"):
+        slot = corners.get(spec["corner"], 0)
+        corners[spec["corner"]] = slot + 1
+        reach = _ribbon(img, spec, slot)
+        _, side, end = CORNERS.get(spec["corner"], CORNERS["top-right"])
+        if end == "bottom":
+            clear[side] = max(clear.get(side, 0), reach)
+    for spec in (s for s in specs if s["kind"] == "badges"):
+        _badges(img, spec, clear)
     out = io.BytesIO()
     img.convert("RGB").save(out, "JPEG", quality=92, optimize=True)
     return out.getvalue()

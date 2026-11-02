@@ -1136,3 +1136,16 @@ def test_rating_badge_falls_back_to_detail_metadata():
              "item": {"ratingKey": "7", "title": "Inception"}, "type": "movie"}
     specs, _, _ = overlays._specs(plex, "7", entry, None)
     assert specs == [{"kind": "badges", "quality": [], "rating": {"source": "imdb", "value": "8.8"}}]
+
+
+def test_ribbons_in_every_corner():
+    from app import overlays
+    from app.models import Ribbon
+    for corner in ("top-right", "top-left", "bottom-right", "bottom-left"):
+        Ribbon(enabled=True, text="X", corner=corner)
+        out = overlays.render(overlays.sample_poster(), [
+            {"kind": "ribbon", "text": "TOP 250", "color": "#f5c518", "text_color": "#000000", "corner": corner},
+            {"kind": "badges", "quality": ["4K", "DV", "ATMOS"], "rating": {"source": "imdb", "value": "8.4"}}])
+        assert out.startswith(bytes([0xFF, 0xD8]))
+    with pytest.raises(ValueError):
+        Ribbon(corner="middle")
