@@ -1283,3 +1283,42 @@ def test_napalm_turns_off_overlays_and_keeps_fresh_posters(monkeypatch):
     assert "3" in rows                  # no source poster: left for the overlay pass to restore its original
     db.delete_overlay("3")
     overlays._original_path("3").unlink(missing_ok=True)
+
+
+class FakeLibraryOverlayPlex(FakeOverlayPlex):
+    """FakeOverlayPlex plus a Movies library listing with content ratings."""
+
+    def handle_request(self, request):
+        path, method = request.url.path, request.method
+        mc = lambda body: httpx.Response(200, json={"MediaContainer": body})  # noqa: E731
+        if path == "/library/sections":
+            return mc({"Directory": [{"key": "1", "title": "Movies", "type": "movie"}]})
+        if path == "/library/sections/1/all" and method == "GET":
+            return mc({"totalSize": 2, "Metadata": [{"ratingKey": rk, "title": f"T{rk}", "type": "movie",
+                                                     "contentRating": "PG-13" if rk == "1" else "R",
+                                                     "thumb": self.thumb(rk)} for rk in self.version]})
+        return super().handle_request(request)
+
+
+def test_library_wide_badges(monkeypatch):
+    from app import overlays, plex as plexmod
+    for row in db.list_collections():
+        db.delete_collection(row["id"])
+    fake = FakeLibraryOverlayPlex()
+    monkeypatch.setattr(plexmod, "from_settings", lambda *a, **k: Plex("http://plex", "t", client=httpx.Client(transport=fake)))
+    assert not overlays.needed()
+    overlays.save_library_settings({"1": {"content_rating": True}, "9": {}})
+    assert overlays.library_settings() == {"1": {"quality": False, "content_rating": True, "rating": "", "rating_min": 0}}
+    assert overlays.apply_all()["drawn"] == 2
+    assert fake.posters["1"] != fake.original["1"] and len(db.overlay_rows()) == 2
+
+    # A collection with a ribbon on title 1: combined with the library badge, one redraw.
+    cid = db.create_collection({"name": "Mix", "library": "Movies", "section_id": "1",
+                                "sources": [{"type": "static", "value": "x"}], "ribbon": {"enabled": True, "text": "MIX"}})
+    db.update_collection_state(cid, plex_rating_key="100")
+    assert overlays.apply_all()["drawn"] == 2          # the fake collection holds both titles
+
+    db.delete_collection(cid)
+    overlays.save_library_settings({})
+    assert overlays.apply_all()["restored"] == 2
+    assert fake.posters["1"] == fake.original["1"] and db.overlay_rows() == {}

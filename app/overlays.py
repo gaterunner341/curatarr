@@ -245,11 +245,48 @@ def uses_overlays(cfg: CollectionConfig) -> bool:
     return bool(ribbon_spec(cfg) or badge_settings(cfg) or (cfg.kind == "collection" and cfg.fresh_poster))
 
 
+# --- whole-library badges ------------------------------------------------------------
+# Stored in the "library_overlays" setting: {section id: Badges settings}.
+
+def library_settings() -> dict[str, dict]:
+    """Badge settings for whole libraries, keeping only libraries with something turned on."""
+    from .models import Badges
+    try:
+        saved = json.loads(db.get_settings().get("library_overlays") or "{}")
+    except ValueError:
+        return {}
+    out = {}
+    for section_id, raw in (saved.items() if isinstance(saved, dict) else []):
+        try:
+            badges = Badges(**raw).model_dump()
+        except (TypeError, ValueError):
+            continue
+        if badges["quality"] or badges["rating"] or badges["content_rating"]:
+            out[str(section_id)] = badges
+    return out
+
+
+def save_library_settings(settings: dict[str, dict]) -> dict[str, dict]:
+    from .models import Badges
+    clean = {str(k): Badges(**v).model_dump() for k, v in settings.items()}
+    db.save_settings({"library_overlays": json.dumps(clean)})
+    return library_settings()
+
+
 def needed() -> bool:
     """Whether an overlay pass has anything to do (overlays wanted, or ones to remove)."""
-    if db.overlay_rows():
+    if db.overlay_rows() or library_settings():
         return True
     return any(uses_overlays(CollectionConfig(**r["config"])) for r in db.list_collections())
+
+
+def _merge_badges(entry: dict, badges: dict) -> None:
+    merged = entry["badges"] or {"quality": False, "content_rating": False, "rating": "", "rating_min": 0}
+    merged["quality"] = merged["quality"] or badges["quality"]
+    merged["content_rating"] = merged["content_rating"] or badges["content_rating"]
+    if badges["rating"] and not merged["rating"]:      # the first choice wins
+        merged["rating"], merged["rating_min"] = badges["rating"], badges["rating_min"]
+    entry["badges"] = merged
 
 
 RESOLUTIONS = {"4k": "4K", "2160": "4K", "1080": "1080P", "720": "720P", "576": "SD", "480": "SD", "sd": "SD"}
@@ -324,12 +361,21 @@ def _wanted(plex: Plex) -> dict[str, dict]:
             if ribbon:
                 entry["ribbons"].append({**ribbon, "collection": row["id"]})
             if badges:
-                merged = entry["badges"] or {"quality": False, "content_rating": False, "rating": "", "rating_min": 0}
-                merged["quality"] = merged["quality"] or badges["quality"]
-                merged["content_rating"] = merged["content_rating"] or badges["content_rating"]
-                if badges["rating"] and not merged["rating"]:      # the first collection's choice wins
-                    merged["rating"], merged["rating_min"] = badges["rating"], badges["rating_min"]
-                entry["badges"] = merged
+                _merge_badges(entry, badges)
+    # Whole libraries: every movie or show in them gets the library's badges too.
+    libraries = library_settings()
+    if libraries:
+        for section in plex.sections():
+            badges = libraries.get(section["id"])
+            if not badges:
+                continue
+            progress.update(phase=f"Checking {section['title']}")
+            for item in plex.section_items(section["id"], section["type"]):
+                rk = str(item["ratingKey"])
+                entry = wanted.setdefault(rk, {
+                    "ribbons": [], "badges": None, "fresh": False, "item": item, "section_id": section["id"],
+                    "type": item.get("type") or section["type"], "thumb": item.get("thumb") or ""})
+                _merge_badges(entry, badges)
     return wanted
 
 

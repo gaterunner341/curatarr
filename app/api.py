@@ -750,6 +750,7 @@ def overlay_apply(remove_all: bool = False):
     from . import overlays
     if remove_all:
         # Turn ribbons and badges off too, or the next sync would draw them again.
+        overlays.save_library_settings({})
         for row in db.list_collections():
             cfg = CollectionConfig(**row["config"])
             if cfg.ribbon.enabled or cfg.badges.quality or cfg.badges.rating or cfg.badges.content_rating \
@@ -765,6 +766,24 @@ def overlay_apply(remove_all: bool = False):
 def overlay_fonts():
     from . import overlays
     return overlays.available_fonts()
+
+
+@router.get("/overlays/libraries")
+def overlay_libraries():
+    """Whole-library badge settings: {section id: {quality, content_rating, rating, rating_min}}."""
+    from . import overlays
+    return overlays.library_settings()
+
+
+@router.put("/overlays/libraries")
+def overlay_libraries_save(body: dict = Body(...)):
+    from . import overlays
+    try:
+        saved = overlays.save_library_settings(body)
+    except (ValidationError, TypeError, ValueError) as exc:
+        raise HTTPException(422, str(exc))
+    scheduler.run_task(sync.run_overlays, "Poster overlays")     # draw or remove them now
+    return saved
 
 
 @router.post("/overlays/preview")
@@ -789,11 +808,19 @@ def overlay_preview(body: dict = Body(...)):
     has_sample = bool(sample["quality"] or sample["rating"] or sample["content_rating"])
     fresh = bool(body.get("fresh_poster"))
     row = db.get_collection(int(body["collection_id"])) if body.get("collection_id") else None
+    section = str(body.get("section_id") or "")
     try:
-        if row and row.get("plex_rating_key"):
+        if (row and row.get("plex_rating_key")) or section:
             with _plex() as plex:
                 try:
-                    items = plex.collection_raw(row["plex_rating_key"])
+                    if row and row.get("plex_rating_key"):
+                        items = plex.collection_raw(row["plex_rating_key"])
+                    else:                    # a library: its first title with a poster
+                        stype = next((s["type"] for s in plex.sections() if s["id"] == section), "movie")
+                        page = plex._request("GET", f"/library/sections/{section}/all", params={
+                            "type": plexmod.SECTION_TYPES.get(stype, 1), "X-Plex-Container-Start": 0,
+                            "X-Plex-Container-Size": 20})
+                        items = [i for i in page.get("Metadata") or [] if i.get("thumb")][:1]
                 except PlexError:
                     items = []
                 specs = list(ribbons)

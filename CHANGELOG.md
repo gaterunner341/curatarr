@@ -3,6 +3,15 @@
 The version shown in the web UI's sidebar matches these entries. Each
 release is also published as `ghcr.io/gaterunner341/curatarr:<version>`.
 
+## 0.16.0
+
+- **Badges for whole libraries:** in **Settings → Poster overlays → Whole libraries**, give every movie or show in a library a content rating badge, plus quality badges (movies) and a rating badge if you like. It isn't limited to titles in a collection.
+  - **Preview** shows a library's first title with its badges. **Save library badges** asks before drawing on a library for the first time.
+  - Uses the same engine as collection overlays: original posters are kept and put back when a library is turned off, and progress shows in the top bar.
+  - A title also in a collection with badges or a ribbon gets them combined on one poster.
+  - The first update on a big library takes a while, at one poster per title (roughly an hour for 5,000 titles). After that, only changed titles are redrawn.
+- Napalm and **Remove all overlays** turn off library-wide badges too. Napalm lists them among what it turns off.
+
 ## 0.15.4
 
 - **Napalm shows how many titles each library has.** Tick a library and its count appears next to it (e.g. "MoviesSpecial (Movies) · 651 movies"). A summary line totals the libraries you picked, like "651 movies and 120 TV shows will be checked". Only titles not already on their fresh poster change.

@@ -25,11 +25,14 @@ progress: dict = {"running": False, "done": 0, "total": 0, "changed": 0, "unchan
 
 
 def affected(section_ids: list[str]) -> list[dict]:
-    """Collections in these libraries whose poster overlays napalm turns off: [{id, name, library}]."""
+    """Collections in these libraries whose poster overlays napalm turns off: [{id, name, library}].
+
+    A library with library-wide badges is listed too, with id None.
+    """
     from .models import CollectionConfig
-    from .overlays import uses_overlays
+    from .overlays import library_settings, uses_overlays
     wanted = {str(s) for s in section_ids}
-    out = []
+    out = [{"id": None, "name": "Library-wide badges", "library": sid} for sid in library_settings() if sid in wanted]
     for row in db.list_collections():
         cfg = CollectionConfig(**row["config"])
         if cfg.kind == "collection" and str(cfg.section_id) in wanted and uses_overlays(cfg):
@@ -44,10 +47,19 @@ def counts(section_ids: list[str]) -> list[dict]:
 
 
 def _overlays_off(section_ids: list[str]) -> list[dict]:
-    """Turn off ribbons, badges and fresh posters on the collections in these libraries."""
+    """Turn off ribbons, badges and fresh posters on the collections in these libraries,
+    and the whole-library badges of these libraries."""
     from .models import CollectionConfig
+    from .overlays import library_settings, save_library_settings
+    libraries = library_settings()
+    hit = [s for s in libraries if s in {str(x) for x in section_ids}]
+    if hit:
+        save_library_settings({k: v for k, v in libraries.items() if k not in hit})
+        log.info("Napalm: turned off library-wide badges on %d librar%s", len(hit), "y" if len(hit) == 1 else "ies")
     collections = affected(section_ids)
     for c in collections:
+        if c["id"] is None:          # the library-wide badges, turned off above
+            continue
         cfg = CollectionConfig(**db.get_collection(c["id"])["config"])
         cfg.ribbon.enabled = False
         cfg.badges.quality = cfg.badges.content_rating = False

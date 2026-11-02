@@ -1833,6 +1833,7 @@ async function overlayCard(card) {
       <button type="button" id="ovApply">Update overlays now</button>
       <button type="button" class="danger" id="ovRemove" ${o.posters ? "" : "disabled"}>Remove all overlays</button>
     </div>`;
+  libraryBadges(card);
   card.querySelector("#ovApply").onclick = () => guard(async () => {
     await api("POST", "/overlays/apply");
     toast("Updating overlays in the background; see Logs for progress");
@@ -1842,6 +1843,75 @@ async function overlayCard(card) {
     await api("POST", "/overlays/apply?remove_all=true");
     toast("Restoring original posters in the background");
   });
+}
+
+// Badges on every movie or show in a library, not just those in a collection.
+async function libraryBadges(card) {
+  const [libs, saved] = await Promise.all([libraries().catch(() => []), api("GET", "/overlays/libraries").catch(() => ({}))]);
+  if (!libs.length) return;
+  const box = document.createElement("div");
+  box.className = "library-badges";
+  const row = (l) => {
+    const b = saved[l.id] || {};
+    return `
+      <div class="library-badge" data-lib="${esc(l.id)}">
+        <div class="lib-name"><strong>${esc(l.title)}</strong> <span class="muted small">(${l.type === "show" ? "TV" : "Movies"})</span></div>
+        <label class="check"><input type="checkbox" data-k="content_rating" ${b.content_rating ? "checked" : ""}> Content rating</label>
+        ${l.type === "movie" ? `<label class="check"><input type="checkbox" data-k="quality" ${b.quality ? "checked" : ""}> Quality</label>` : ""}
+        <select data-k="rating" title="Rating badge">
+          <option value="">No rating badge</option>
+          <option value="audience" ${b.rating === "audience" ? "selected" : ""}>Audience rating</option>
+          <option value="critic" ${b.rating === "critic" ? "selected" : ""}>Critic rating</option></select>
+        <button type="button" class="small" data-lib-preview>Preview</button>
+      </div>`;
+  };
+  box.innerHTML = `
+    <h3 style="margin:18px 0 6px">Whole libraries</h3>
+    <p class="hint" style="margin-top:0">Badges on <strong>every</strong> movie or show in a library, not just those in a collection.
+      Titles also in a collection with badges get them combined, not twice.
+      The first update draws one poster per title, which takes a while for a big library (roughly an hour for 5,000 titles);
+      progress shows in the top bar. Turning a library off puts its original posters back.</p>
+    ${libs.map(row).join("")}
+    <div class="row" style="margin-top:10px"><button type="button" class="primary" id="libSave">Save library badges</button>
+      <div class="overlay-preview image-box" id="libPreview" hidden></div></div>`;
+  card.appendChild(box);
+  const read = (el) => ({
+    content_rating: el.querySelector('[data-k="content_rating"]').checked,
+    quality: Boolean(el.querySelector('[data-k="quality"]')?.checked),
+    rating: el.querySelector('[data-k="rating"]').value, rating_min: 0,
+  });
+  box.querySelectorAll("[data-lib-preview]").forEach((b) => b.onclick = () => guard(async () => {
+    const el = b.closest("[data-lib]");
+    const out = box.querySelector("#libPreview");
+    out.hidden = false;
+    out.textContent = "…";
+    const resp = await api("POST", "/overlays/preview", { badges: read(el), section_id: el.dataset.lib }, true);
+    if (!resp.ok) { out.textContent = "▦"; throw new Error(`Preview failed (HTTP ${resp.status})`); }
+    out.innerHTML = `<img src="${URL.createObjectURL(await resp.blob())}" alt="Badge preview">`;
+  }));
+  box.querySelector("#libSave").onclick = () => guard(async () => {
+    const body = {};
+    box.querySelectorAll("[data-lib]").forEach((el) => {
+      const b = read(el);
+      if (b.content_rating || b.quality || b.rating) body[el.dataset.lib] = b;
+    });
+    const added = Object.keys(body).filter((k) => !saved[k]);
+    if (added.length && !confirm(`Draw badges on every title in ${libs.filter((l) => added.includes(l.id)).map((l) => l.title).join(", ")}?\n\n`
+      + "Each title's poster is redrawn, which takes a while for big libraries. The original posters are kept and put back if you turn this off.")) return;
+    Object.assign(saved, body);
+    Object.keys(saved).forEach((k) => { if (!body[k]) delete saved[k]; });
+    await api("PUT", "/overlays/libraries", body);
+    toast("Library badges saved. Posters update in the background; progress is in the top bar.");
+  });
+}
+
+// What napalm turns off: a collection, or a library's library-wide badges (id null).
+function napalmTarget(c, libs) {
+  if (c.id === null || c.id === undefined) {
+    const lib = (libs || []).find((l) => l.id === c.library);
+    return `Library-wide badges <span class="muted">(${esc(lib?.title || c.library)})</span>`;
+  }
+  return `<a href="#/collections/${c.id}">${esc(c.name)}</a> <span class="muted">(${esc(c.library)})</span>`;
 }
 
 // "I love the smell of napalm in the morning": a fresh poster for every title.
@@ -1903,7 +1973,7 @@ async function napalmCard(card) {
       <p style="margin:10px 0 0"><strong>${total || "No titles"}</strong> will be checked. Only titles not already on their fresh poster change.</p>
       ${r.collections.length
         ? `<div class="notice" style="margin:10px 0 0">Poster overlays will be turned off on: ${r.collections.map((c) =>
-            `<a href="#/collections/${c.id}">${esc(c.name)}</a> <span class="muted">(${esc(c.library)})</span>`).join(", ")}.</div>`
+            napalmTarget(c, libs)).join(", ")}.</div>`
         : `<p class="muted" style="margin:6px 0 0">No collections in these libraries have poster overlays.</p>`}`;
   };
   napalmLastRun(card.querySelector("#napalmLast"));
@@ -1967,7 +2037,7 @@ async function napalmLastRun(el) {
     <strong>Last refresh</strong> (${esc(when(n.finished))}): ${n.changed} poster(s) changed, ${n.unchanged} already fresh,
     ${n.no_poster} without a source poster${n.errors ? `, ${n.errors} failed` : ""}.
     ${n.overlays_off.length ? `<br>Poster overlays were turned off on: ${n.overlays_off.map((c) =>
-      `<a href="#/collections/${c.id}">${esc(c.name)}</a> <span class="muted">(${esc(c.library)})</span>`).join(", ")}.` : ""}</div>`;
+      napalmTarget(c, state.libraries)).join(", ")}.` : ""}</div>`;
 }
 
 async function plexCard(card, values, editing = false) {
