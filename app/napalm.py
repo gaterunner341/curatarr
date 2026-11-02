@@ -81,32 +81,48 @@ def _image_url(path: str) -> str:
     return f"/api/plex/image?path={quote(path, safe='')}" if path.startswith("/") else path
 
 
-def preview(section_ids: list[str], count: int = 8) -> list[dict]:
-    """A random sample of titles with their current poster and the one they'd get."""
+def preview(section_ids: list[str], count: int = 8, max_checks: int = 30) -> list[dict]:
+    """Titles with their current poster and the one they'd get, preferring ones that would change.
+
+    Titles with Curatarr overlays come first, then random others. Up to ``max_checks``
+    titles are looked at to find ``count`` that would change; if fewer would, the rest of
+    the sample is titles that keep their poster.
+    """
     from .sync import library_index
+    overlaid = set(db.overlay_rows())
     with plexmod.from_settings(db.get_settings()) as plex:
         candidates = []
         for section in _sections(plex, section_ids):
             index = library_index(plex, section)
             candidates += [(rk, index) for rk in index.details]
-        out = []
-        for rk, index in random.sample(candidates, min(count, len(candidates))):
+        random.shuffle(candidates)
+        candidates.sort(key=lambda c: c[0] not in overlaid)      # overlaid titles first (stable sort)
+        changes, others = [], []
+        for rk, index in candidates[:max_checks]:
+            if len(changes) >= count:
+                break
             info = index.details.get(rk, {})
             entry = {"ratingKey": rk, "title": index.titles.get(rk, ""), "year": info.get("year"),
-                     "current": _image_url(info["thumb"]) if info.get("thumb") else "", "fresh": "", "status": ""}
+                     "current": _image_url(info["thumb"]) if info.get("thumb") else "", "fresh": "", "status": "",
+                     "overlay": rk in overlaid}
             try:
                 fresh = plex.fresh_choice(rk)
             except PlexError as exc:
                 entry["status"] = f"error: {exc}"
-                out.append(entry)
+                others.append(entry)
                 continue
             if not fresh:
                 entry["status"] = "no poster-shaped image from Plex's sources; it keeps its current one"
+                others.append(entry)
+            elif _selected(fresh):
+                entry["fresh"] = _image_url(fresh.get("thumb") or fresh["key"])
+                entry["status"] = "already using it"
+                others.append(entry)
             else:
                 entry["fresh"] = _image_url(fresh.get("thumb") or fresh["key"])
-                entry["status"] = "already using it" if _selected(fresh) else "changes"
-            out.append(entry)
-        return out
+                entry["status"] = "changes"
+                changes.append(entry)
+        return changes + others[:max(0, count - len(changes))]
 
 
 def stop() -> None:

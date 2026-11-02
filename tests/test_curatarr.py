@@ -1206,7 +1206,12 @@ def test_napalm_refreshes_posters(monkeypatch):
     assert not napalm.progress["running"] and result["done"] == 3
 
     sync_mod.clear_index_cache()
-    sample = {s["ratingKey"]: s for s in napalm.preview(["1"])}
+    fake.selected.clear()
+    fake.posters["1"][0]["selected"], fake.posters["1"][2]["selected"] = 1, 0
+    ordered = napalm.preview(["1"])
+    assert ordered[0]["ratingKey"] == "1" and ordered[0]["status"] == "changes"     # changes come first
+    assert len(napalm.preview(["1"], count=1)) == 1
+    sample = {s["ratingKey"]: s for s in ordered}
     assert sample["1"]["status"] == "changes" and sample["1"]["fresh"] == "https://image.tmdb.org/t/p/w300/one.jpg"
     assert sample["1"]["current"].startswith("/api/plex/image?path=")
     assert sample["2"]["status"] == "already using it" and "no poster" in sample["3"]["status"]

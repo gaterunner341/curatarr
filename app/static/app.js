@@ -1905,7 +1905,10 @@ async function napalmCard(card) {
       picked().forEach((s) => params.append("section", s));
       const sample = await api("GET", `/napalm/preview?${params}`);
       out.innerHTML = `
-        <p class="small muted">${sample.length} random titles: current poster on the left, the one it would get on the right.
+        <p class="small muted">${sample.filter((s) => s.status === "changes").length
+          ? "Titles whose poster would change, starting with ones that have Curatarr overlays"
+          : "No titles that would change turned up in this sample"}: current poster on the left, the one it would get on the right.
+          ${sample.some((s) => s.status !== "changes") ? "Titles that keep their poster are shown last." : ""}
           Click <strong>Preview</strong> again for others.</p>
         <div class="napalm-grid">${sample.map((s) => `
           <div class="napalm-pair">
@@ -1915,7 +1918,8 @@ async function napalmCard(card) {
               <div class="item-poster">${s.fresh ? `<img loading="lazy" src="${esc(s.fresh)}" alt="Fresh poster" referrerpolicy="no-referrer">` : "—"}</div>
             </div>
             <div class="item-title" title="${esc(s.title)}">${esc(s.title)}${s.year ? ` <span class="muted">(${esc(s.year)})</span>` : ""}</div>
-            <div class="small ${s.status === "changes" ? "" : "muted"}">${s.status === "changes" ? "Gets the new poster" : esc(s.status)}</div>
+            <div class="small ${s.status === "changes" ? "" : "muted"}">${s.status === "changes"
+              ? (s.overlay ? "Gets the new poster; its Curatarr overlay is removed" : "Gets the new poster") : esc(s.status)}</div>
           </div>`).join("")}</div>`;
     } catch (err) {
       out.innerHTML = `<p class="no">${esc(err.message)}</p>`;

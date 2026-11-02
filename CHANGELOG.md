@@ -3,6 +3,11 @@
 The version shown in the web UI's sidebar matches these entries. Each
 release is also published as `ghcr.io/gaterunner341/curatarr:<version>`.
 
+## 0.15.3
+
+- **Napalm's preview shows titles that would change.** Titles with Curatarr overlays come first, then random titles that would get a different poster. Titles that keep their poster only fill in when fewer than eight would change, and they're shown last.
+  - Titles with an overlay are marked "its Curatarr overlay is removed".
+
 ## 0.15.2
 
 - **Fixed:** napalm and the fresh-poster option could pick a wide image, such as a video frame, because Plex's sources sometimes offer those as posters. Each candidate is now checked, and only a properly shaped poster is used (between 1.25 and 1.8 times as tall as wide, like the usual 2:3). Titles with none keep their current poster.
