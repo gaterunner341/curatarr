@@ -742,6 +742,12 @@ def overlay_apply(remove_all: bool = False):
     return {"queued": True}
 
 
+@router.get("/overlays/fonts")
+def overlay_fonts():
+    from . import overlays
+    return overlays.available_fonts()
+
+
 @router.post("/overlays/preview")
 def overlay_preview(body: dict = Body(...)):
     """A poster with the ribbon and badges drawn on it.

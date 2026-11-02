@@ -1076,6 +1076,10 @@ async function editor(id, params = new URLSearchParams()) {
             <option value="top-left" ${cfg.ribbon?.corner === "top-left" ? "selected" : ""}>Top left</option>
             <option value="bottom-right" ${cfg.ribbon?.corner === "bottom-right" ? "selected" : ""}>Bottom right</option>
             <option value="bottom-left" ${cfg.ribbon?.corner === "bottom-left" ? "selected" : ""}>Bottom left</option></select></div>
+          <div><label for="r-size">Size</label><select id="r-size">${[["small", "Small"], ["medium", "Medium"],
+            ["large", "Large"], ["xlarge", "Extra large"]].map(([v, l]) =>
+            `<option value="${v}" ${(cfg.ribbon?.size || "medium") === v ? "selected" : ""}>${l}</option>`).join("")}</select></div>
+          <div><label for="r-font">Font</label><select id="r-font"><option value="${esc(cfg.ribbon?.font || "sans")}">…</option></select></div>
           <div><label for="r-color">Ribbon colour</label><input type="color" id="r-color" value="${esc(cfg.ribbon?.color || "#f5c518")}"></div>
           <div><label for="r-tcolor">Text colour</label><input type="color" id="r-tcolor" value="${esc(cfg.ribbon?.text_color || "#000000")}"></div>
           <div class="full"><label class="check"><input type="checkbox" id="b-quality" ${cfg.badges?.quality ? "checked" : ""}>
@@ -1195,6 +1199,8 @@ async function editor(id, params = new URLSearchParams()) {
     enabled: !isPlaylist && view.querySelector("#r-on").checked,
     text: view.querySelector("#r-text").value.trim() || view.querySelector("#r-text").placeholder,
     corner: view.querySelector("#r-corner").value,
+    size: view.querySelector("#r-size").value,
+    font: view.querySelector("#r-font").value,
     color: view.querySelector("#r-color").value,
     text_color: view.querySelector("#r-tcolor").value,
   });
@@ -1204,6 +1210,13 @@ async function editor(id, params = new URLSearchParams()) {
     rating: isPlaylist ? "" : view.querySelector("#b-rating").value,
     rating_min: Number(view.querySelector("#b-min").value || 0),
   });
+  // Ribbon fonts: only the ones installed on this server.
+  api("GET", "/overlays/fonts").then((fonts) => {
+    const select = view.querySelector("#r-font");
+    const current = cfg.ribbon?.font || "sans";
+    select.innerHTML = fonts.map((f) => `<option value="${esc(f.key)}" ${f.key === current ? "selected" : ""}>${esc(f.name)}</option>`).join("")
+      || `<option value="sans">Sans bold</option>`;
+  }).catch(() => {});
   view.querySelector("#r-preview").onclick = () => guard(async () => {
     const out = view.querySelector("#r-out");
     out.textContent = "…";

@@ -64,6 +64,8 @@ class Ribbon(BaseModel):
     color: str = Field(default="#f5c518", pattern=HEX_COLOR)
     text_color: str = Field(default="#000000", pattern=HEX_COLOR)
     corner: Literal["top-right", "top-left", "bottom-right", "bottom-left"] = "top-right"
+    size: Literal["small", "medium", "large", "xlarge"] = "medium"
+    font: Literal["sans", "condensed", "roboto", "open-sans", "lato", "serif", "mono"] = "sans"
 
     @field_validator("text")
     @classmethod

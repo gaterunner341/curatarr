@@ -1222,3 +1222,18 @@ def test_content_rating_badge_and_fresh_spec():
     assert specs == [{"kind": "fresh"}, {"kind": "badges", "quality": [], "rating": None, "content_rating": "TV-MA"}]
     drawn = overlays.render(overlays.sample_poster(), specs)
     assert drawn.startswith(bytes([0xFF, 0xD8]))
+
+
+def test_ribbon_sizes_and_fonts():
+    from app import overlays
+    from app.models import Ribbon
+    fonts = {f["key"] for f in overlays.available_fonts()}
+    assert "sans" in fonts
+    for size in ("small", "medium", "large", "xlarge"):
+        Ribbon(size=size)
+        out = overlays.render(overlays.sample_poster(), [{"kind": "ribbon", "text": "IMDb TOP 250", "color": "#f5c518",
+                                                          "text_color": "#000000", "corner": "top-left", "size": size,
+                                                          "font": "lato"}])      # falls back when not installed
+        assert out.startswith(bytes([0xFF, 0xD8]))
+    with pytest.raises(ValueError):
+        Ribbon(font="comic-sans")

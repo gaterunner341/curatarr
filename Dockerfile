@@ -15,8 +15,9 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PGID=1000 \
     TZ=Etc/UTC
 
-# DejaVu fonts draw the posters for holidays you add yourself.
-RUN apt-get update && apt-get install -y --no-install-recommends fonts-dejavu-core \
+# Free fonts for holiday posters and poster ribbons.
+RUN apt-get update && apt-get install -y --no-install-recommends fonts-dejavu-core fonts-liberation \
+       fonts-roboto-unhinted fonts-open-sans fonts-lato \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

@@ -24,8 +24,20 @@ log = logging.getLogger(__name__)
 
 LABEL = "Curatarr Overlay"        # on every title whose poster carries an overlay
 ORIGINALS = config.CONFIG_DIR / "overlays"
-RIBBON_FONTS = ["arialbd.ttf", "DejaVuSans-Bold.ttf", "segoeuib.ttf"]
-STYLE_VERSION = 1                 # bump when the drawing changes, so posters are redrawn
+RIBBON_FONTS = ["arialbd.ttf", "DejaVuSans-Bold.ttf", "segoeuib.ttf"]     # badges, and the "sans" ribbon font
+# Ribbon fonts: key -> (name, font files to look for). All are free fonts installed in the
+# Docker image; only the ones found are offered.
+FONTS = {
+    "sans": ("Sans bold", RIBBON_FONTS),
+    "condensed": ("Condensed bold", ["RobotoCondensed-Bold.ttf", "LiberationSansNarrow-Bold.ttf", "ARIALNB.TTF"]),
+    "roboto": ("Roboto bold", ["Roboto-Bold.ttf"]),
+    "open-sans": ("Open Sans bold", ["OpenSans-Bold.ttf", "OpenSans-ExtraBold.ttf"]),
+    "lato": ("Lato black", ["Lato-Black.ttf", "Lato-Heavy.ttf"]),
+    "serif": ("Serif bold", ["DejaVuSerif-Bold.ttf", "georgiab.ttf"]),
+    "mono": ("Mono bold", ["DejaVuSansMono-Bold.ttf", "consolab.ttf"]),
+}
+SIZES = {"small": 0.8, "medium": 1.0, "large": 1.25, "xlarge": 1.5}     # ribbon thickness
+STYLE_VERSION = 2                 # bump when the drawing changes, so posters are redrawn
 W = 1000                          # posters are drawn at this width
 
 _lock = threading.Lock()
@@ -53,9 +65,10 @@ def _ribbon(img: Image.Image, spec: dict, slot: int) -> float:
     Returns how far from the corner, along each edge, the band's outer edge reaches.
     """
     w, h = img.size
-    thick = w * 0.10
+    scale = SIZES.get(spec.get("size") or "medium", 1.0)
+    thick = w * 0.12 * scale
     # Distance from the corner, along each edge, to where the band's middle crosses it.
-    reach = w * 0.30 + slot * thick * 1.5
+    reach = w * 0.40 * scale + slot * thick * 1.5
     length = int(reach * math.sqrt(2) * 2)
     strip = Image.new("RGBA", (length, int(thick)), (0, 0, 0, 0))
     draw = ImageDraw.Draw(strip)
@@ -66,9 +79,10 @@ def _ribbon(img: Image.Image, spec: dict, slot: int) -> float:
     text = spec.get("text") or ""
     if text:
         room = (reach * math.sqrt(2) - thick) * 0.92     # visible length of the band's middle
-        size = int(thick * 0.58)
+        size = int(thick * 0.66)            # as big as fits in the band
+        names = FONTS.get(spec.get("font") or "sans", FONTS["sans"])[1]
         while size > 8:
-            fnt = font(RIBBON_FONTS, size)
+            fnt = _font(names, size)
             if draw.textlength(text, font=fnt) <= room:
                 break
             size -= 2
@@ -83,6 +97,26 @@ def _ribbon(img: Image.Image, spec: dict, slot: int) -> float:
     img.alpha_composite(shadow.filter(ImageFilter.GaussianBlur(thick * 0.12)))
     img.alpha_composite(band, pos)
     return reach + thick * 0.75          # the band's half-width, measured along an edge
+
+
+def _font(names: list[str], size: int):
+    """A ribbon font, falling back to the default when that font isn't installed."""
+    try:
+        return font(names, size)
+    except PosterError:
+        return font(RIBBON_FONTS, size)
+
+
+def available_fonts() -> list[dict]:
+    """The ribbon fonts installed here: [{key, name}]."""
+    out = []
+    for key, (name, names) in FONTS.items():
+        try:
+            font(names, 12)
+        except PosterError:
+            continue
+        out.append({"key": key, "name": name})
+    return out
 
 
 # Rating sources are shown as text in each site's colour, not with their logos.

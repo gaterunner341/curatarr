@@ -3,6 +3,13 @@
 The version shown in the web UI's sidebar matches these entries. Each
 release is also published as `ghcr.io/gaterunner341/curatarr:<version>`.
 
+## 0.15.0
+
+- **Bigger ribbons by default:** the band is thicker and reaches further along the edges, so the text is larger.
+- **Ribbon size:** Small, Medium (the new default), Large or Extra large. The text is always drawn as large as fits in the band.
+- **Ribbon font:** choose from free fonts installed in the image: Sans bold, Condensed bold, Roboto bold, Open Sans bold, Lato black, Serif bold and Mono bold. Only fonts available on your server are listed. The Docker image adds the Liberation, Roboto, Open Sans and Lato font packages.
+- Existing ribbons are redrawn at the new default size at the next overlay update (a sync, or **Settings → Poster overlays → Update overlays now**).
+
 ## 0.14.0
 
 - **Content rating badge:** a new badge option under **Poster overlays**. It shows the title's rating from Plex (PG-13, R, TV-MA, or a country rating like 12A) in gold, first in the bottom-left row.
