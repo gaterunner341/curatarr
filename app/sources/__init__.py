@@ -80,6 +80,44 @@ CATALOG = [
 ]
 
 
+# Links that a source type takes: (pattern, source type, what it is). The first match wins.
+LINKS = [
+    (r"themoviedb\.org/collection/\d+", "tmdb_collection", "TMDB collection (franchise)"),
+    (r"themoviedb\.org/list/\d+", "tmdb_list", "TMDB list"),
+    (r"themoviedb\.org/company/\d+", "tmdb_list", "TMDB studio (company) page"),
+    (r"themoviedb\.org/network/\d+", "tmdb_list", "TMDB TV network page"),
+    (r"themoviedb\.org/keyword/\d+", "tmdb_list", "TMDB keyword page"),
+    (r"themoviedb\.org/person/\d+", "tmdb_list", "TMDB person page"),
+    (r"imdb\.com/(?:[a-z-]+/)?list/ls\d+", "imdb_list", "IMDb list"),
+    (r"imdb\.com/(?:[a-z-]+/)?user/ur\d+/watchlist", "imdb_list", "IMDb watchlist"),
+    (r"trakt\.tv/users/[^/\s]+/lists/[^/\s?#]+", "trakt_list", "Trakt list"),
+    (r"trakt\.tv/users/[^/\s]+/watchlist", "trakt_list", "Trakt watchlist"),
+    (r"mdblist\.com/lists/[^/\s]+/[^/\s?#]+", "mdblist", "MDBList list"),
+]
+
+
+def detect(value: str) -> dict:
+    """What a pasted value is: {type, value, label} for a link (or bare id) a source takes,
+    {link: True} for a link Curatarr can't use, or {} for anything else."""
+    value = (value or "").strip()
+    for pattern, kind, label in LINKS:
+        if re.search(pattern, value, re.I):
+            return {"type": kind, "value": value, "label": label}
+    chart = re.search(r"imdb\.com/chart/(\w+)", value, re.I)
+    if chart and chart.group(1).lower() in imdb.CHARTS:
+        key = chart.group(1).lower()
+        return {"type": "imdb_chart", "value": key, "label": f"IMDb chart: {imdb.CHARTS[key]}"}
+    chart = re.search(r"trakt\.tv/((?:movies|shows)/[a-z]+(?:/[a-z]+)?)", value, re.I)
+    if chart and chart.group(1).lower() in trakt.CHARTS:
+        key = chart.group(1).lower()
+        return {"type": "trakt_chart", "value": key, "label": f"Trakt chart: {trakt.CHARTS[key]}"}
+    if re.fullmatch(r"ls\d+", value):
+        return {"type": "imdb_list", "value": value, "label": "IMDb list"}
+    if re.match(r"(?i)https?://|www\.", value):
+        return {"link": True}
+    return {}
+
+
 def fetch_source(source, ctx: SourceContext) -> list[MediaRef]:
     fetcher = FETCHERS.get(source.type)
     if not fetcher:
@@ -118,4 +156,4 @@ def resolve(sources, ctx: SourceContext, item_limit: int = 0) -> tuple[list[Medi
     return merged, errors
 
 
-__all__ = ["CATALOG", "MediaRef", "SourceContext", "SourceError", "resolve", "fetch_source"]
+__all__ = ["CATALOG", "MediaRef", "SourceContext", "SourceError", "resolve", "fetch_source", "detect"]

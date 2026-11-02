@@ -3,6 +3,15 @@
 The version shown in the web UI's sidebar matches these entries. Each
 release is also published as `ghcr.io/gaterunner341/curatarr:<version>`.
 
+## 0.25.0
+
+- **Links pick their own source type:** paste a link into a list source and Curatarr recognises it, switches the source to the right type and says what it found.
+  - Recognised: TMDB list, collection, studio, network, keyword and person pages; IMDb lists, watchlists and charts; Trakt lists, watchlists and charts; MDBList lists.
+  - A link it can't use is flagged.
+- **Test button on every source:** fetches just that source and reports whether it works, how many titles it gives, how many are in your library, and the first few. If it doesn't work, it shows the error, e.g. a missing API key, a private list or IMDb's bot protection.
+  - Works for every source type, including charts, discover queries, static ids and Plex filters.
+- **Plex labels in the Plex filter builder:** pick a label to build a collection from every title with that Plex label, and use Test to check what it finds.
+
 ## 0.24.0
 
 - **Dashboard:** "Needs attention" shows the Rogue Filenames count from the last scan, e.g. "11 files in 2 titles don't follow the naming format (Radarr 2, Sonarr 9)", with a link to the page.

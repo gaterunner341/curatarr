@@ -231,7 +231,7 @@ def plex_filters(section_id: str):
     out = {}
     with _plex() as plex:
         # No actor list: big libraries have tens of thousands of actors.
-        for field in ("genre", "director", "contentRating", "studio"):
+        for field in ("genre", "director", "contentRating", "studio", "label"):
             try:
                 out[field] = sorted(plex.filter_values(section_id, field), key=lambda v: v["title"].lower())
             except PlexError as exc:
@@ -1158,6 +1158,28 @@ def delete_image(collection_id: int, kind: str):
 
 
 # --- preview & history --------------------------------------------------------
+
+@router.get("/sources/detect")
+def source_detect(value: str = ""):
+    """Which source type a pasted link is (see sources.detect)."""
+    return sources.detect(value)
+
+
+@router.post("/sources/test")
+def source_test(req: PreviewRequest):
+    """Fetch one source on its own: is the link (or chart, filter, ids) valid, and what does it give?"""
+    found = sources.detect(req.sources[0].value) if req.sources else {}
+    try:
+        result = sync.preview(req.section_id, req.library, req.sources[:1], 0, req.section_ids)
+    except (PlexError, sync.SyncError) as exc:
+        return {"ok": False, "error": str(exc), "label": found.get("label", "")}
+    if result["errors"]:
+        return {"ok": False, "error": "; ".join(result["errors"]), "label": found.get("label", "")}
+    items = result["items"]
+    return {"ok": bool(items), "label": found.get("label", ""), "total": len(items), "matched": result["matched"],
+            "sample": [i.get("plex_title") or i.get("title") or "" for i in items[:5]],
+            "error": "" if items else "It worked, but found no titles for this library."}
+
 
 @router.post("/preview")
 def preview(req: PreviewRequest):

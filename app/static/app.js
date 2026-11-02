@@ -1183,7 +1183,9 @@ function sourceRow(src, idx) {
       <select data-field="type">${options}</select>
       ${src.type === "plex_filter" ? `<div class="row" style="flex-wrap:nowrap">${input}<button type="button" class="small" data-build>Build filter</button></div>` : input}
       <input type="number" data-field="limit" min="1" placeholder="Limit" value="${src.limit ?? ""}" title="Max items from this source">
+      <button type="button" class="small" data-test-src title="Fetch this source on its own and check it works">Test</button>
       <button type="button" class="small danger" data-remove="${idx}" title="Remove source">✕</button>
+      <div class="small full-row" data-src-note ${src.note ? "" : "hidden"}>${src.note || ""}</div>
       <div class="filter-builder full-row" hidden></div>
     </div>`;
 }
@@ -1216,6 +1218,7 @@ async function openFilterBuilder(box, src, sectionId, onApply) {
       <div><label>Genre</label><select data-q="genre">${opts(f.genre, cur.get("genre"))}</select></div>
       ${f.director.length ? `<div><label>Director</label><select data-q="director">${opts(f.director, cur.get("director"))}</select></div>` : ""}
       ${f.studio.length ? `<div><label>Studio / network</label><select data-q="studio">${opts(f.studio, cur.get("studio"))}</select></div>` : ""}
+      ${f.label?.length ? `<div><label>Plex label</label><select data-q="label">${opts(f.label, cur.get("label"))}</select></div>` : ""}
       <div><label>Content rating</label><select data-q="contentRating">${opts(f.contentRating, cur.get("contentRating"))}</select></div>
       <div><label>Year from</label><input type="number" data-q="year>>" value="${esc(cur.get("year>>") || "")}" placeholder="1980"></div>
       <div><label>Year to</label><input type="number" data-q="year<<" value="${esc(cur.get("year<<") || "")}" placeholder="1989"></div>
@@ -1471,8 +1474,39 @@ async function editor(id, params = new URLSearchParams()) {
         src.value = meta.options ? Object.keys(meta.options)[0] : "";
         renderSources();
       };
+      const note = el.querySelector("[data-src-note]");
+      const say = (html) => { src.note = html; note.innerHTML = html; note.hidden = !html; };
+      // A pasted link picks its own source type.
+      const recognise = async (value) => {
+        if (!/^(https?:\/\/|www\.)|^ls\d+$/i.test(value.trim())) return;
+        const found = await api("GET", `/sources/detect?value=${encodeURIComponent(value.trim())}`).catch(() => ({}));
+        if (found.type) {
+          const switched = found.type !== src.type || found.value !== src.value;
+          Object.assign(src, { type: found.type, value: found.value });
+          src.note = `<span class="yes">Recognised: ${esc(found.label)}.</span> <span class="muted">Use Test to check it.</span>`;
+          if (switched) renderSources(); else say(src.note);
+        } else if (found.link) {
+          say(`<span class="no">Curatarr doesn't recognise this link.</span> <span class="muted">It takes TMDB, IMDb, Trakt and MDBList list links.</span>`);
+        }
+      };
       el.querySelector("[data-field=value]").oninput = (e) => { src.value = e.target.value; };
-      el.querySelector("[data-field=value]").onchange = (e) => { src.value = e.target.value; };
+      el.querySelector("[data-field=value]").onchange = (e) => { src.value = e.target.value; recognise(src.value); };
+      el.querySelector("[data-field=value]").addEventListener("paste", () => setTimeout(() => recognise(src.value), 0));
+      el.querySelector("[data-test-src]").onclick = (e) => guard(async () => {
+        const libs = pickedLibs();
+        if (!libs.length) return toast("Pick a library first", true);
+        e.target.disabled = true;
+        say(`<span class="muted">Testing…</span>`);
+        try {
+          const r = await api("POST", "/sources/test", {
+            section_id: libs[0].id, library: libs[0].title, section_ids: isPlaylist ? libs.map((l) => l.id) : [],
+            sources: [{ type: src.type, value: src.value, limit: src.limit }], item_limit: 0 });
+          say(r.ok
+            ? `<span class="yes">Valid${r.label ? ` ${esc(r.label)}` : ""}: ${r.total} title${r.total === 1 ? "" : "s"},
+                ${r.matched} in your library.</span> <span class="muted">${esc(r.sample.join(", "))}${r.total > r.sample.length ? ", …" : ""}</span>`
+            : `<span class="no">Not working: ${esc(r.error)}</span>`);
+        } finally { e.target.disabled = false; }
+      });
       el.querySelector("[data-field=limit]").oninput = (e) => { src.limit = e.target.value ? Number(e.target.value) : null; };
       el.querySelector("[data-remove]").onclick = () => {
         if (cfg.sources.length > 1) { cfg.sources.splice(Number(el.dataset.idx), 1); renderSources(); }

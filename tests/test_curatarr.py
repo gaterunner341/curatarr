@@ -1692,3 +1692,36 @@ def test_dashboard_rogue_filenames_count():
     assert rogue["files"] == 12 and rogue["titles"] == 3
     assert rogue["services"]["radarr"] == {"titles": 2, "files": 3} and "broken" not in rogue["services"]
     db.save_settings({"naming_scan": ""})
+
+
+def test_source_link_detection():
+    from app.sources import detect
+    assert detect("https://www.themoviedb.org/company/165435-angel-studios")["type"] == "tmdb_list"
+    assert detect("https://www.themoviedb.org/company/165435-angel-studios")["label"] == "TMDB studio (company) page"
+    assert detect("https://www.themoviedb.org/collection/10-star-wars-collection")["type"] == "tmdb_collection"
+    assert detect("https://www.imdb.com/list/ls055592025/")["type"] == "imdb_list"
+    assert detect("https://www.imdb.com/user/ur12345678/watchlist")["label"] == "IMDb watchlist"
+    assert detect("https://www.imdb.com/chart/top/") == {"type": "imdb_chart", "value": "top",
+                                                          "label": "IMDb chart: Top 250 movies"}
+    assert detect("https://trakt.tv/users/bob/lists/oscars?sort=rank")["type"] == "trakt_list"
+    assert detect("https://trakt.tv/movies/trending")["value"] == "movies/trending"
+    assert detect("https://mdblist.com/lists/linaspurinis/top-watched-movies-of-the-week")["type"] == "mdblist"
+    assert detect("ls055592025")["type"] == "imdb_list"
+    assert detect("https://example.com/my-list") == {"link": True}
+    assert detect("tt0133093, tmdb:604") == {}
+
+
+def test_source_test_endpoint(monkeypatch):
+    from fastapi.testclient import TestClient
+    from app import sync as sync_mod
+    from app.main import app
+    items = [{"title": f"T{i}", "plex_title": f"P{i}" if i < 2 else None, "in_plex": i < 2} for i in range(7)]
+    monkeypatch.setattr(sync_mod, "preview", lambda *a, **k: {"items": items, "errors": [], "matched": 2})
+    body = {"section_id": "1", "library": "Movies",
+            "sources": [{"type": "tmdb_list", "value": "https://www.themoviedb.org/company/165435"}]}
+    r = TestClient(app).post("/api/sources/test", json=body).json()
+    assert r["ok"] and r["total"] == 7 and r["matched"] == 2 and r["sample"] == ["P0", "P1", "T2", "T3", "T4"]
+    assert r["label"] == "TMDB studio (company) page"
+    monkeypatch.setattr(sync_mod, "preview", lambda *a, **k: {"items": [], "errors": ["tmdb_list: TMDB 404"], "matched": 0})
+    r = TestClient(app).post("/api/sources/test", json=body).json()
+    assert not r["ok"] and "404" in r["error"]
