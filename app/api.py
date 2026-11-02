@@ -499,7 +499,9 @@ def dashboard():
             titles += run["matched"] or 0
             missing += len(run["missing"])
             if run["missing"]:
-                missing_rank.append({**brief, "missing": len(run["missing"]), "matched": run["matched"]})
+                missing_rank.append({**brief, "missing": len(run["missing"]), "matched": run["matched"],
+                                     "library": " + ".join(cfg.get("libraries") or []) if cfg.get("kind") == "playlist"
+                                     else cfg.get("library", "")})
         if r.get("last_status") in ("error", "warning") or not cfg.get("enabled", True):
             attention.append({**brief, "status": r.get("last_status") if cfg.get("enabled", True) else "paused",
                               "message": r.get("last_message") or "", "when": r.get("last_run")})

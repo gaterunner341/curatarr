@@ -3,6 +3,11 @@
 The version shown in the web UI's sidebar matches these entries. Each
 release is also published as `ghcr.io/gaterunner341/curatarr:<version>`.
 
+## 0.26.2
+
+- **Dashboard:** details in the cards (Needs attention, Coming up, Recent syncs) wrap inside the card instead of being cut off with "…". A very long message, such as an error, stops after four lines; hover to see all of it.
+- **Most missing** shows which library each collection is in, e.g. "Angel Studios Collection (MoviesSpecial)", so same-named collections in different libraries can be told apart.
+
 ## 0.26.1
 
 - **List boxes:** a link sits in a normal one-line box again, with no scrollbar over it in a narrow window. Pasting several lines, like an IMDb CSV export or ids one per line, switches to a bigger box.

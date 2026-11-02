@@ -769,7 +769,7 @@ async function dashboardPage() {
           : `<p class="muted small">No calendar changes coming up.</p>`}</div>
       <div class="card"><h2>Most missing</h2>
         ${d.most_missing.length ? `<ul class="dash-list">${d.most_missing.map((m) => `
-          <li><a href="${link(m)}">${esc(m.name)}</a>
+          <li><a href="${link(m)}">${esc(m.name)}</a>${m.library ? ` <span class="small muted">(${esc(m.library)})</span>` : ""}
             <div class="small muted">${m.missing} missing · ${m.matched} in Plex</div></li>`).join("")}</ul>`
           : `<p class="muted small">Nothing is missing.</p>`}</div>
       <div class="card"><h2>Recent syncs</h2>

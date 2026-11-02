@@ -178,7 +178,8 @@ ul.changes { margin: 6px 0 0; padding-left: 0; list-style: none; max-height: 240
 .dash-list li:last-child { border-bottom: 0; }
 .dash-list a { color: var(--text); text-decoration: none; font-weight: 600; }
 .dash-list a:hover { color: var(--accent); }
-.dash-list .small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Details wrap inside the card; a very long one (an error) stops after four lines, full text on hover. */
+.dash-list div.small { overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 4; overflow: hidden; }
 .overlay-edit { display: flex; gap: 20px; align-items: flex-start; flex-wrap: wrap; }
 .image-box.overlay-preview { width: 180px; aspect-ratio: 2 / 3; flex: none; }
 input[type=color] { width: 64px; height: 36px; padding: 2px; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; }
