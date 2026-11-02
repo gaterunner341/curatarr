@@ -705,9 +705,14 @@ def napalm_preview(section: list[str] = Query(default=[])):
 
 @router.get("/napalm/affected")
 def napalm_affected(section: list[str] = Query(default=[])):
-    """Collections whose poster overlays a refresh of these libraries turns off."""
+    """What a refresh of these libraries touches: how many titles each has, and the
+    collections whose poster overlays it turns off."""
     from . import napalm
-    return napalm.affected(section)
+    try:
+        libraries = napalm.counts(section) if section else []
+    except PlexError as exc:
+        raise HTTPException(400, str(exc))
+    return {"libraries": libraries, "collections": napalm.affected(section)}
 
 
 @router.get("/napalm/last")

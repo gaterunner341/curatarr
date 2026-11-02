@@ -1867,7 +1867,7 @@ async function napalmCard(card) {
     <div id="napalmLast"></div>
     <div class="row" style="gap:16px;margin:10px 0">${libs.map((l) => `
       <label class="check"><input type="checkbox" data-napalm-lib value="${esc(l.id)}">
-        ${esc(l.title)} (${l.type === "show" ? "TV" : "Movies"})</label>`).join("")}</div>
+        ${esc(l.title)} (${l.type === "show" ? "TV" : "Movies"})<span class="muted small" data-napalm-count="${esc(l.id)}"></span></label>`).join("")}</div>
     <div class="row">
       <button type="button" id="napalmPreview">Preview</button>
       <label class="check"><input type="checkbox" id="napalmAgree"> I understand every poster in these libraries will change</label>
@@ -1883,14 +1883,28 @@ async function napalmCard(card) {
   // Which collections lose their overlays, for the libraries ticked.
   const showAffected = async () => {
     const el = card.querySelector("#napalmAffected");
+    card.querySelectorAll("[data-napalm-count]").forEach((s) => {
+      if (!picked().includes(s.dataset.napalmCount)) s.textContent = "";
+    });
     if (!picked().length) { el.innerHTML = ""; return; }
     const params = new URLSearchParams();
     picked().forEach((s) => params.append("section", s));
-    const hit = await api("GET", `/napalm/affected?${params}`).catch(() => []);
-    el.innerHTML = hit.length
-      ? `<div class="notice" style="margin:10px 0 0">Poster overlays will be turned off on: ${hit.map((c) =>
-          `<a href="#/collections/${c.id}">${esc(c.name)}</a> <span class="muted">(${esc(c.library)})</span>`).join(", ")}.</div>`
-      : `<p class="muted" style="margin:10px 0 0">No collections in these libraries have poster overlays.</p>`;
+    el.innerHTML = `<p class="muted" style="margin:10px 0 0">Counting titles…</p>`;
+    const r = await api("GET", `/napalm/affected?${params}`).catch(() => ({ libraries: [], collections: [] }));
+    const plural = (n, kind) => `${n.toLocaleString()} ${kind === "show" ? (n === 1 ? "TV show" : "TV shows") : (n === 1 ? "movie" : "movies")}`;
+    r.libraries.forEach((l) => {
+      const span = card.querySelector(`[data-napalm-count="${l.id}"]`);
+      if (span) span.textContent = ` · ${plural(l.count, l.type)}`;
+    });
+    const byType = {};
+    r.libraries.forEach((l) => { byType[l.type] = (byType[l.type] || 0) + l.count; });
+    const total = Object.entries(byType).map(([type, n]) => plural(n, type)).join(" and ");
+    el.innerHTML = `
+      <p style="margin:10px 0 0"><strong>${total || "No titles"}</strong> will be checked. Only titles not already on their fresh poster change.</p>
+      ${r.collections.length
+        ? `<div class="notice" style="margin:10px 0 0">Poster overlays will be turned off on: ${r.collections.map((c) =>
+            `<a href="#/collections/${c.id}">${esc(c.name)}</a> <span class="muted">(${esc(c.library)})</span>`).join(", ")}.</div>`
+        : `<p class="muted" style="margin:6px 0 0">No collections in these libraries have poster overlays.</p>`}`;
   };
   napalmLastRun(card.querySelector("#napalmLast"));
   card.querySelectorAll("[data-napalm-lib]").forEach((b) => b.onchange = () => { update(); showAffected(); });

@@ -37,6 +37,12 @@ def affected(section_ids: list[str]) -> list[dict]:
     return out
 
 
+def counts(section_ids: list[str]) -> list[dict]:
+    """How many titles each library has: [{id, title, type, count}]."""
+    with plexmod.from_settings(db.get_settings()) as plex:
+        return [{**s, "count": plex.section_count(s["id"], s["type"])} for s in _sections(plex, section_ids)]
+
+
 def _overlays_off(section_ids: list[str]) -> list[dict]:
     """Turn off ribbons, badges and fresh posters on the collections in these libraries."""
     from .models import CollectionConfig

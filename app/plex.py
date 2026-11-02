@@ -222,6 +222,13 @@ class Plex:
         return [{"id": str(d.get("key")), "title": d.get("title")}
                 for d in data.get("Directory", []) if d.get("key") and d.get("title")]
 
+    def section_count(self, section_id: str, section_type: str) -> int:
+        """How many movies or shows a library has, without listing them."""
+        data = self._request("GET", f"/library/sections/{section_id}/all", params={
+            "type": SECTION_TYPES.get(section_type, TYPE_MOVIE),
+            "X-Plex-Container-Start": 0, "X-Plex-Container-Size": 0})
+        return int(data.get("totalSize", data.get("size", 0)) or 0)
+
     def section_items(self, section_id: str, section_type: str) -> list[dict]:
         return self._paged(f"/library/sections/{section_id}/all", {
             "type": SECTION_TYPES.get(section_type, TYPE_MOVIE),

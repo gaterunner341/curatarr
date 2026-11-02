@@ -1200,6 +1200,7 @@ def test_napalm_refreshes_posters(monkeypatch):
     assert Plex.fresh_poster(fake.posters["1"])["ratingKey"] == "metadata://posters/frame"   # first from a source
     assert plex.fresh_choice("1")["ratingKey"] == "metadata://posters/tmdb_1"               # first poster-shaped one
     assert Plex.fresh_poster(fake.posters["3"]) is None
+    assert napalm.counts(["1"]) == [{"id": "1", "title": "Movies", "type": "movie", "agent": None, "count": 3}]
     result = napalm.run(["1"])
     assert fake.selected == {"1": "metadata://posters/tmdb_1"}                  # only the one that needed it
     assert (result["changed"], result["unchanged"], result["no_poster"], result["errors"]) == (1, 1, 1, 0)

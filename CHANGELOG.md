@@ -3,6 +3,10 @@
 The version shown in the web UI's sidebar matches these entries. Each
 release is also published as `ghcr.io/gaterunner341/curatarr:<version>`.
 
+## 0.15.4
+
+- **Napalm shows how many titles each library has.** Tick a library and its count appears next to it (e.g. "MoviesSpecial (Movies) · 651 movies"). A summary line totals the libraries you picked, like "651 movies and 120 TV shows will be checked". Only titles not already on their fresh poster change.
+
 ## 0.15.3
 
 - **Napalm's preview shows titles that would change.** Titles with Curatarr overlays come first, then random titles that would get a different poster. Titles that keep their poster only fill in when fewer than eight would change, and they're shown last.
