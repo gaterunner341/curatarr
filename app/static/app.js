@@ -86,9 +86,14 @@ async function pollActivity() {
       + `${napalm.total ? ` · ${napalm.done} / ${napalm.total}` : "…"}`;
     el.title = `${napalm.changed} changed, ${napalm.unchanged} already fresh, ${napalm.errors} failed`;
   } else if (overlaysRunning) {
-    el.innerHTML = `<span class="spinner"></span>${esc(p.phase || "Poster overlays")}${p.reason ? ` <span class="activity-why">(${esc(p.reason)})</span>` : ""}`
+    // A request made during a pass waits for the next one; it's shown too, so it doesn't look ignored.
+    const next = p.running && p.next?.length ? `then ${p.next.join(", ")}` : "";
+    const why = [p.reason, next].filter(Boolean).join("; ");
+    el.innerHTML = `<span class="spinner"></span>${esc(p.phase || "Poster overlays")}${why ? ` <span class="activity-why">(${esc(why)})</span>` : ""}`
       + `${p.total ? ` · ${p.done} / ${p.total}` : "…"}`;
-    el.title = [p.reason ? `Started because: ${p.reason}` : "", p.drawn ? `${p.drawn} poster(s) drawn so far` : ""].filter(Boolean).join("\n");
+    el.title = [p.reason ? `Started because: ${p.reason}` : "",
+      next ? `Next pass, right after this one: ${p.next.join(", ")}` : "",
+      p.drawn ? `${p.drawn} poster(s) drawn so far` : ""].filter(Boolean).join("\n");
   } else if (syncing.length) {
     el.innerHTML = `<span class="spinner"></span>Syncing ${esc(syncing.length === 1 ? syncing[0] : `${syncing.length} collections`)}…`;
     el.title = syncing.join(", ");

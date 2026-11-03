@@ -843,7 +843,9 @@ def overlay_progress():
     from . import overlays
     syncing = [r["config"]["name"] for r in db.list_collections() if sync.is_running(r["id"])]
     from . import napalm
-    return {**overlays.progress, "queued": overlays._again.is_set(), "syncing": syncing,
+    with overlays._reasons_lock:
+        waiting = list(overlays._reasons)      # what asked for the next pass, while this one runs
+    return {**overlays.progress, "queued": overlays._again.is_set(), "next": waiting, "syncing": syncing,
             "napalm": napalm.progress}
 
 

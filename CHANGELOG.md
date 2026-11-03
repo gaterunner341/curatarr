@@ -3,6 +3,10 @@
 The version shown in the web UI's sidebar matches these entries. Each
 release is also published as `ghcr.io/gaterunner341/curatarr:<version>`.
 
+## 0.30.3
+
+- **Overlay progress shows queued triggers:** a change made while a pass is already running waits for the next pass, and the top bar now says so, e.g. "Drawing poster overlays (Independence Day Collection synced; then IMDb Top 250 removed, Netflix Top 10 removed)". Hover for the full list.
+
 ## 0.30.2
 
 - **Hall of Fame ribbons:** the IMDb Top 250 and Netflix Top 10 collections use Kometa's yellow ribbon images, drawn in the bottom-right corner at Kometa's size. The rating badge moves clear of them.

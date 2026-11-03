@@ -34,7 +34,7 @@ h2 { font-size: 1.1rem; margin: 0 0 12px; }
   background: color-mix(in srgb, var(--accent) 12%, transparent); border-radius: 999px; padding: 4px 12px; white-space: nowrap; }
 .activity:not([hidden]) + .server { margin-left: 12px; }
 /* What started an overlay pass; cut short in a narrow top bar (the full text is on hover). */
-.activity-why { color: var(--muted); max-width: 260px; overflow: hidden; text-overflow: ellipsis; display: inline-block; vertical-align: bottom; }
+.activity-why { color: var(--muted); max-width: 380px; overflow: hidden; text-overflow: ellipsis; display: inline-block; vertical-align: bottom; }
 .spinner { width: 12px; height: 12px; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%;
   animation: spin .8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }

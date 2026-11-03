@@ -1851,3 +1851,17 @@ def test_tv_rating_icon():
         {"kind": "badges", "quality": [], "rating": None, "content_rating": "TV-14", "tv_icon": "TV-14"}]))).convert("RGB")
     assert out.getpixel((45, 45))[0] < 170                  # darker backing in the top-left corner
     assert out.getpixel((60, 1440))[0] > 230                 # no text rating badge as well
+
+
+def test_overlay_progress_lists_queued_triggers():
+    from fastapi.testclient import TestClient
+    from app import overlays
+    from app.main import app
+    with overlays._reasons_lock:
+        overlays._reasons[:] = ["IMDb Top 250 removed", "Netflix Top 10 removed"]
+    try:
+        assert TestClient(app).get("/api/overlays/progress").json()["next"] == [
+            "IMDb Top 250 removed", "Netflix Top 10 removed"]
+    finally:
+        with overlays._reasons_lock:
+            overlays._reasons.clear()
