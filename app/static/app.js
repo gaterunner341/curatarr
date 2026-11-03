@@ -1461,9 +1461,8 @@ async function editor(id, params = new URLSearchParams()) {
             <div class="hint">Uses the ratings shown in Plex, set in the library's settings.</div></div>
           <div><label for="b-min">Only show ratings of at least (out of 10)</label>
             <input type="number" id="b-min" min="0" max="10" step="0.1" value="${cfg.badges?.rating_min || 0}"></div>
-          <div class="full"><button type="button" class="small" id="r-preview">Preview</button>
-            <span class="hint">Shown on the collection's first title (sample badges where it has no data).
-              Applied to Plex after you save, then kept up to date at every sync.</span></div>
+          <div class="full"><span class="hint">The preview updates as you change these. It shows the collection's
+              first title (sample badges where it has no data). Applied to Plex after you save, then kept up to date at every sync.</span></div>
         </div>
         <div class="overlay-preview image-box" id="r-out">▦</div>
       </div>
@@ -1641,15 +1640,34 @@ async function editor(id, params = new URLSearchParams()) {
     select.innerHTML = fonts.map((f) => `<option value="${esc(f.key)}" ${f.key === current ? "selected" : ""}>${esc(f.name)}</option>`).join("")
       || `<option value="sans">Sans bold</option>`;
   }).catch(() => {});
-  view.querySelector("#r-preview").onclick = () => guard(async () => {
+  // The overlay preview redraws itself shortly after any overlay setting changes. Only the newest
+  // request's image is shown, and the old image stays (dimmed) until the new one arrives.
+  let previewSeq = 0;
+  let previewTimer = null;
+  const drawPreview = async () => {
+    const seq = ++previewSeq;
     const out = view.querySelector("#r-out");
-    out.textContent = "…";
-    const resp = await api("POST", "/overlays/preview",
-      { ribbon: { ...ribbonFields(), enabled: view.querySelector("#r-on").checked }, badges: badgeFields(),
-        fresh_poster: view.querySelector("#f-fresh").checked, collection_id: id }, true);
-    if (!resp.ok) { out.textContent = "▦"; throw new Error(`Preview failed (HTTP ${resp.status})`); }
-    out.innerHTML = `<img src="${URL.createObjectURL(await resp.blob())}" alt="Overlay preview">`;
+    if (!out) return;
+    out.classList.add("loading");
+    try {
+      const resp = await api("POST", "/overlays/preview",
+        { ribbon: { ...ribbonFields(), enabled: view.querySelector("#r-on").checked }, badges: badgeFields(),
+          fresh_poster: view.querySelector("#f-fresh").checked, collection_id: id }, true);
+      if (seq !== previewSeq) return;
+      if (!resp.ok) { out.textContent = "Preview failed"; return; }
+      out.innerHTML = `<img src="${URL.createObjectURL(await resp.blob())}" alt="Overlay preview">`;
+    } catch {
+      if (seq === previewSeq) out.textContent = "Preview failed";
+    } finally {
+      if (seq === previewSeq) out.classList.remove("loading");
+    }
+  };
+  const queuePreview = () => { clearTimeout(previewTimer); previewTimer = setTimeout(drawPreview, 350); };
+  view.querySelectorAll(".overlay-edit input, .overlay-edit select").forEach((el) => {
+    el.addEventListener("input", queuePreview);
+    el.addEventListener("change", queuePreview);
   });
+  if (!isPlaylist) drawPreview();
   const collect = () => {
     const picked = pickedLibs();
     return {

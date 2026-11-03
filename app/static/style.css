@@ -274,3 +274,4 @@ pre { background: var(--bg); border: 1px solid var(--border); border-radius: 6px
   .source { grid-template-columns: 1fr; }
   .server { display: none; }
 }
+.overlay-preview.loading img { opacity: .55; transition: opacity .15s; }

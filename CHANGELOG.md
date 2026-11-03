@@ -3,6 +3,10 @@
 The version shown in the web UI's sidebar matches these entries. Each
 release is also published as `ghcr.io/gaterunner341/curatarr:<version>`.
 
+## 0.27.2
+
+- **Live overlay preview:** in a collection's Poster overlays settings, the preview redraws by itself shortly after you change any setting (ribbon text, corner, size, font, colours, badges, fresh poster), and is drawn when the page opens. There's no Preview button any more. The previous image stays, dimmed, until the new one arrives.
+
 ## 0.27.1
 
 - **Fixed:** two-line ribbon text read the wrong way round in the top corners. The first part (e.g. "IMDB") is now always the top line and a little bigger, with the rest ("TOP 250") below it, in every corner. Ribbon posters are redrawn on the next overlay pass.
