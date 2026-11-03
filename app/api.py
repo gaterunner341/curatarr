@@ -742,7 +742,7 @@ def update_collection(collection_id: int, cfg: dict = Body(...)):
     scheduler.reload_jobs()
     before = CollectionConfig(**row["config"])
     if (model.ribbon, model.badges, model.fresh_poster) != (before.ribbon, before.badges, before.fresh_poster):
-        scheduler.run_task(partial(sync.run_overlays, f"{model.name} overlays changed"),
+        scheduler.run_task(partial(sync.run_overlays, model.name),
                            "Poster overlays")     # draw or remove it now
     return _collection_out(db.get_collection(collection_id))
 
@@ -771,7 +771,7 @@ def delete_collection(collection_id: int, remove_from_plex: bool = False):
     scheduler.reload_jobs()
     if row["config"].get("ribbon", {}).get("enabled") or any((row["config"].get("badges") or {}).values()) \
             or row["config"].get("fresh_poster"):
-        scheduler.run_task(partial(sync.run_overlays, f"{row['config']['name']} removed"),
+        scheduler.run_task(partial(sync.run_overlays, row["config"]["name"]),
                            "Poster overlays")     # put the original posters back
     return {"deleted": True, "message": message}
 
@@ -1030,7 +1030,7 @@ def overlay_apply(remove_all: bool = False):
                 cfg.ribbon.enabled, cfg.badges.quality, cfg.badges.rating = False, False, ""
                 cfg.badges.content_rating = cfg.fresh_poster = False
                 db.update_collection_config(row["id"], cfg.model_dump())
-    reason = "Remove all overlays clicked" if remove_all else "Redraw clicked"
+    reason = "" if remove_all else "every collection"
     scheduler.run_task(lambda: overlays.apply_all(remove_all=remove_all, reason=reason), "Poster overlays")
     return {"queued": True}
 
@@ -1055,7 +1055,7 @@ def overlay_libraries_save(body: dict = Body(...)):
         saved = overlays.save_library_settings(body)
     except (ValidationError, TypeError, ValueError) as exc:
         raise HTTPException(422, str(exc))
-    scheduler.run_task(partial(sync.run_overlays, "whole-library badges changed"),
+    scheduler.run_task(partial(sync.run_overlays, "library badges"),
                        "Poster overlays")     # draw or remove them now
     return saved
 
@@ -1260,7 +1260,7 @@ async def upload_title_poster(rating_key: str, file: UploadFile | None = File(No
     unmatched.update_cached(rating_key, thumb=thumb, keep=True if keep and section_id else None)
     log.info("New poster uploaded for %s%s", rating_key, " (kept)" if keep and section_id else "")
     if rating_key in db.overlay_rows():        # redraw its ribbons and badges on the new poster
-        scheduler.run_task(partial(sync.run_overlays, "a new poster was uploaded"), "Poster overlays")
+        scheduler.run_task(partial(sync.run_overlays, "an uploaded poster"), "Poster overlays")
     return {"thumb": thumb, "keep": bool(keep and section_id)}
 
 

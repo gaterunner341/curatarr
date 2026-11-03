@@ -631,7 +631,7 @@ def apply_all(remove_all: bool = False, reason: str = "") -> dict:
     """Bring every overlaid poster up to date; with ``remove_all``, restore them all.
 
     Only one pass runs at a time; a request during a pass makes it run once more.
-    ``reason`` says what asked for it (e.g. "IMDb Top 250 synced"), for the progress display.
+    ``reason`` is what it's for (e.g. "IMDb Top 250"), shown with its progress as "for IMDb Top 250".
     """
     with _reasons_lock:
         if reason and reason not in _reasons:
@@ -643,7 +643,8 @@ def apply_all(remove_all: bool = False, reason: str = "") -> dict:
         while True:
             _again.clear()
             with _reasons_lock:
-                progress["reason"] = ", ".join(_reasons)
+                progress["reason"] = (", ".join(_reasons[:-1]) + " and " + _reasons[-1]) if len(_reasons) > 1 \
+                    else "".join(_reasons)
                 _reasons.clear()
             result = _pass(remove_all)
             if not _again.is_set():

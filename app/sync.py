@@ -684,13 +684,13 @@ def run_collection(collection_id: int, trigger: str = "manual", dry_run: bool = 
     finally:
         lock.release()
     if not dry_run:
-        run_overlays(f"{run.get('collection_name') or 'a collection'} synced")
+        run_overlays(run.get("collection_name") or "a collection")
     return run
 
 
 def run_overlays(reason: str = "") -> None:
     """Update poster overlays after a sync; problems are logged, never raised.
-    ``reason`` (e.g. "IMDb Top 250 synced") is shown with the pass's progress."""
+    ``reason`` is what the pass is for (e.g. "IMDb Top 250"), shown with its progress."""
     from . import overlays
     try:
         if overlays.needed():

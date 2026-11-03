@@ -3,6 +3,10 @@
 The version shown in the web UI's sidebar matches these entries. Each
 release is also published as `ghcr.io/gaterunner341/curatarr:<version>`.
 
+## 0.32.2
+
+- **Overlay progress in plain words:** the top bar says what a pass is for, e.g. "Drawing poster overlays for IMDb Top 250 · 9 / 662" or "Drawing poster overlays for library badges · 198 / 835 · next: every collection".
+
 ## 0.32.1
 
 - **US English throughout:** "Color icons", "Ribbon color", "Sync behavior", "Recognized", "labeled" and so on, instead of the UK spellings.

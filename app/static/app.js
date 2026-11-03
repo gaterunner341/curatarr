@@ -86,13 +86,13 @@ async function pollActivity() {
       + `${napalm.total ? ` · ${napalm.done} / ${napalm.total}` : "…"}`;
     el.title = `${napalm.changed} changed, ${napalm.unchanged} already fresh, ${napalm.errors} failed`;
   } else if (overlaysRunning) {
-    // A request made during a pass waits for the next one; it's shown too, so it doesn't look ignored.
-    const next = p.running && p.next?.length ? `then ${p.next.join(", ")}` : "";
-    const why = [p.reason, next].filter(Boolean).join("; ");
-    el.innerHTML = `<span class="spinner"></span>${esc(p.phase || "Poster overlays")}${why ? ` <span class="activity-why">(${esc(why)})</span>` : ""}`
-      + `${p.total ? ` · ${p.done} / ${p.total}` : "…"}`;
-    el.title = [p.reason ? `Started because: ${p.reason}` : "",
-      next ? `Next pass, right after this one: ${p.next.join(", ")}` : "",
+    // What the pass is for, and what waits for the next one (so a change made meanwhile doesn't look ignored).
+    const list = (xs) => xs.length > 1 ? `${xs.slice(0, -1).join(", ")} and ${xs[xs.length - 1]}` : xs[0] || "";
+    const now = p.reason ? ` for ${p.reason}` : "";
+    const next = p.running && p.next?.length ? list(p.next) : "";
+    el.innerHTML = `<span class="spinner"></span>${esc(p.phase || "Poster overlays")}${esc(now)}`
+      + `${p.total ? ` · ${p.done} / ${p.total}` : "…"}${next ? ` <span class="activity-why">· next: ${esc(next)}</span>` : ""}`;
+    el.title = [`${p.phase || "Poster overlays"}${now}`, next ? `Next: ${next}` : "",
       p.drawn ? `${p.drawn} poster(s) drawn so far` : ""].filter(Boolean).join("\n");
   } else if (syncing.length) {
     el.innerHTML = `<span class="spinner"></span>Syncing ${esc(syncing.length === 1 ? syncing[0] : `${syncing.length} collections`)}…`;
