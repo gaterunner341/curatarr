@@ -1776,3 +1776,49 @@ def test_hall_of_fame_builtin(monkeypatch):
     assert client.get("/api/builtins/imdb_top_250/poster").headers["content-type"] == "image/jpeg"
     for cid in (old, r2["id"]):
         db.delete_collection(cid)
+
+
+def test_netflix_top10_source():
+    from app.sources import detect, netflix
+    from app.sources.base import SourceContext
+    assert detect("https://www.netflix.com/tudum/top10")["value"] == "films"
+    assert detect("https://www.netflix.com/tudum/top10/tv/non-english")["value"] == "tv-non-english"
+    tsv = ("week\tcategory\tweekly_rank\tshow_title\tseason_title\n"
+           "2026-10-11\tFilms (English)\t1\tOld Film\tN/A\n"
+           "2026-10-18\tFilms (English)\t2\tDoing Life\tN/A\n"
+           "2026-10-18\tFilms (English)\t1\tAnimals\tN/A\n"
+           "2026-10-18\tTV (English)\t1\tBelow\tBelow: Limited Series\n")
+
+    def handler(request):
+        if request.url.host == "www.netflix.com":
+            return httpx.Response(200, text=tsv)
+        if request.url.path == "/3/search/movie":
+            q = request.url.params["query"]
+            return httpx.Response(200, json={"results": [{"id": 7, "title": "Animals", "release_date": "2026-09-01"}]
+                                             if q == "Animals" else [{"id": 9, "title": "Doing Life Again"}]})
+        return httpx.Response(404)
+    with httpx.Client(transport=httpx.MockTransport(handler)) as http:
+        ctx = SourceContext({"tmdb_api_key": "k" * 32}, http, "movie")
+        refs = netflix.fetch_chart("films", ctx, None)
+    # newest week only, in rank order; a title TMDB has no same-named match for is left out
+    assert [(r.title, r.tmdb) for r in refs] == [("Animals", 7)]
+
+
+def test_ribbon_picture_bottom_right(monkeypatch, tmp_path):
+    import io
+    from PIL import Image
+    from app import overlays
+    pic = Image.new("RGB", (100, 100), (255, 255, 255))
+    for x in range(100):
+        for y in range(100 - x, 100):
+            pic.putpixel((x, y), (245, 197, 24))         # yellow lower-right triangle on white
+    pic.save(tmp_path / "test_pic.png")
+    monkeypatch.setattr(overlays, "RIBBON_IMAGES", tmp_path)
+    base = Image.new("RGB", (1000, 1500), (0, 0, 255))
+    buf = io.BytesIO(); base.save(buf, "JPEG")
+    spec = {"kind": "ribbon", "text": "X", "color": "#f5c518", "text_color": "#000000", "corner": "top-right",
+            "size": "medium", "font": "sans", "image": "test_pic"}
+    out = Image.open(io.BytesIO(overlays.render(buf.getvalue(), [spec]))).convert("RGB")
+    assert out.getpixel((990, 1490))[2] < 100                # yellow in the bottom-right corner
+    assert out.getpixel((600, 1100))[2] > 200                # the white part stayed see-through
+    assert out.getpixel((990, 10))[2] > 200                  # nothing at the top right

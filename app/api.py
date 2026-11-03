@@ -400,7 +400,7 @@ def list_builtins():
                     and (r["config"].get("kind") or "collection") == "collection"
                     and r["config"]["name"].strip().lower() == b["name"].lower()]
         out.append({"key": b["key"], "name": b["name"], "media": b["media"], "description": b["description"],
-                    "poster": f"/api/builtins/{b['key']}/poster", "source": b["source"], "arr_ready": arr_ready,
+                    "poster": f"/api/builtins/{b['key']}/poster", "sources": b["sources"], "arr_ready": arr_ready,
                     "collections": colls, "takeover": takeover})
     return out
 

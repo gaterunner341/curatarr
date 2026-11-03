@@ -17,14 +17,33 @@ BUILTINS: list[dict] = [
         "name": "IMDb Top 250",
         "media": "movie",
         "description": "The 250 highest-rated movies on IMDb, in IMDb's order.",
-        "source": {"type": "imdb_chart", "value": "top"},
+        "sources": {"movie": {"type": "imdb_chart", "value": "top"}},
+        "poster": "imdb",
         "fixed": {
             "name": "IMDb Top 250",
             "summary": "The 250 highest-rated movies on IMDb, as voted by IMDb users.",
             "order": "custom",
             "sync_mode": "sync",
             "ribbon": {"enabled": True, "text": "IMDb TOP 250", "color": "#f5c518", "text_color": "#000000",
-                       "corner": "top-right", "size": "medium", "font": "sans"},
+                       "corner": "bottom-right", "size": "medium", "font": "sans", "image": "imdb_top_250"},
+        },
+    },
+    {
+        "key": "netflix_top_10",
+        "name": "Netflix Top 10",
+        "media": "any",
+        "description": "This week's most-watched on Netflix worldwide (netflix.com/tudum/top10): the top 10 films "
+                       "in movie libraries, the top 10 shows in TV libraries. Needs a TMDB API key to match titles.",
+        "sources": {"movie": {"type": "netflix_chart", "value": "films"},
+                    "show": {"type": "netflix_chart", "value": "tv"}},
+        "poster": "netflix",
+        "fixed": {
+            "name": "Netflix Top 10",
+            "summary": "This week's most-watched on Netflix, in Netflix's order.",
+            "order": "custom",
+            "sync_mode": "sync",
+            "ribbon": {"enabled": True, "text": "TOP 10", "color": "#f5c518", "text_color": "#000000",
+                       "corner": "bottom-right", "size": "medium", "font": "sans", "image": "netflix_top_10"},
         },
     },
 ]
@@ -44,8 +63,9 @@ def collection_config(builtin: dict, section: dict, request_missing: bool = Fals
                       keep: dict | None = None) -> dict:
     """Config for the built-in in ``section``. ``keep`` is an existing collection being taken
     over: its feed, schedule and the other editable settings are kept."""
+    source = builtin["sources"].get(section["type"]) or next(iter(builtin["sources"].values()))
     cfg = {"name": builtin["name"], "library": section["title"], "section_id": section["id"],
-           "sources": [dict(builtin["source"])], "request_missing": request_missing}
+           "sources": [dict(source)], "request_missing": request_missing}
     if keep:
         cfg.update({k: keep[k] for k in EDITABLE if k in keep})
     cfg.update({k: (dict(v) if isinstance(v, dict) else v) for k, v in builtin["fixed"].items()})
@@ -64,8 +84,46 @@ def enforce(new: dict, old: dict) -> dict:
     return cfg
 
 
+def refresh_all() -> int:
+    """Re-apply each built-in collection's fixed settings (they can change between versions).
+    Returns how many collections changed."""
+    from . import db                        # local import, as in holidays.backfill
+    count = 0
+    for row in db.list_collections():
+        cfg = row["config"]
+        if get(cfg.get("builtin", "")):
+            fixed = enforce(cfg, cfg)
+            if fixed != cfg:
+                db.update_collection_config(row["id"], fixed)
+                count += 1
+    return count
+
+
 def poster(builtin: dict) -> bytes:
-    """The built-in's poster as a JPEG: IMDb yellow with "THE / IMDb / TOP 250"."""
+    """The built-in's poster as a JPEG."""
+    return _netflix_poster() if builtin.get("poster") == "netflix" else _imdb_poster()
+
+
+def _netflix_poster() -> bytes:
+    """Black with "TOP 10" large in white and "NETFLIX" in red above it."""
+    w, h = 1000, 1500
+    img = Image.new("RGB", (w, h), (12, 12, 12))
+    draw = ImageDraw.Draw(img)
+    size = 400
+    big, small = font(POSTER_FONTS, size), font(POSTER_FONTS, 130)
+    while draw.textlength("TOP 10", font=big) > w * 0.84 and size > 100:
+        size -= 10
+        big = font(POSTER_FONTS, size)
+    for text, fnt, colour, y in (("NETFLIX", small, (229, 9, 20), 430), ("TOP 10", big, (255, 255, 255), 600)):
+        x0, y0, x1, y1 = draw.textbbox((0, 0), text, font=fnt)
+        draw.text(((w - (x1 - x0)) / 2 - x0, y - y0), text, font=fnt, fill=colour)
+    out = io.BytesIO()
+    img.save(out, "JPEG", quality=92)
+    return out.getvalue()
+
+
+def _imdb_poster() -> bytes:
+    """IMDb yellow with "THE / IMDb / TOP 250"."""
     w, h = 1000, 1500
     img = Image.new("RGB", (w, h), (229, 184, 30))
     draw = ImageDraw.Draw(img)

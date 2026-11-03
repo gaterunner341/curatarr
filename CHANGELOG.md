@@ -3,6 +3,15 @@
 The version shown in the web UI's sidebar matches these entries. Each
 release is also published as `ghcr.io/gaterunner341/curatarr:<version>`.
 
+## 0.29.0
+
+- **Netflix Top 10** in the Hall of Fame: this week's most-watched on Netflix worldwide, from netflix.com/tudum/top10.
+  - Movie libraries get the top 10 films and TV libraries the top 10 shows, in Netflix's order. Its look is fixed: poster, ribbon, order and Sync mode.
+  - Titles are matched on TMDB by exact name (a TMDB API key is needed). A title TMDB has no same-named match for is left out rather than guessed.
+- **New source: Netflix Top 10 charts:** films or TV, English or non-English. Pick one with **+ Add chart**, or paste a netflix.com/tudum/top10 link into a list box.
+- **Ribbon pictures:** built-in collections can use a picture for their ribbon instead of drawn text. It goes in the bottom-right corner, and the rating badge moves clear of it. Until the pictures are added, they fall back to a drawn text ribbon in that corner.
+- Hall of Fame collections pick up changes to their fixed settings automatically when Curatarr starts.
+
 ## 0.28.0
 
 - **Hall of Fame** (new menu link): built-in collections with a fixed look, starting with the **IMDb Top 250**.

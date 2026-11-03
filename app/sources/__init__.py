@@ -2,7 +2,7 @@
 import re
 from typing import Callable
 
-from . import imdb, mdblist, plexfilter, tmdb, trakt
+from . import imdb, mdblist, netflix, plexfilter, tmdb, trakt
 from .base import MediaRef, SourceContext, SourceError
 
 Fetcher = Callable[[str, SourceContext, int | None], list[MediaRef]]
@@ -51,6 +51,7 @@ FETCHERS: dict[str, Fetcher] = {
     "imdb_chart": imdb.fetch_chart,
     "trakt_list": trakt.fetch_list,
     "trakt_chart": trakt.fetch_chart,
+    "netflix_chart": netflix.fetch_chart,
     "mdblist": mdblist.fetch_list,
     "static": fetch_static,
     "plex_filter": plexfilter.fetch,
@@ -71,6 +72,7 @@ CATALOG = [
     {"type": "trakt_list", "label": "Trakt list / watchlist", "provider": "Trakt",
      "placeholder": "https://trakt.tv/users/username/lists/list-slug"},
     {"type": "trakt_chart", "label": "Trakt chart", "provider": "Trakt", "options": trakt.CHARTS},
+    {"type": "netflix_chart", "label": "Netflix Top 10", "provider": "Netflix", "options": netflix.CHARTS},
     {"type": "mdblist", "label": "MDBList list", "provider": "MDBList",
      "placeholder": "https://mdblist.com/lists/username/list-slug"},
     {"type": "static", "label": "Static ids", "provider": "Manual",
@@ -111,6 +113,9 @@ def detect(value: str) -> dict:
     if chart and chart.group(1).lower() in trakt.CHARTS:
         key = chart.group(1).lower()
         return {"type": "trakt_chart", "value": key, "label": f"Trakt chart: {trakt.CHARTS[key]}"}
+    chart = netflix.chart_for_link(value)
+    if chart:
+        return {"type": "netflix_chart", "value": chart, "label": f"Netflix {netflix.CHARTS[chart]}"}
     if re.fullmatch(r"ls\d+", value):
         return {"type": "imdb_list", "value": value, "label": "IMDb list"}
     if re.match(r"(?i)(?:https?://(?:www\.)?themoviedb\.org/)?(?:discover/)?(movie|tv)\?\S*=", value):

@@ -9,7 +9,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-from . import api, config, db, holidays, logs, scheduler
+from . import api, builtins, config, db, holidays, logs, scheduler
 
 logs.setup()
 log = logging.getLogger("curatarr")
@@ -41,6 +41,8 @@ async def lifespan(app: FastAPI):
     migrate_default_schedule()
     if holidays.backfill():
         log.info("Updated holiday collections with built-in posters / sort titles")
+    if builtins.refresh_all():
+        log.info("Updated Hall of Fame collections to their current fixed settings")
     try:
         seed_from_yaml()
     except ValueError as exc:

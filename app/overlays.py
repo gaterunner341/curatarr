@@ -12,6 +12,7 @@ import json
 import logging
 import math
 import threading
+from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFilter
 
@@ -67,6 +68,12 @@ def _ribbon(img: Image.Image, spec: dict, slot: int) -> float:
     """
     w, h = img.size
     scale = SIZES.get(spec.get("size") or "medium", 1.0)
+    picture = _ribbon_image(spec.get("image") or "")
+    if picture is not None:                # a built-in's ribbon picture, made for the bottom-right corner
+        side = int(w * 0.42 * scale)
+        picture = picture.resize((side, side), Image.LANCZOS)
+        img.alpha_composite(picture, (w - side, h - side))
+        return float(side)
     # Kometa-like proportions: a thick band close to the corner.
     thick = w * 0.19 * scale
     # Distance from the corner, along each edge, to where the band's middle crosses it.
@@ -91,6 +98,21 @@ def _ribbon(img: Image.Image, spec: dict, slot: int) -> float:
     img.alpha_composite(shadow.filter(ImageFilter.GaussianBlur(thick * 0.12)))
     img.alpha_composite(band, pos)
     return reach + thick * 0.75          # the band's half-width, measured along an edge
+
+
+RIBBON_IMAGES = Path(__file__).parent / "static" / "ribbons"
+
+
+def _ribbon_image(key: str) -> Image.Image | None:
+    """A ribbon picture by name, with a plain white background made see-through. None when there's
+    no such picture (the ribbon is then drawn with its text)."""
+    path = RIBBON_IMAGES / f"{key}.png"
+    if not key or not path.is_file():
+        return None
+    picture = Image.open(path).convert("RGBA")
+    if picture.getextrema()[3][0] == 255:          # no transparency in the file: drop the white
+        picture.putdata([(r, g, b, 0) if min(r, g, b) >= 240 else (r, g, b, a) for r, g, b, a in picture.getdata()])
+    return picture
 
 
 def _fit(draw: ImageDraw.ImageDraw, text: str, names: list[str], size: int, room: float):
@@ -270,7 +292,12 @@ def preview(specs: list[dict], plex: Plex | None = None, thumb: str = "", rating
 def ribbon_spec(cfg: CollectionConfig) -> dict | None:
     if cfg.kind not in ("collection", "overlay") or not cfg.ribbon.enabled:
         return None
-    return {"kind": "ribbon", **cfg.ribbon.model_dump(exclude={"enabled"})}
+    spec = {"kind": "ribbon", **cfg.ribbon.model_dump(exclude={"enabled"})}
+    if not spec["image"]:                 # only when used, so text ribbons keep their signature
+        del spec["image"]
+    elif _ribbon_image(spec["image"]) is not None:
+        spec["corner"] = "bottom-right"   # pictures are made for that corner (badges move clear of it)
+    return spec
 
 
 def badge_settings(cfg: CollectionConfig) -> dict | None:

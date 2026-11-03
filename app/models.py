@@ -13,6 +13,7 @@ SourceType = Literal[
     "imdb_chart",
     "trakt_list",
     "trakt_chart",
+    "netflix_chart",
     "mdblist",
     "static",
     "plex_filter",
@@ -66,6 +67,8 @@ class Ribbon(BaseModel):
     corner: Literal["top-right", "top-left", "bottom-right", "bottom-left"] = "top-right"
     size: Literal["small", "medium", "large", "xlarge"] = "medium"
     font: Literal["sans", "condensed", "roboto", "open-sans", "lato", "serif", "mono"] = "sans"
+    # A built-in collection's ribbon picture (app/static/ribbons/<image>.png) instead of text.
+    image: str = Field(default="", pattern=r"^[a-z0-9_]*$")
 
     @field_validator("text")
     @classmethod

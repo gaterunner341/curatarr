@@ -1172,7 +1172,7 @@ const RATING_CAPS = [
 
 // Source rows. A list row is one box: what's pasted in it (a link, ids, a discover query)
 // picks the source type. Charts and Plex filters aren't links, so they have their own rows.
-const CHART_TYPES = ["tmdb_chart", "imdb_chart", "trakt_chart"];
+const CHART_TYPES = ["tmdb_chart", "imdb_chart", "trakt_chart", "netflix_chart"];
 const sourceKind = (type) => CHART_TYPES.includes(type) ? "chart" : type === "plex_filter" ? "plex" : "list";
 
 function sourceRow(src, idx) {
@@ -1922,9 +1922,9 @@ async function hallPage() {
     return meta?.options ? `${meta.provider} chart: ${meta.options[s.value] || s.value}` : s.value;
   };
   const cards = list.map((b) => {
-    const libs = allLibs.filter((l) => l.type === b.media);
-    const service = b.media === "show" ? "sonarr" : "radarr";
+    const libs = allLibs.filter((l) => b.media === "any" || l.type === b.media);
     const rows = libs.map((l) => {
+      const service = l.type === "show" ? "sonarr" : "radarr";
       const coll = b.collections.find((c) => String(c.config.section_id) === l.id);
       const takeover = !coll && b.takeover.find((t) => t.section_id === l.id);
       return `<li>
@@ -1946,9 +1946,10 @@ async function hallPage() {
       <div class="hall-body">
         <h2>${esc(b.name)}</h2>
         <p class="hint" style="margin-top:-6px">${esc(b.description)} Comes with its own poster and ribbon.
-          Default feed: ${esc(feed(b.source))};
+          Default feed: ${esc(Object.entries(b.sources).map(([t, s]) => feed(s) + (Object.keys(b.sources).length > 1
+            ? ` (${t === "show" ? "TV" : "movie"} libraries)` : "")).join("; "))};
           you can point it at another list afterwards.</p>
-        ${libs.length ? `<ul class="dash-list">${rows}</ul>` : `<p class="muted small">No ${b.media === "show" ? "TV" : "movie"} libraries in Plex.</p>`}
+        ${libs.length ? `<ul class="dash-list">${rows}</ul>` : `<p class="muted small">No ${b.media === "show" ? "TV" : b.media === "any" ? "" : "movie"} libraries in Plex.</p>`}
       </div>
     </div>`;
   }).join("");
