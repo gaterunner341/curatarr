@@ -18,8 +18,9 @@ BUILTINS: list[dict] = [
         "media": "movie",
         "description": "The 250 highest-rated movies on IMDb, in IMDb's order.",
         "sources": {"movie": {"type": "tmdb_list", "value": "https://www.themoviedb.org/list/634-top-250-imdb"}},
-        # Earlier default feeds: a collection still on one of these moves to the current default.
-        "old_sources": [{"type": "imdb_chart", "value": "top"}],
+        # Earlier default feeds, and what a collection still on one moves to.
+        "moved_sources": [({"type": "imdb_chart", "value": "top"},
+                           {"type": "tmdb_list", "value": "https://www.themoviedb.org/list/634-top-250-imdb"})],
         "poster": "imdb",
         "fixed": {
             "name": "IMDb Top 250",
@@ -36,8 +37,10 @@ BUILTINS: list[dict] = [
         "media": "any",
         "description": "This week's most-watched on Netflix worldwide (netflix.com/tudum/top10): the top 10 films "
                        "in movie libraries, the top 10 shows in TV libraries. Needs a TMDB API key to match titles.",
-        "sources": {"movie": {"type": "netflix_chart", "value": "films"},
+        "sources": {"movie": {"type": "tmdb_list", "value": "https://www.themoviedb.org/list/8300585-top-10-movies-netflix"},
                     "show": {"type": "netflix_chart", "value": "tv"}},
+        "moved_sources": [({"type": "netflix_chart", "value": "films"},
+                           {"type": "tmdb_list", "value": "https://www.themoviedb.org/list/8300585-top-10-movies-netflix"})],
         "poster": "netflix",
         "fixed": {
             "name": "Netflix Top 10",
@@ -96,10 +99,12 @@ def refresh_all() -> int:
         builtin = get(cfg.get("builtin", ""))
         if builtin:
             fixed = enforce(cfg, cfg)
+            moved = builtin.get("moved_sources", [])
             feed = [{k: s.get(k) for k in ("type", "value")} for s in cfg.get("sources") or []]
-            if feed and all(s in builtin.get("old_sources", []) for s in feed):
-                media = next((t for t, s in builtin["sources"].items()), "movie")
-                fixed["sources"] = [dict(builtin["sources"][media])]
+            if len(feed) == 1:              # still on an earlier default feed: move it to the new one
+                new = next((dict(n) for old, n in moved if old == feed[0]), None)
+                if new:
+                    fixed["sources"] = [new]
             if fixed != cfg:
                 db.update_collection_config(row["id"], fixed)
                 count += 1

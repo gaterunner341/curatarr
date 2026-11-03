@@ -1865,3 +1865,17 @@ def test_overlay_progress_lists_queued_triggers():
     finally:
         with overlays._reasons_lock:
             overlays._reasons.clear()
+
+
+def test_netflix_builtin_moves_to_tmdb_movie_list():
+    from app import builtins
+    films = db.create_collection({"name": "Netflix Top 10", "library": "Movies", "section_id": "1",
+                                  "builtin": "netflix_top_10", "sources": [{"type": "netflix_chart", "value": "films"}]})
+    tv = db.create_collection({"name": "Netflix Top 10", "library": "TV", "section_id": "2",
+                               "builtin": "netflix_top_10", "sources": [{"type": "netflix_chart", "value": "tv"}]})
+    builtins.refresh_all()
+    assert db.get_collection(films)["config"]["sources"][0]["value"].endswith("/list/8300585-top-10-movies-netflix")
+    assert db.get_collection(tv)["config"]["sources"][0]["value"] == "tv"           # TV keeps Netflix's chart
+    assert builtins.collection_config(builtins.get("netflix_top_10"), {"id": "1", "title": "M", "type": "movie"}
+                                      )["sources"][0]["type"] == "tmdb_list"
+    db.delete_collection(films); db.delete_collection(tv)

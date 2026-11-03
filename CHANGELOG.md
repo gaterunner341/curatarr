@@ -3,6 +3,10 @@
 The version shown in the web UI's sidebar matches these entries. Each
 release is also published as `ghcr.io/gaterunner341/curatarr:<version>`.
 
+## 0.30.4
+
+- **Netflix Top 10 feed:** in movie libraries the built-in now follows TMDB's list "Top 10 Movies Netflix" (themoviedb.org/list/8300585). TV libraries keep Netflix's own Top 10 TV chart. A Netflix Top 10 still on the old films chart moves to the TMDB list automatically. A feed you chose yourself is kept.
+
 ## 0.30.3
 
 - **Overlay progress shows queued triggers:** a change made while a pass is already running waits for the next pass, and the top bar now says so, e.g. "Drawing poster overlays (Independence Day Collection synced; then IMDb Top 250 removed, Netflix Top 10 removed)". Hover for the full list.
