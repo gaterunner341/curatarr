@@ -132,11 +132,11 @@ def _ribbon_text(draw: ImageDraw.ImageDraw, text: str, spec: dict, length: int, 
     """Ribbon text as big as the band allows. Text that would come out small on one line is split
     over two, like Kometa's ribbons: the first part on top and a little bigger, the rest below it."""
     names = FONTS.get(spec.get("font") or "sans", FONTS["sans"])[1]
-    colour = hex_rgb(spec["text_color"])
+    color = hex_rgb(spec["text_color"])
     mid = length / 2
 
     def room(y: float) -> float:
-        # Visible length of a text line centred ``y`` down the band. Lines further from the
+        # Visible length of a text line centered ``y`` down the band. Lines further from the
         # corner are longer; the top of the text faces the corner in the top corners.
         away = (y - thick / 2) if toward_corner_is_top else (thick / 2 - y)
         return max(0.0, (reach * math.sqrt(2) + 2 * away) * 0.86)
@@ -144,7 +144,7 @@ def _ribbon_text(draw: ImageDraw.ImageDraw, text: str, spec: dict, length: int, 
     size, fnt = _fit(draw, text, names, int(thick * 0.62), room(thick / 2))
     words = text.split()
     if size >= thick * 0.45 or len(words) < 2:
-        draw.text((mid, thick / 2), text, font=fnt, fill=colour, anchor="mm")
+        draw.text((mid, thick / 2), text, font=fnt, fill=color, anchor="mm")
         return
     top, bottom = thick * 0.31, thick * 0.73
     # Two lines: the split that gives the biggest text, with the first line a little bigger.
@@ -158,8 +158,8 @@ def _ribbon_text(draw: ImageDraw.ImageDraw, text: str, spec: dict, length: int, 
             best = (score, first, s1, second, s2)
     _, first, s1, second, s2 = best
     s2 = min(s2, int(s1 * 0.82))                 # the second line stays smaller than the first
-    draw.text((mid, top), first, font=_font(names, s1), fill=colour, anchor="mm")
-    draw.text((mid, bottom), second, font=_font(names, s2), fill=colour, anchor="mm")
+    draw.text((mid, top), first, font=_font(names, s1), fill=color, anchor="mm")
+    draw.text((mid, bottom), second, font=_font(names, s2), fill=color, anchor="mm")
 
 
 def _font(names: list[str], size: int):
@@ -182,13 +182,13 @@ def available_fonts() -> list[dict]:
     return out
 
 
-# Rating sources are shown as text in each site's colour, not with their logos.
+# Rating sources are shown as text in each site's color, not with their logos.
 PROVIDERS = {"imdb": ("IMDb", "#f5c518"), "themoviedb": ("TMDB", "#01b4e4"), "rottentomatoes": ("RT", "#fa320a")}
 
 
 def _pill(img: Image.Image, x: float, y: float, h: float, parts: list[tuple[str, str]], right: bool = False,
           measure: bool = False) -> float:
-    """A rounded dark badge with coloured text parts; returns its width.
+    """A rounded dark badge with colored text parts; returns its width.
 
     ``right`` anchors x at its right edge; ``measure`` only returns the width.
     """
@@ -604,7 +604,7 @@ def _apply_one(plex: Plex, rk: str, entry: dict, row: dict | None) -> bool | Non
 
 
 def _keeps_poster(plex: Plex, rk: str) -> bool:
-    """Titles labelled "Curatarr Keep Poster" keep their own poster under any overlays."""
+    """Titles labeled "Curatarr Keep Poster" keep their own poster under any overlays."""
     from .unmatched import has_keep_label
     return has_keep_label(plex.item(rk) or {})
 

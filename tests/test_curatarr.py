@@ -899,7 +899,7 @@ def test_collection_curatarr_made_is_not_disowned():
     assert "removed from Plex" in gone.messages[0] and rk not in fake.collections
 
 
-def test_collection_made_before_key_tracking_is_recognised_by_history():
+def test_collection_made_before_key_tracking_is_recognized_by_history():
     db.save_settings({"made_by_curatarr": "[]"})
     fake = FakePlex()
     fake.collections["100"] = ["1", "2", "3"]

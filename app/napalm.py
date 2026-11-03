@@ -167,7 +167,7 @@ def run(section_ids: list[str]) -> dict:
             items, keep = [], set()
             for section in _sections(plex, section_ids):
                 items += [(str(i["ratingKey"]), i.get("title")) for i in plex.section_items(section["id"], section["type"])]
-                keep |= keep_set(plex, section)        # titles labelled "Curatarr Keep Poster" are skipped
+                keep |= keep_set(plex, section)        # titles labeled "Curatarr Keep Poster" are skipped
             progress["total"] = len(items)
             log.info("Napalm: refreshing the posters of %d title(s)", len(items))
             for rk, title in items:

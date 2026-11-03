@@ -3,6 +3,10 @@
 The version shown in the web UI's sidebar matches these entries. Each
 release is also published as `ghcr.io/gaterunner341/curatarr:<version>`.
 
+## 0.32.1
+
+- **US English throughout:** "Color icons", "Ribbon color", "Sync behavior", "Recognized", "labeled" and so on, instead of the UK spellings.
+
 ## 0.32.0
 
 - **Stuck and orphaned collections in "Needs attention":**
@@ -15,7 +19,7 @@ release is also published as `ghcr.io/gaterunner341/curatarr:<version>`.
 ## 0.31.0
 
 - **US rating icons from Kometa, for movies and shows:** G, PG, PG-13, R, NC-17, Not Rated, TV-Y, TV-G, TV-PG, TV-14 and TV-MA, in the top-left corner.
-  - Choose **White** (outline, on a dark backing) or **Colour** (Kometa's coloured icons).
+  - Choose **White** (outline, on a dark backing) or **Color** (Kometa's colored icons).
   - Turn it on per collection (Poster overlays → "US rating icon") or for any whole library (Settings → Poster overlays → Whole libraries → Rating icon).
   - Only US ratings get an icon: a UK "PG" doesn't show as the US one. Ratings with no icon (e.g. TV-Y7) keep the text badge if that's on.
   - These replace the TV icons added in 0.30.0. Where that option was on, movies now get their icon too.
@@ -68,7 +72,7 @@ release is also published as `ghcr.io/gaterunner341/curatarr:<version>`.
 
 ## 0.27.2
 
-- **Live overlay preview:** in a collection's Poster overlays settings, the preview redraws by itself shortly after you change any setting (ribbon text, corner, size, font, colours, badges, fresh poster), and is drawn when the page opens. There's no Preview button any more. The previous image stays, dimmed, until the new one arrives.
+- **Live overlay preview:** in a collection's Poster overlays settings, the preview redraws by itself shortly after you change any setting (ribbon text, corner, size, font, colors, badges, fresh poster), and is drawn when the page opens. There's no Preview button any more. The previous image stays, dimmed, until the new one arrives.
 
 ## 0.27.1
 
@@ -94,8 +98,8 @@ release is also published as `ghcr.io/gaterunner341/curatarr:<version>`.
 
 ## 0.26.0
 
-- **No more source-type dropdown:** each list is one box. Paste a link, title ids or a TMDB discover query and Curatarr works out what it is. A tag next to the box says what it recognised, e.g. "TMDB studio", "IMDb watchlist", "Trakt list" or "3 title ids". Anything it doesn't recognise is flagged.
-  - Recognised:
+- **No more source-type dropdown:** each list is one box. Paste a link, title ids or a TMDB discover query and Curatarr works out what it is. A tag next to the box says what it recognized, e.g. "TMDB studio", "IMDb watchlist", "Trakt list" or "3 title ids". Anything it doesn't recognize is flagged.
+  - Recognized:
     - TMDB lists, collections, and studio, network, keyword and person pages
     - IMDb lists, watchlists and chart links
     - Trakt lists, watchlists and chart links
@@ -107,12 +111,12 @@ release is also published as `ghcr.io/gaterunner341/curatarr:<version>`.
     - **+ Add chart** gives one dropdown with every TMDB, IMDb and Trakt chart, grouped by service.
     - **+ Add Plex filter** keeps the Build filter button.
   - Pasting a chart link (e.g. imdb.com/chart/top) turns the row into that chart.
-  - Saved collections keep their sources and show the recognised type when opened.
+  - Saved collections keep their sources and show the recognized type when opened.
 
 ## 0.25.0
 
-- **Links pick their own source type:** paste a link into a list source and Curatarr recognises it, switches the source to the right type and says what it found.
-  - Recognised: TMDB list, collection, studio, network, keyword and person pages; IMDb lists, watchlists and charts; Trakt lists, watchlists and charts; MDBList lists.
+- **Links pick their own source type:** paste a link into a list source and Curatarr recognizes it, switches the source to the right type and says what it found.
+  - Recognized: TMDB list, collection, studio, network, keyword and person pages; IMDb lists, watchlists and charts; Trakt lists, watchlists and charts; MDBList lists.
   - A link it can't use is flagged.
 - **Test button on every source:** fetches just that source and reports whether it works, how many titles it gives, how many are in your library, and the first few. If it doesn't work, it shows the error, e.g. a missing API key, a private list or IMDb's bot protection.
   - Works for every source type, including charts, discover queries, static ids and Plex filters.
@@ -173,7 +177,7 @@ release is also published as `ghcr.io/gaterunner341/curatarr:<version>`.
 
 - **Fixed:** a collection or playlist that Curatarr created could be treated as one that "existed before Curatarr". This happened when Curatarr lost track of it and found it again by name, for example after a holiday was turned off and back on. Curatarr then only added titles to it and left it in Plex out of season.
   - Curatarr now records every Plex collection and playlist it creates.
-  - Ones it made earlier are recognised from sync history and fixed automatically on their next sync.
+  - Ones it made earlier are recognized from sync history and fixed automatically on their next sync.
 - **Dashboard:** "Coming up" shows one entry when the same collection has the same dates in several libraries, listing all of them.
 
 ## 0.19.0
@@ -408,7 +412,7 @@ release is also published as `ghcr.io/gaterunner341/curatarr:<version>`.
 
 - **Exclude a title:** on a collection's View page, hover a poster and click **✕** to take that title out of the collection and keep it out, even when a list has it. Excluded titles are listed in the collection's settings, where you can allow them again.
 - **Content-rating cap:** a collection can leave out titles above a rating, such as PG for a kids collection.
-  - The setting is **Highest content rating** under Sync behaviour. Movie and TV ratings that mean about the same are treated alike, for example PG-13 and TV-14.
+  - The setting is **Highest content rating** under Sync behavior. Movie and TV ratings that mean about the same are treated alike, for example PG-13 and TV-14.
   - Titles without a US rating are kept unless you tick **Also leave out unrated titles**.
 - **Add one missing title:** in **Show missing titles**, each row has an **Add to Radarr** (or **Add to Sonarr**) button. It doesn't count toward the per-sync limit.
 - **What changed:** History lists the titles each sync added (+) and removed (−). Click the +/− count to see them. This applies to syncs from 0.7.0 on.

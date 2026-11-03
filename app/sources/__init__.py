@@ -38,7 +38,7 @@ def fetch_static(value: str, ctx: SourceContext, limit: int | None) -> list[Medi
         elif provider == "tvdb" and ident.isdigit():
             refs.append(MediaRef(None, tvdb=int(ident)))
         else:
-            raise SourceError(f"Unrecognised id '{token}' (use imdb:tt…, tmdb:123 or tvdb:123)")
+            raise SourceError(f"Unrecognized id '{token}' (use imdb:tt…, tmdb:123 or tvdb:123)")
     return refs[:limit] if limit else refs
 
 

@@ -1,5 +1,5 @@
 The us*.png content rating icons are Kometa's (defaults/overlays/images/cr in
-https://github.com/Kometa-Team/Kometa); the ones ending in c are the colour versions.
+https://github.com/Kometa-Team/Kometa); the ones ending in c are the color versions.
 Copied here under Kometa's MIT License:
 
 MIT License

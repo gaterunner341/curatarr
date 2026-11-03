@@ -492,7 +492,7 @@ def _save_custom_holiday(entry: dict) -> dict:
 
 @router.post("/holidays/custom", status_code=201)
 def add_custom_holiday(body: dict = Body(...)):
-    """Add your own holiday: name, start/end ("MM-DD"), TMDB keyword or list link, colour scheme."""
+    """Add your own holiday: name, start/end ("MM-DD"), TMDB keyword or list link, color scheme."""
     return _save_custom_holiday({k: body.get(k) for k in ("name", "start", "end", "link", "scheme")})
 
 

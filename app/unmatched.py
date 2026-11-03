@@ -1,6 +1,6 @@
 """Find titles that aren't tied to IMDb, TMDB or TVDB, and fan edits.
 
-Listed are titles labelled "Fan Edit" (or "FanEdit", "fan-edit", ...) in Plex,
+Listed are titles labeled "Fan Edit" (or "FanEdit", "fan-edit", ...) in Plex,
 whatever their match, plus two kinds of titles without outside ids:
 
 * **not matched**: Plex has no metadata match at all (a ``local://`` or
@@ -36,7 +36,7 @@ def classify(item: dict) -> str | None:
     return None if any(ids) else "no_ids"
 
 
-def _labelled(plex: Plex, section: dict, matches) -> set[str]:
+def _labeled(plex: Plex, section: dict, matches) -> set[str]:
     """Rating keys in a library with any label whose name ``matches``."""
     keys: set[str] = set()
     for label in plex.filter_values(section["id"], "label"):
@@ -49,7 +49,7 @@ def _labelled(plex: Plex, section: dict, matches) -> set[str]:
 
 def keep_set(plex: Plex, section: dict) -> set[str]:
     """Rating keys in a library that have the Keep Poster label."""
-    return _labelled(plex, section, lambda name: name == KEEP_LABEL)
+    return _labeled(plex, section, lambda name: name == KEEP_LABEL)
 
 
 def is_fan_edit_label(name: str) -> bool:
@@ -58,7 +58,7 @@ def is_fan_edit_label(name: str) -> bool:
 
 
 def fan_edit_set(plex: Plex, section: dict) -> set[str]:
-    return _labelled(plex, section, is_fan_edit_label)
+    return _labeled(plex, section, is_fan_edit_label)
 
 
 def has_keep_label(item: dict) -> bool:

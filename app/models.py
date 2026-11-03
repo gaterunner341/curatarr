@@ -82,7 +82,7 @@ class Badges(BaseModel):
     quality: bool = False         # resolution, HDR / Dolby Vision, Atmos (movies)
     content_rating: bool = False  # PG-13, TV-MA, ...
     tv_icon: bool = False         # the US rating icon (PG-13, TV-MA, ...) in the top-left corner
-    icon_style: Literal["white", "color"] = "white"     # Kometa's white or colour icons
+    icon_style: Literal["white", "color"] = "white"     # Kometa's white or color icons
     rating: Literal["", "audience", "critic"] = ""
     rating_min: float = Field(default=0, ge=0, le=10)    # hide the rating badge below this (out of 10)
 

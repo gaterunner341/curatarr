@@ -126,9 +126,9 @@ def _netflix_poster() -> bytes:
     while draw.textlength("TOP 10", font=big) > w * 0.84 and size > 100:
         size -= 10
         big = font(POSTER_FONTS, size)
-    for text, fnt, colour, y in (("NETFLIX", small, (229, 9, 20), 430), ("TOP 10", big, (255, 255, 255), 600)):
+    for text, fnt, color, y in (("NETFLIX", small, (229, 9, 20), 430), ("TOP 10", big, (255, 255, 255), 600)):
         x0, y0, x1, y1 = draw.textbbox((0, 0), text, font=fnt)
-        draw.text(((w - (x1 - x0)) / 2 - x0, y - y0), text, font=fnt, fill=colour)
+        draw.text(((w - (x1 - x0)) / 2 - x0, y - y0), text, font=fnt, fill=color)
     out = io.BytesIO()
     img.save(out, "JPEG", quality=92)
     return out.getvalue()

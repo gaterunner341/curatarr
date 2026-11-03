@@ -487,7 +487,7 @@ POSTERS += [
      {"top": "#13361f", "bottom": "#030b06", "icon": "#8a4b25", "second": "#f4efe2", "accent": "#d9e6c8"}),
 ]
 
-# Colour schemes for holidays you add yourself.
+# Color schemes for holidays you add yourself.
 SCHEMES = {
     "crimson": {"top": "#4a0d1a", "bottom": "#0e0305", "icon": "#d8304e", "second": "#f2b8c3", "accent": "#f2b8c3"},
     "emerald": {"top": "#0d4128", "bottom": "#03100a", "icon": "#33a35c", "second": "#d9c27a", "accent": "#d9c27a"},

@@ -828,7 +828,7 @@ async function dashboardPage() {
 const UNMATCHED_KINDS = {
   unmatched: ["Not matched", "Plex has no metadata match for it. Its poster is the one you uploaded or that's in its folder."],
   no_ids: ["No IMDb/TMDB IDs", "Matched in Plex, but not to an IMDb, TMDB or TVDB entry. If it's a fan edit matched to the wrong title, fix the match in Plex or keep its poster."],
-  fan_edit: ["Fan edit", "Labelled Fan Edit in Plex."],
+  fan_edit: ["Fan edit", "Labeled Fan Edit in Plex."],
 };
 
 async function unmatchedPage(refresh = false) {
@@ -865,7 +865,7 @@ async function unmatchedPage(refresh = false) {
     view.innerHTML = `
       <div class="page-head"><h1>Unmatched and Fan Edits</h1>
         <div class="actions"><button id="umRescan">Scan again</button></div></div>
-      <p class="hint" style="margin-top:-8px">Movies and shows not tied to IMDb, TMDB or TVDB, plus titles labelled
+      <p class="hint" style="margin-top:-8px">Movies and shows not tied to IMDb, TMDB or TVDB, plus titles labeled
         <strong>Fan Edit</strong> (or FanEdit) in Plex.
         <strong>Keep poster</strong> adds the Plex label <span class="mono">Curatarr Keep Poster</span>: napalm and the fresh-poster
         option never change that title's poster (ribbons and badges are still drawn on it).
@@ -1235,7 +1235,7 @@ function sourceRow(src, idx) {
   const tag = kind === "chart" ? "Chart" : kind === "plex" ? "Plex filter" : src.value ? (src.label || meta.label || "") : "";
   return `
     <div class="source" data-idx="${idx}">
-      <span class="source-tag ${tag ? "" : "muted"}" data-src-tag title="What Curatarr recognised this source as">${esc(tag || "List")}</span>
+      <span class="source-tag ${tag ? "" : "muted"}" data-src-tag title="What Curatarr recognized this source as">${esc(tag || "List")}</span>
       ${input}
       <input type="number" data-field="limit" min="1" placeholder="Limit" value="${src.limit ?? ""}" title="Max items from this source">
       <button type="button" class="small" data-test-src title="Fetch this source on its own and check it works">Test</button>
@@ -1408,7 +1408,7 @@ async function editor(id, params = new URLSearchParams()) {
     </div>
 
     <div class="card">
-      <h2>Sync behaviour</h2>
+      <h2>Sync behavior</h2>
       <div class="grid">
         <div ${isOverlay ? "hidden" : ""}><label for="f-mode">Mode</label>
           <select id="f-mode">
@@ -1491,8 +1491,8 @@ async function editor(id, params = new URLSearchParams()) {
             ["large", "Large"], ["xlarge", "Extra large"]].map(([v, l]) =>
             `<option value="${v}" ${(cfg.ribbon?.size || "medium") === v ? "selected" : ""}>${l}</option>`).join("")}</select></div>
           <div><label for="r-font">Font</label><select id="r-font"><option value="${esc(cfg.ribbon?.font || "sans")}">…</option></select></div>
-          <div><label for="r-color">Ribbon colour</label><input type="color" id="r-color" value="${esc(cfg.ribbon?.color || "#f5c518")}"></div>
-          <div><label for="r-tcolor">Text colour</label><input type="color" id="r-tcolor" value="${esc(cfg.ribbon?.text_color || "#000000")}"></div>
+          <div><label for="r-color">Ribbon color</label><input type="color" id="r-color" value="${esc(cfg.ribbon?.color || "#f5c518")}"></div>
+          <div><label for="r-tcolor">Text color</label><input type="color" id="r-tcolor" value="${esc(cfg.ribbon?.text_color || "#000000")}"></div>
           <div class="full"><label class="check"><input type="checkbox" id="b-quality" ${cfg.badges?.quality ? "checked" : ""}>
             Quality badges: resolution, HDR or Dolby Vision, Atmos (movies)</label>
             <label class="check"><input type="checkbox" id="b-cert" ${cfg.badges?.content_rating ? "checked" : ""}>
@@ -1502,7 +1502,7 @@ async function editor(id, params = new URLSearchParams()) {
             <div class="row" style="margin:2px 0 6px 26px"><label for="b-istyle" class="small" style="margin:0">Icon style</label>
               <select id="b-istyle" style="width:auto">
                 <option value="white" ${cfg.badges?.icon_style !== "color" ? "selected" : ""}>White</option>
-                <option value="color" ${cfg.badges?.icon_style === "color" ? "selected" : ""}>Colour</option></select></div>
+                <option value="color" ${cfg.badges?.icon_style === "color" ? "selected" : ""}>Color</option></select></div>
             <label class="check"><input type="checkbox" id="f-fresh" ${cfg.fresh_poster ? "checked" : ""}>
             Start from a fresh poster from Plex's sources</label>
             <div class="hint">Swaps each title's poster for the first one from Plex's metadata sources (such as TMDB),
@@ -1548,7 +1548,7 @@ async function editor(id, params = new URLSearchParams()) {
       // What's pasted in a list box picks the source type.
       const tagEl = el.querySelector("[data-src-tag]");
       let timer = null;
-      const recognise = async () => {
+      const recognize = async () => {
         const value = src.value.trim();
         if (!value) { tagEl.textContent = "List"; tagEl.classList.add("muted"); say(""); return; }
         const found = await api("GET", `/sources/detect?value=${encodeURIComponent(value)}`).catch(() => ({}));
@@ -1565,19 +1565,19 @@ async function editor(id, params = new URLSearchParams()) {
           say("");
         } else {
           src.label = "";
-          tagEl.textContent = "Not recognised";
+          tagEl.textContent = "Not recognized";
           tagEl.classList.add("muted");
-          say(`<span class="no">${found.link ? "Curatarr doesn't recognise this link." : "Curatarr doesn't recognise this."}</span>
+          say(`<span class="no">${found.link ? "Curatarr doesn't recognize this link." : "Curatarr doesn't recognize this."}</span>
             <span class="muted">Use a TMDB, IMDb, Trakt or MDBList link, title ids like tt0133093 or tmdb:603, or a TMDB discover query.</span>`);
         }
       };
-      if (sourceKind(src.type) === "list" && src.value.trim() && !src.label) recognise();    // a saved source
+      if (sourceKind(src.type) === "list" && src.value.trim() && !src.label) recognize();    // a saved source
       const valueEl = el.querySelector("[data-field=value]");
       if (valueEl) valueEl.oninput = (e) => {
         src.value = e.target.value;
         if (sourceKind(src.type) !== "list") return;
         clearTimeout(timer);
-        timer = setTimeout(recognise, 400);
+        timer = setTimeout(recognize, 400);
       };
       // A one-line box would drop the line breaks of a pasted CSV export, so it becomes a bigger box.
       if (valueEl?.tagName === "INPUT" && sourceKind(src.type) === "list") valueEl.addEventListener("paste", (e) => {
@@ -2217,7 +2217,7 @@ async function holidaysPage() {
   render();
 }
 
-// Add or edit one of your own holidays: name, dates, TMDB link and poster colours.
+// Add or edit one of your own holidays: name, dates, TMDB link and poster colors.
 async function holidayForm(h) {
   const box = view.querySelector("#holidayForm");
   const schemes = state.schemes ||= await api("GET", "/holidays/schemes");
@@ -2233,7 +2233,7 @@ async function holidayForm(h) {
       <div class="full"><label for="hLink">TMDB keyword or list link</label>
         <input type="url" id="hLink" value="${esc(h?.link || "")}" placeholder="https://www.themoviedb.org/keyword/…">
         <div class="hint">Find a keyword on themoviedb.org (search, then Keywords) and paste its page link. Its 100 most popular movies are used.</div></div>
-      <div class="full"><label>Poster colours</label><div class="swatches">${Object.entries(schemes).map(([key, c]) => `
+      <div class="full"><label>Poster colors</label><div class="swatches">${Object.entries(schemes).map(([key, c]) => `
         <label class="swatch" title="${esc(key)}"><input type="radio" name="hScheme" value="${esc(key)}" ${key === scheme ? "checked" : ""}>
           <span style="background:linear-gradient(${esc(c.top)}, ${esc(c.bottom)})"><i style="background:${esc(c.icon)}"></i></span></label>`).join("")}
       </div></div>
@@ -2607,7 +2607,7 @@ async function libraryBadges(card) {
           : ""}
         <label class="check"><input type="checkbox" data-k="tv_icon" ${b.tv_icon ? "checked" : ""}> Rating icon</label>
         <select data-k="icon_style" title="Rating icon style"><option value="white">White icons</option>
-          <option value="color" ${b.icon_style === "color" ? "selected" : ""}>Colour icons</option></select>
+          <option value="color" ${b.icon_style === "color" ? "selected" : ""}>Color icons</option></select>
         <select data-k="rating" title="Rating badge">
           <option value="">No rating badge</option>
           <option value="audience" ${b.rating === "audience" ? "selected" : ""}>Audience rating</option>
@@ -2686,7 +2686,7 @@ async function napalmCard(card) {
           collection in these libraries, so the new posters stay clean. You can turn them back on in each collection's settings.</li>
         <li>Big libraries take a while, about one Plex request or two per title. You can stop it part way.</li>
         <li>Everyone using your server sees the new posters.</li>
-        <li>Titles labelled <strong>Curatarr Keep Poster</strong> are skipped. Set it on fan edits and custom posters
+        <li>Titles labeled <strong>Curatarr Keep Poster</strong> are skipped. Set it on fan edits and custom posters
           from <a href="#/unmatched">Unmatched and Fan Edits</a>.</li>
       </ul>
     </div>
