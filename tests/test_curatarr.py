@@ -1731,3 +1731,48 @@ def test_source_test_endpoint(monkeypatch):
     monkeypatch.setattr(sync_mod, "preview", lambda *a, **k: {"items": [], "errors": ["tmdb_list: TMDB 404"], "matched": 0})
     r = TestClient(app).post("/api/sources/test", json=body).json()
     assert not r["ok"] and "404" in r["error"]
+
+
+def test_hall_of_fame_builtin(monkeypatch):
+    from contextlib import nullcontext
+    from fastapi.testclient import TestClient
+    from app import api as api_mod, scheduler, sync as sync_mod
+    from app.main import app
+
+    class P:
+        renamed = []
+
+        def edit_collection(self, section, rk, title=None, **kw):
+            self.renamed.append((rk, title))
+    plex = P()
+    monkeypatch.setattr(api_mod, "_plex", lambda: nullcontext(plex))
+    monkeypatch.setattr(sync_mod, "resolve_section",
+                        lambda p, sid, lib: {"id": sid, "title": f"Lib {sid}", "type": "movie"})
+    monkeypatch.setattr(scheduler, "run_now", lambda *a, **k: None)
+    client = TestClient(app)
+    # an existing collection of the same name in library 31 is taken over, keeping its feed
+    old = db.create_collection({"name": "IMDB Top 250", "library": "Lib 31", "section_id": "31", "sync_mode": "append",
+                                "sources": [{"type": "mdblist", "value": "https://mdblist.com/lists/a/top250"}]})
+    db.update_collection_state(old, plex_rating_key="555")
+    listed = {b["key"]: b for b in client.get("/api/builtins").json()}
+    assert listed["imdb_top_250"]["takeover"][0]["id"] == old
+    r = client.post("/api/builtins/imdb_top_250/enable", json={"section_id": "31"})
+    assert r.status_code == 201 and r.json()["id"] == old
+    cfg = r.json()["config"]
+    assert cfg["builtin"] == "imdb_top_250" and cfg["name"] == "IMDb Top 250" and cfg["sync_mode"] == "sync"
+    assert cfg["sources"][0]["type"] == "mdblist" and cfg["ribbon"]["text"] == "IMDb TOP 250"
+    assert cfg["poster_file"].endswith("-poster.jpg") and plex.renamed == [("555", "IMDb Top 250")]
+    assert client.post("/api/builtins/imdb_top_250/enable", json={"section_id": "31"}).status_code == 409
+    # a new library gets the default feed
+    r2 = client.post("/api/builtins/imdb_top_250/enable", json={"section_id": "32"}).json()
+    assert r2["config"]["sources"][0] == {"type": "imdb_chart", "value": "top", "limit": None}
+    # saving can change only the feed (and schedule etc.); the look stays fixed
+    edited = {**cfg, "name": "Mine", "ribbon": {**cfg["ribbon"], "text": "NOPE"}, "order": "alpha",
+              "schedule": "0 3 * * *", "sources": [{"type": "imdb_chart", "value": "top"}]}
+    saved = client.put(f"/api/collections/{old}", json=edited).json()["config"]
+    assert saved["name"] == "IMDb Top 250" and saved["ribbon"]["text"] == "IMDb TOP 250" and saved["order"] == "custom"
+    assert saved["schedule"] == "0 3 * * *" and saved["sources"][0]["type"] == "imdb_chart"
+    assert saved["poster_file"] == cfg["poster_file"]
+    assert client.get("/api/builtins/imdb_top_250/poster").headers["content-type"] == "image/jpeg"
+    for cid in (old, r2["id"]):
+        db.delete_collection(cid)

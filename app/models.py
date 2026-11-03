@@ -123,6 +123,7 @@ class CollectionConfig(BaseModel):
     request_missing: bool = False
     enabled: bool = True
     holiday: str = ""            # key from app.holidays when created from the Holidays page
+    builtin: str = ""            # key from app.builtins (Hall of Fame); its look is fixed
     exclude: list[Exclusion] = []
     max_rating: str = ""         # content rating cap, e.g. "PG-13"; blank = no cap
     drop_unrated: bool = False   # with a cap: also leave out unrated titles

@@ -136,6 +136,7 @@ const routes = [
   [/^#\/movies$/, () => collections("movie")],
   [/^#\/tv$/, () => collections("show")],
   [/^#\/holidays$/, holidaysPage],
+  [/^#\/hall$/, hallPage],
   [/^#\/packs\/(movie|show)$/, (m) => packsPage(m[1])],
   [/^#\/dashboard$/, dashboardPage],
   [/^#\/unmatched$/, () => unmatchedPage()],
@@ -295,7 +296,7 @@ async function collections(kind) {
   ]);
   // Without Plex the library types are unknown, so show everything rather than hide collections.
   // Holiday collections live on the Holidays page, playlists on the Playlists page.
-  const regular = allRows.filter((r) => !r.config.holiday && (r.config.kind || "collection") === "collection");
+  const regular = allRows.filter((r) => !r.config.holiday && !r.config.builtin && (r.config.kind || "collection") === "collection");
   const rows = libs ? regular.filter((r) => collectionKind(r.config, libs) === kind) : regular;
   const meta = KINDS[kind];
   const cards = rows.map(collectionCard).join("");
@@ -492,7 +493,8 @@ async function collectionItems({ id = null, ratingKey = null, playlist = false, 
     title = row.config.name;
     playlist = row.config.kind === "playlist";
     library = playlist && row.config.libraries?.length ? row.config.libraries.join(" + ") : row.config.library;
-    back = row.config.holiday ? "#/holidays" : playlist ? "#/playlists" : row.config.kind === "overlay" ? "#/overlays"
+    back = row.config.holiday ? "#/holidays" : row.config.builtin ? "#/hall" : playlist ? "#/playlists"
+      : row.config.kind === "overlay" ? "#/overlays"
       : (KINDS[libs && collectionKind(row.config, libs)] || KINDS.movie).hash;
   } else {
     items = await api("GET", `/plex/${playlist ? "playlists" : "collections"}/${ratingKey}/items`);
@@ -1290,13 +1292,14 @@ async function editor(id, params = new URLSearchParams()) {
   const kind = collectionKind(cfg, libs) || params.get("type") || "movie";
   const backHash = () => {
     if (cfg.holiday) return "#/holidays";
+    if (cfg.builtin) return "#/hall";
     if (isPlaylist) return "#/playlists";
     if (isOverlay) return "#/overlays";
     const opt = view.querySelector("#f-lib")?.selectedOptions[0];
     return KINDS[opt?.dataset.type || kind].hash;
   };
   document.querySelectorAll("[data-nav]").forEach((a) => a.classList.toggle("active",
-    a.getAttribute("href") === (cfg.holiday ? "#/holidays" : isPlaylist ? "#/playlists"
+    a.getAttribute("href") === (cfg.holiday ? "#/holidays" : cfg.builtin ? "#/hall" : isPlaylist ? "#/playlists"
       : isOverlay ? "#/overlays" : KINDS[kind].hash)));
   // Libraries picked for the lists: one for a collection, any number for a playlist.
   const pickedLibs = () => isPlaylist
@@ -1320,6 +1323,11 @@ async function editor(id, params = new URLSearchParams()) {
         <button id="saveRun" class="primary">Save &amp; sync</button>
       </div>
     </div>
+
+    ${cfg.builtin ? `<div class="notice">
+      <strong>Built-in collection</strong> from the <a href="#/hall">Hall of Fame</a>. Its name, poster, ribbon and order are fixed.
+      You can change the list it follows (its feed), whether it syncs and when, and whether missing titles go to Radarr / Sonarr.
+    </div>` : ""}
 
     ${link ? `<div class="notice">
       Linking to the existing Plex ${noun} <strong>${esc(cfg.name)}</strong> (${esc(params.get("items") || "0")} items).
@@ -1668,6 +1676,13 @@ async function editor(id, params = new URLSearchParams()) {
     el.addEventListener("change", queuePreview);
   });
   if (!isPlaylist) drawPreview();
+  if (cfg.builtin) {
+    const lists = view.querySelector("#sources").closest(".card");
+    const open = new Set(["f-enabled", "f-schedule", "f-request", "save", "saveRun", "dryRun"]);
+    view.querySelectorAll("input, select, textarea, button").forEach((el) => {
+      if (!open.has(el.id) && !lists.contains(el)) el.disabled = true;
+    });
+  }
   const collect = () => {
     const picked = pickedLibs();
     return {
@@ -1895,6 +1910,63 @@ async function history() {
           <td class="small muted">${esc(r.message)}</td>
         </tr>`).join("")}
       </tbody></table></div>` : `<div class="card empty">No syncs have run yet.</div>`}`;
+}
+
+// ---------- Hall of Fame (built-in collections) ----------
+// Ready-made collections with a fixed look, e.g. the IMDb Top 250. Each can be added to any
+// library of its type; only its feed and schedule can be changed afterwards.
+async function hallPage() {
+  const [list, allLibs] = await Promise.all([api("GET", "/builtins"), posterLibraries(), catalog()]);   // not the preroll library
+  const feed = (s) => {           // a chart by its name, anything else by its link
+    const meta = state.catalog.find((c) => c.type === s.type);
+    return meta?.options ? `${meta.provider} chart: ${meta.options[s.value] || s.value}` : s.value;
+  };
+  const cards = list.map((b) => {
+    const libs = allLibs.filter((l) => l.type === b.media);
+    const service = b.media === "show" ? "sonarr" : "radarr";
+    const rows = libs.map((l) => {
+      const coll = b.collections.find((c) => String(c.config.section_id) === l.id);
+      const takeover = !coll && b.takeover.find((t) => t.section_id === l.id);
+      return `<li>
+        <strong>${esc(l.title)}</strong>
+        ${coll ? `${badge(coll.last_status || "pending")}
+            <div class="small muted">Feed: ${esc(coll.config.sources.map(feed).join(", "))}</div>
+            <div class="row" style="margin-top:6px"><a class="btn small" href="#/collections/${coll.id}/items">View</a>
+              <a class="btn small" href="#/collections/${coll.id}">Change feed</a></div>`
+          : `<div class="row" style="margin-top:6px">
+              <button type="button" class="small primary" data-add="${esc(b.key)}" data-lib="${esc(l.id)}">Add to ${esc(l.title)}</button>
+              <label class="check small"><input type="checkbox" data-arr="${esc(b.key)}-${esc(l.id)}" ${b.arr_ready[service] ? "" : "disabled"}>
+                Send missing titles to ${service === "sonarr" ? "Sonarr" : "Radarr"}</label></div>
+            ${takeover ? `<div class="small muted">Your collection <strong>${esc(takeover.name)}</strong> in this library becomes this one,
+              keeping its feed and its Plex collection.</div>` : ""}`}
+      </li>`;
+    }).join("");
+    return `<div class="card hall">
+      <img class="hall-poster" src="${esc(b.poster)}" alt="">
+      <div class="hall-body">
+        <h2>${esc(b.name)}</h2>
+        <p class="hint" style="margin-top:-6px">${esc(b.description)} Comes with its own poster and ribbon.
+          Default feed: ${esc(feed(b.source))};
+          you can point it at another list afterwards.</p>
+        ${libs.length ? `<ul class="dash-list">${rows}</ul>` : `<p class="muted small">No ${b.media === "show" ? "TV" : "movie"} libraries in Plex.</p>`}
+      </div>
+    </div>`;
+  }).join("");
+  view.innerHTML = `
+    <div class="page-head"><h1>Hall of Fame</h1></div>
+    <p class="hint" style="margin-top:-8px">Built-in collections of the all-time greats. Each has a fixed name, poster and
+      ribbon; you choose the library, and can change the list it follows.</p>
+    ${cards}`;
+  view.querySelectorAll("[data-add]").forEach((btn) => btn.onclick = () => guard(async () => {
+    btn.disabled = true;
+    const arrBox = view.querySelector(`[data-arr="${btn.dataset.add}-${btn.dataset.lib}"]`);
+    try {
+      const c = await api("POST", `/builtins/${btn.dataset.add}/enable`,
+        { section_id: btn.dataset.lib, request_missing: Boolean(arrBox?.checked) });
+      toast(`${c.config.name} added; syncing now`);
+      route();
+    } finally { btn.disabled = false; }
+  }));
 }
 
 // ---------- holidays ----------

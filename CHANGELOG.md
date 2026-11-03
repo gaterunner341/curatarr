@@ -3,6 +3,14 @@
 The version shown in the web UI's sidebar matches these entries. Each
 release is also published as `ghcr.io/gaterunner341/curatarr:<version>`.
 
+## 0.28.0
+
+- **Hall of Fame** (new menu link): built-in collections with a fixed look, starting with the **IMDb Top 250**.
+  - **Look:** it has its own poster (IMDb yellow, "THE IMDb TOP 250"), an "IMDb / TOP 250" ribbon, IMDb's order and Sync mode. None of these can be changed.
+  - **What you can change:** the feed (the list it follows, by default IMDb's Top 250 chart), whether it's on, its schedule and whether missing titles go to Radarr. You can also exclude titles from its View page.
+  - **Adding it:** add it to any movie library from the Hall of Fame page. If that library already has a Curatarr collection with the same name (e.g. "IMDB Top 250"), that collection becomes the built-in one. It keeps its feed, schedule and Plex collection, and the Plex collection is renamed to "IMDb Top 250".
+  - **Where it shows:** built-in collections appear in the Hall of Fame, not on the Movies page.
+
 ## 0.27.2
 
 - **Live overlay preview:** in a collection's Poster overlays settings, the preview redraws by itself shortly after you change any setting (ribbon text, corner, size, font, colours, badges, fresh poster), and is drawn when the page opens. There's no Preview button any more. The previous image stays, dimmed, until the new one arrives.

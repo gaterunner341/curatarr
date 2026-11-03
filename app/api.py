@@ -12,7 +12,7 @@ from fastapi import APIRouter, Body, File, Form, HTTPException, Query, UploadFil
 from fastapi.responses import FileResponse, PlainTextResponse, Response
 from pydantic import ValidationError
 
-from . import arr, config, db, holidays, logs, packs, plex as plexmod, plextv, scheduler, sources, sync
+from . import arr, builtins, config, db, holidays, logs, packs, plex as plexmod, plextv, scheduler, sources, sync
 from .models import CollectionConfig, PreviewRequest
 from .plex import PlexError
 from .sources import SourceContext, SourceError
@@ -384,6 +384,75 @@ def list_holidays():
     return result
 
 
+@router.get("/builtins")
+def list_builtins():
+    """Hall of Fame: each built-in collection, the libraries it's on, and same-named collections
+    it would take over."""
+    rows = db.list_collections()
+    settings = db.get_settings()
+    with httpx.Client() as http:
+        arr_ready = {kind: arr.Arr(kind, settings, http).configured for kind in ("radarr", "sonarr")}
+    out = []
+    for b in builtins.BUILTINS:
+        colls = [_collection_out(r) for r in rows if r["config"].get("builtin") == b["key"]]
+        takeover = [{"id": r["id"], "name": r["config"]["name"], "section_id": str(r["config"].get("section_id"))}
+                    for r in rows if not r["config"].get("builtin") and not r["config"].get("holiday")
+                    and (r["config"].get("kind") or "collection") == "collection"
+                    and r["config"]["name"].strip().lower() == b["name"].lower()]
+        out.append({"key": b["key"], "name": b["name"], "media": b["media"], "description": b["description"],
+                    "poster": f"/api/builtins/{b['key']}/poster", "source": b["source"], "arr_ready": arr_ready,
+                    "collections": colls, "takeover": takeover})
+    return out
+
+
+@router.get("/builtins/{key}/poster")
+def builtin_poster(key: str):
+    builtin = builtins.get(key)
+    if not builtin:
+        raise HTTPException(404, "Unknown built-in collection")
+    return Response(builtins.poster(builtin), media_type="image/jpeg", headers={"Cache-Control": "max-age=86400"})
+
+
+@router.post("/builtins/{key}/enable", status_code=201)
+def enable_builtin(key: str, section_id: str = Body(..., embed=True),
+                   request_missing: bool = Body(False, embed=True)):
+    """Add the built-in collection to a library. A Curatarr collection of the same name in that
+    library is taken over (its feed, schedule and Plex collection are kept)."""
+    builtin = builtins.get(key)
+    if not builtin:
+        raise HTTPException(404, "Unknown built-in collection")
+    rows = db.list_collections()
+    if any(r["config"].get("builtin") == key and str(r["config"].get("section_id")) == section_id for r in rows):
+        raise HTTPException(409, f"{builtin['name']} is already in that library")
+    with _plex() as plex:
+        try:
+            section = sync.resolve_section(plex, section_id, "")
+        except (PlexError, sync.SyncError) as exc:
+            raise HTTPException(400, str(exc))
+        old = next((r for r in rows if not r["config"].get("builtin") and not r["config"].get("holiday")
+                    and (r["config"].get("kind") or "collection") == "collection"
+                    and str(r["config"].get("section_id")) == section_id
+                    and r["config"]["name"].strip().lower() == builtin["name"].lower()), None)
+        model = _validate(builtins.collection_config(builtin, section, request_missing,
+                                                     keep=old["config"] if old else None))
+        if old:
+            collection_id = old["id"]
+            db.update_collection_config(collection_id, model.model_dump())
+            if old.get("plex_rating_key") and old["config"]["name"] != builtin["name"]:
+                try:                    # the Plex collection takes the built-in's name too
+                    plex.edit_collection(section_id, old["plex_rating_key"], title=builtin["name"])
+                except PlexError as exc:
+                    log.warning("Could not rename '%s' in Plex: %s", old["config"]["name"], exc)
+        else:
+            collection_id = db.create_collection(model.model_dump())
+    poster = builtins.install_poster(builtin, collection_id)
+    db.update_collection_config(collection_id, {**model.model_dump(), "poster_file": poster})
+    db.update_collection_state(collection_id, poster_applied=None)     # upload the poster at the next sync
+    scheduler.reload_jobs()
+    scheduler.run_now(collection_id)
+    return _collection_out(db.get_collection(collection_id))
+
+
 @router.get("/holidays/schemes")
 def holiday_schemes():
     from . import posters
@@ -485,13 +554,13 @@ def dashboard():
     rows = db.list_collections()
     latest = db.latest_runs()
     today = date.today()
-    kinds = {"collections": 0, "holidays": 0, "playlists": 0, "overlays": 0}
+    kinds = {"collections": 0, "holidays": 0, "playlists": 0, "overlays": 0, "builtins": 0}
     attention, coming, missing_rank = [], [], []
     titles = missing = 0
     for r in rows:
         cfg = r["config"]
         kind = "playlists" if cfg.get("kind") == "playlist" else "overlays" if cfg.get("kind") == "overlay" \
-            else "holidays" if cfg.get("holiday") else "collections"
+            else "holidays" if cfg.get("holiday") else "builtins" if cfg.get("builtin") else "collections"
         kinds[kind] += 1
         run = latest.get(r["id"])
         brief = {"id": r["id"], "name": cfg["name"], "kind": kind}
@@ -617,6 +686,7 @@ def update_collection(collection_id: int, cfg: dict = Body(...)):
     # Image files are managed by the upload endpoints.
     cfg["poster_file"] = row["config"].get("poster_file", "")
     cfg["art_file"] = row["config"].get("art_file", "")
+    cfg = builtins.enforce(cfg, row["config"])      # a built-in keeps its fixed settings
     model = _validate(cfg)
     db.update_collection_config(collection_id, model.model_dump())
     scheduler.reload_jobs()
