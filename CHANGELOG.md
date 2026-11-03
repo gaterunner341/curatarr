@@ -3,6 +3,11 @@
 The version shown in the web UI's sidebar matches these entries. Each
 release is also published as `ghcr.io/gaterunner341/curatarr:<version>`.
 
+## 0.30.1
+
+- **Overlay progress says what started it:** the top-bar indicator names the trigger, e.g. "Drawing poster overlays (IMDb Top 250 synced) · 9 / 662". Hover for the full text if it's cut short. Triggers: a collection synced, a collection's overlay settings changed, a collection removed, whole-library badges changed, a poster uploaded, napalm finished, or Redraw / Remove all clicked. Requests made during a pass are listed together.
+- **Hall of Fame: Add collection:** each built-in has one library picker (primary library first) and an **Add collection** button. The Radarr/Sonarr option matches the library picked. Libraries it's already in are listed below under "In your libraries", with View, Change feed and Remove.
+
 ## 0.30.0
 
 - **TV rating icons:** shows can show their US TV rating as an icon (TV-Y, TV-G, TV-PG, TV-14, TV-MA) in the top-left corner, on a dark backing so it reads on any poster.

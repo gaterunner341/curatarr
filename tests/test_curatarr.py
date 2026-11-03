@@ -1246,7 +1246,7 @@ def test_napalm_refreshes_posters(monkeypatch):
     from app import napalm, plex as plexmod, sync as sync_mod
     fake = FakePosterPlex()
     monkeypatch.setattr(plexmod, "from_settings", lambda *a, **k: Plex("http://plex", "t", client=httpx.Client(transport=fake)))
-    monkeypatch.setattr(sync_mod, "run_overlays", lambda: None)
+    monkeypatch.setattr(sync_mod, "run_overlays", lambda *a: None)
     plex = Plex("http://plex", "t", client=httpx.Client(transport=fake))
     assert Plex.fresh_poster(fake.posters["1"])["ratingKey"] == "metadata://posters/frame"   # first from a source
     assert plex.fresh_choice("1")["ratingKey"] == "metadata://posters/tmdb_1"               # first poster-shaped one
@@ -1313,7 +1313,7 @@ def test_napalm_turns_off_overlays_and_keeps_fresh_posters(monkeypatch):
         db.delete_collection(row["id"])
     fake = FakePosterPlex()
     monkeypatch.setattr(plexmod, "from_settings", lambda *a, **k: Plex("http://plex", "t", client=httpx.Client(transport=fake)))
-    monkeypatch.setattr(sync_mod, "run_overlays", lambda: None)
+    monkeypatch.setattr(sync_mod, "run_overlays", lambda *a: None)
     cid = db.create_collection({"name": "Halloween Collection", "library": "Movies", "section_id": "1",
                                 "sources": [{"type": "static", "value": "tt1"}], "ribbon": {"enabled": True, "text": "BOO"},
                                 "badges": {"quality": True, "rating": "audience"}})
@@ -1412,7 +1412,7 @@ def test_unmatched_titles_and_keep_label(monkeypatch):
 
     fake = Fake()
     monkeypatch.setattr(plexmod, "from_settings", lambda *a, **k: Plex("http://plex", "t", client=httpx.Client(transport=fake)))
-    monkeypatch.setattr(sync_mod, "run_overlays", lambda: None)
+    monkeypatch.setattr(sync_mod, "run_overlays", lambda *a: None)
     result = unmatched.scan(refresh=True)
     found = {t["ratingKey"]: t for t in result["titles"]}
     assert set(found) == {"1", "2", "3"} and found["1"]["kind"] == "unmatched" and found["2"]["kind"] == "no_ids"

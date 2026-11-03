@@ -47,7 +47,9 @@ _again = threading.Event()
 
 # What the current (or last) pass is doing, for the web UI's progress indicator.
 progress: dict = {"running": False, "phase": "", "done": 0, "total": 0, "drawn": 0, "restored": 0,
-                  "errors": 0, "started": None, "finished": None}
+                  "errors": 0, "started": None, "finished": None, "reason": ""}
+_reasons: list[str] = []          # what asked for the next pass (shown with its progress)
+_reasons_lock = threading.Lock()
 
 
 class OverlayError(Exception):
@@ -608,17 +610,24 @@ def _restore_one(plex: Plex, rk: str, row: dict) -> bool:
     return uploaded
 
 
-def apply_all(remove_all: bool = False) -> dict:
+def apply_all(remove_all: bool = False, reason: str = "") -> dict:
     """Bring every overlaid poster up to date; with ``remove_all``, restore them all.
 
     Only one pass runs at a time; a request during a pass makes it run once more.
+    ``reason`` says what asked for it (e.g. "IMDb Top 250 synced"), for the progress display.
     """
+    with _reasons_lock:
+        if reason and reason not in _reasons:
+            _reasons.append(reason)
     if not _lock.acquire(blocking=False):
         _again.set()
         return {"queued": True}
     try:
         while True:
             _again.clear()
+            with _reasons_lock:
+                progress["reason"] = ", ".join(_reasons)
+                _reasons.clear()
             result = _pass(remove_all)
             if not _again.is_set():
                 return result

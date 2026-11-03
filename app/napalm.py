@@ -203,5 +203,5 @@ def run(section_ids: list[str]) -> dict:
     # Overlays still wanted elsewhere are redrawn, and titles napalm didn't reach (stopped early,
     # or no source poster) get their original posters back.
     from .sync import run_overlays
-    run_overlays()
+    run_overlays("napalm finished")
     return dict(progress)

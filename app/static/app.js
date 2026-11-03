@@ -86,8 +86,9 @@ async function pollActivity() {
       + `${napalm.total ? ` · ${napalm.done} / ${napalm.total}` : "…"}`;
     el.title = `${napalm.changed} changed, ${napalm.unchanged} already fresh, ${napalm.errors} failed`;
   } else if (overlaysRunning) {
-    el.innerHTML = `<span class="spinner"></span>${esc(p.phase || "Poster overlays")}${p.total ? ` · ${p.done} / ${p.total}` : "…"}`;
-    el.title = p.drawn ? `${p.drawn} poster(s) drawn so far` : "";
+    el.innerHTML = `<span class="spinner"></span>${esc(p.phase || "Poster overlays")}${p.reason ? ` <span class="activity-why">(${esc(p.reason)})</span>` : ""}`
+      + `${p.total ? ` · ${p.done} / ${p.total}` : "…"}`;
+    el.title = [p.reason ? `Started because: ${p.reason}` : "", p.drawn ? `${p.drawn} poster(s) drawn so far` : ""].filter(Boolean).join("\n");
   } else if (syncing.length) {
     el.innerHTML = `<span class="spinner"></span>Syncing ${esc(syncing.length === 1 ? syncing[0] : `${syncing.length} collections`)}…`;
     el.title = syncing.join(", ");
@@ -1926,26 +1927,26 @@ async function hallPage() {
   };
   const cards = list.map((b) => {
     const libs = allLibs.filter((l) => b.media === "any" || l.type === b.media);
-    const rows = libs.map((l) => {
-      const service = l.type === "show" ? "sonarr" : "radarr";
-      const coll = b.collections.find((c) => String(c.config.section_id) === l.id);
-      const takeover = !coll && b.takeover.find((t) => t.section_id === l.id);
-      return `<li>
-        <strong>${esc(l.title)}</strong>
-        ${coll ? `${badge(coll.last_status || "pending")}
-            <div class="small muted">Feed: ${esc(coll.config.sources.map(feed).join(", "))}</div>
-            <div class="row" style="margin-top:6px"><a class="btn small" href="#/collections/${coll.id}/items">View</a>
-              <a class="btn small" href="#/collections/${coll.id}">Change feed</a>
-              <button type="button" class="small danger" data-remove-builtin="${coll.id}" data-name="${esc(b.name)}"
-                data-lib-title="${esc(l.title)}">Remove</button></div>`
-          : `<div class="row" style="margin-top:6px">
-              <button type="button" class="small primary" data-add="${esc(b.key)}" data-lib="${esc(l.id)}">Add to ${esc(l.title)}</button>
-              <label class="check small"><input type="checkbox" data-arr="${esc(b.key)}-${esc(l.id)}" ${b.arr_ready[service] ? "" : "disabled"}>
-                Send missing titles to ${service === "sonarr" ? "Sonarr" : "Radarr"}</label></div>
-            ${takeover ? `<div class="small muted">Your collection <strong>${esc(takeover.name)}</strong> in this library becomes this one,
-              keeping its feed and its Plex collection.</div>` : ""}`}
-      </li>`;
-    }).join("");
+    const added = libs.map((l) => [l, b.collections.find((c) => String(c.config.section_id) === l.id)]).filter(([, c]) => c);
+    const open = libs.filter((l) => !added.some(([a]) => a.id === l.id));      // primary libraries come first
+    const addRow = open.length ? `
+      <div class="row hall-add">
+        <select data-add-lib="${esc(b.key)}" title="Library">${open.map((l) =>
+          `<option value="${esc(l.id)}" data-type="${esc(l.type)}">${esc(l.title)}${b.media === "any" ? ` (${l.type === "show" ? "TV" : "Movies"})` : ""}</option>`).join("")}</select>
+        <button type="button" class="primary" data-add="${esc(b.key)}">Add collection</button>
+        <label class="check small"><input type="checkbox" data-add-arr="${esc(b.key)}"> <span data-arr-name></span></label>
+      </div>
+      <div class="small muted" data-takeover="${esc(b.key)}"></div>`
+      : libs.length ? `<p class="small muted">Added to every library it fits.</p>`
+      : `<p class="muted small">No ${b.media === "show" ? "TV" : b.media === "any" ? "" : "movie"} libraries in Plex.</p>`;
+    const rows = added.map(([l, coll]) => `<li>
+        <strong>${esc(l.title)}</strong> ${badge(coll.last_status || "pending")}
+        <div class="small muted">Feed: ${esc(coll.config.sources.map(feed).join(", "))}</div>
+        <div class="row" style="margin-top:6px"><a class="btn small" href="#/collections/${coll.id}/items">View</a>
+          <a class="btn small" href="#/collections/${coll.id}">Change feed</a>
+          <button type="button" class="small danger" data-remove-builtin="${coll.id}" data-name="${esc(b.name)}"
+            data-lib-title="${esc(l.title)}">Remove</button></div>
+      </li>`).join("");
     return `<div class="card hall">
       <img class="hall-poster" src="${esc(b.poster)}" alt="">
       <div class="hall-body">
@@ -1954,7 +1955,8 @@ async function hallPage() {
           Default feed: ${esc(Object.entries(b.sources).map(([t, s]) => feed(s) + (Object.keys(b.sources).length > 1
             ? ` (${t === "show" ? "TV" : "movie"} libraries)` : "")).join("; "))};
           you can point it at another list afterwards.</p>
-        ${libs.length ? `<ul class="dash-list">${rows}</ul>` : `<p class="muted small">No ${b.media === "show" ? "TV" : b.media === "any" ? "" : "movie"} libraries in Plex.</p>`}
+        ${addRow}
+        ${rows ? `<h3 style="margin:14px 0 4px;font-size:.95rem">In your libraries</h3><ul class="dash-list">${rows}</ul>` : ""}
       </div>
     </div>`;
   }).join("");
@@ -1979,12 +1981,29 @@ OK deletes it from Plex. Cancel leaves it in Plex as an ordinary collection.`);
       route();
     } finally { btn.disabled = false; }
   }));
+  // The library picked decides Radarr or Sonarr, and whether an existing collection is taken over.
+  view.querySelectorAll("[data-add-lib]").forEach((sel) => {
+    const b = list.find((x) => x.key === sel.dataset.addLib);
+    const update = () => {
+      const opt = sel.selectedOptions[0];
+      const service = opt?.dataset.type === "show" ? "sonarr" : "radarr";
+      const box = view.querySelector(`[data-add-arr="${b.key}"]`);
+      box.disabled = !b.arr_ready[service];
+      box.nextElementSibling.textContent = `Send missing titles to ${service === "sonarr" ? "Sonarr" : "Radarr"}`;
+      const takeover = b.takeover.find((t) => t.section_id === sel.value);
+      view.querySelector(`[data-takeover="${b.key}"]`).innerHTML = takeover
+        ? `Your collection <strong>${esc(takeover.name)}</strong> in this library becomes this one, keeping its feed and its Plex collection.` : "";
+    };
+    sel.onchange = update;
+    update();
+  });
   view.querySelectorAll("[data-add]").forEach((btn) => btn.onclick = () => guard(async () => {
     btn.disabled = true;
-    const arrBox = view.querySelector(`[data-arr="${btn.dataset.add}-${btn.dataset.lib}"]`);
+    const lib = view.querySelector(`[data-add-lib="${btn.dataset.add}"]`).value;
+    const arrBox = view.querySelector(`[data-add-arr="${btn.dataset.add}"]`);
     try {
       const c = await api("POST", `/builtins/${btn.dataset.add}/enable`,
-        { section_id: btn.dataset.lib, request_missing: Boolean(arrBox?.checked) });
+        { section_id: lib, request_missing: Boolean(arrBox?.checked) });
       toast(`${c.config.name} added; syncing now`);
       route();
     } finally { btn.disabled = false; }
