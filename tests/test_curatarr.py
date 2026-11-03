@@ -1361,7 +1361,7 @@ def test_library_wide_badges(monkeypatch):
     assert not overlays.needed()
     overlays.save_library_settings({"1": {"content_rating": True}, "9": {}})
     assert overlays.library_settings() == {"1": {"size": "medium", "quality": False, "content_rating": True,
-                                                 "rating": "", "rating_min": 0}}
+                                                 "tv_icon": False, "rating": "", "rating_min": 0}}
     assert overlays.apply_all()["drawn"] == 2
     assert fake.posters["1"] != fake.original["1"] and len(db.overlay_rows()) == 2
 
@@ -1765,7 +1765,8 @@ def test_hall_of_fame_builtin(monkeypatch):
     assert client.post("/api/builtins/imdb_top_250/enable", json={"section_id": "31"}).status_code == 409
     # a new library gets the default feed
     r2 = client.post("/api/builtins/imdb_top_250/enable", json={"section_id": "32"}).json()
-    assert r2["config"]["sources"][0] == {"type": "imdb_chart", "value": "top", "limit": None}
+    assert r2["config"]["sources"][0] == {"type": "tmdb_list", "value": "https://www.themoviedb.org/list/634-top-250-imdb",
+                                          "limit": None}
     # saving can change only the feed (and schedule etc.); the look stays fixed
     edited = {**cfg, "name": "Mine", "ribbon": {**cfg["ribbon"], "text": "NOPE"}, "order": "alpha",
               "schedule": "0 3 * * *", "sources": [{"type": "imdb_chart", "value": "top"}]}
@@ -1822,3 +1823,31 @@ def test_ribbon_picture_bottom_right(monkeypatch, tmp_path):
     assert out.getpixel((990, 1490))[2] < 100                # yellow in the bottom-right corner
     assert out.getpixel((600, 1100))[2] > 200                # the white part stayed see-through
     assert out.getpixel((990, 10))[2] > 200                  # nothing at the top right
+
+
+def test_builtin_refresh_moves_old_default_feed():
+    from app import builtins
+    cid = db.create_collection({"name": "IMDb Top 250", "library": "Movies", "section_id": "1", "builtin": "imdb_top_250",
+                                "sources": [{"type": "imdb_chart", "value": "top"}]})
+    mine = db.create_collection({"name": "IMDb Top 250", "library": "M2", "section_id": "2", "builtin": "imdb_top_250",
+                                 "sources": [{"type": "mdblist", "value": "https://mdblist.com/lists/a/b"}]})
+    builtins.refresh_all()
+    cfg = db.get_collection(cid)["config"]
+    assert cfg["sources"][0]["value"] == "https://www.themoviedb.org/list/634-top-250-imdb"
+    assert cfg["ribbon"]["image"] == "imdb_top_250" and cfg["ribbon"]["corner"] == "bottom-right"
+    assert db.get_collection(mine)["config"]["sources"][0]["type"] == "mdblist"      # a chosen feed stays
+    db.delete_collection(cid); db.delete_collection(mine)
+
+
+def test_tv_rating_icon():
+    import io
+    from PIL import Image
+    from app import overlays
+    assert overlays.tv_icon_name("TV-14") == "TV-14" and overlays.tv_icon_name("us/TV-MA") == "TV-MA"
+    assert overlays.tv_icon_name("PG-13") == "" and overlays.tv_icon_name("TV-Y7") == ""      # no icon for those
+    base = Image.new("RGB", (1000, 1500), (250, 250, 250))
+    buf = io.BytesIO(); base.save(buf, "JPEG")
+    out = Image.open(io.BytesIO(overlays.render(buf.getvalue(), [
+        {"kind": "badges", "quality": [], "rating": None, "content_rating": "TV-14", "tv_icon": "TV-14"}]))).convert("RGB")
+    assert out.getpixel((45, 45))[0] < 170                  # darker backing in the top-left corner
+    assert out.getpixel((60, 1440))[0] > 230                 # no text rating badge as well

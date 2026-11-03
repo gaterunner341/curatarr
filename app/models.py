@@ -81,6 +81,7 @@ class Badges(BaseModel):
     size: Literal["small", "medium", "large", "xlarge"] = "medium"
     quality: bool = False         # resolution, HDR / Dolby Vision, Atmos (movies)
     content_rating: bool = False  # PG-13, TV-MA, ...
+    tv_icon: bool = False         # shows: the TV rating icon (TV-14, TV-MA, ...) in the top-left corner
     rating: Literal["", "audience", "critic"] = ""
     rating_min: float = Field(default=0, ge=0, le=10)    # hide the rating badge below this (out of 10)
 

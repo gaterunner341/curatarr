@@ -1454,6 +1454,8 @@ async function editor(id, params = new URLSearchParams()) {
             Quality badges: resolution, HDR or Dolby Vision, Atmos (movies)</label>
             <label class="check"><input type="checkbox" id="b-cert" ${cfg.badges?.content_rating ? "checked" : ""}>
             Content rating badge: PG-13, TV-MA and so on</label>
+            <label class="check"><input type="checkbox" id="b-tvicon" ${cfg.badges?.tv_icon ? "checked" : ""}>
+            TV rating icon on shows (TV-Y, TV-G, TV-PG, TV-14, TV-MA), top left</label>
             <label class="check"><input type="checkbox" id="f-fresh" ${cfg.fresh_poster ? "checked" : ""}>
             Start from a fresh poster from Plex's sources</label>
             <div class="hint">Swaps each title's poster for the first one from Plex's metadata sources (such as TMDB),
@@ -1637,6 +1639,7 @@ async function editor(id, params = new URLSearchParams()) {
   const badgeFields = () => ({
     quality: !isPlaylist && view.querySelector("#b-quality").checked,
     content_rating: !isPlaylist && view.querySelector("#b-cert").checked,
+    tv_icon: !isPlaylist && view.querySelector("#b-tvicon").checked,
     size: view.querySelector("#b-size").value,
     rating: isPlaylist ? "" : view.querySelector("#b-rating").value,
     rating_min: Number(view.querySelector("#b-min").value || 0),
@@ -1932,7 +1935,9 @@ async function hallPage() {
         ${coll ? `${badge(coll.last_status || "pending")}
             <div class="small muted">Feed: ${esc(coll.config.sources.map(feed).join(", "))}</div>
             <div class="row" style="margin-top:6px"><a class="btn small" href="#/collections/${coll.id}/items">View</a>
-              <a class="btn small" href="#/collections/${coll.id}">Change feed</a></div>`
+              <a class="btn small" href="#/collections/${coll.id}">Change feed</a>
+              <button type="button" class="small danger" data-remove-builtin="${coll.id}" data-name="${esc(b.name)}"
+                data-lib-title="${esc(l.title)}">Remove</button></div>`
           : `<div class="row" style="margin-top:6px">
               <button type="button" class="small primary" data-add="${esc(b.key)}" data-lib="${esc(l.id)}">Add to ${esc(l.title)}</button>
               <label class="check small"><input type="checkbox" data-arr="${esc(b.key)}-${esc(l.id)}" ${b.arr_ready[service] ? "" : "disabled"}>
@@ -1958,6 +1963,22 @@ async function hallPage() {
     <p class="hint" style="margin-top:-8px">Built-in collections of the all-time greats. Each has a fixed name, poster and
       ribbon; you choose the library, and can change the list it follows.</p>
     ${cards}`;
+  // Removing one takes its ribbon off every poster (the originals go back) and, if wanted, its Plex collection.
+  view.querySelectorAll("[data-remove-builtin]").forEach((btn) => btn.onclick = () => guard(async () => {
+    const { name, libTitle } = btn.dataset;
+    if (!confirm(`Remove ${name} from ${libTitle}?
+
+Its ribbon comes off every poster and the original posters go back.`)) return;
+    const fromPlex = confirm(`Also delete the ${name} collection from Plex?
+
+OK deletes it from Plex. Cancel leaves it in Plex as an ordinary collection.`);
+    btn.disabled = true;
+    try {
+      const r = await api("DELETE", `/collections/${btn.dataset.removeBuiltin}?remove_from_plex=${fromPlex}`);
+      toast(r.message || `${name} removed from ${libTitle}${fromPlex ? " and Plex" : ""}`, Boolean(r.message));
+      route();
+    } finally { btn.disabled = false; }
+  }));
   view.querySelectorAll("[data-add]").forEach((btn) => btn.onclick = () => guard(async () => {
     btn.disabled = true;
     const arrBox = view.querySelector(`[data-arr="${btn.dataset.add}-${btn.dataset.lib}"]`);
@@ -2516,7 +2537,8 @@ async function libraryBadges(card) {
       <div class="library-badge" data-lib="${esc(l.id)}">
         <div class="lib-name"><strong>${esc(l.title)}</strong> <span class="muted small">(${l.type === "show" ? "TV" : "Movies"})</span></div>
         <label class="check"><input type="checkbox" data-k="content_rating" ${b.content_rating ? "checked" : ""}> Content rating</label>
-        ${l.type === "movie" ? `<label class="check"><input type="checkbox" data-k="quality" ${b.quality ? "checked" : ""}> Quality</label>` : ""}
+        ${l.type === "movie" ? `<label class="check"><input type="checkbox" data-k="quality" ${b.quality ? "checked" : ""}> Quality</label>`
+          : `<label class="check"><input type="checkbox" data-k="tv_icon" ${b.tv_icon ? "checked" : ""}> TV rating icon</label>`}
         <select data-k="rating" title="Rating badge">
           <option value="">No rating badge</option>
           <option value="audience" ${b.rating === "audience" ? "selected" : ""}>Audience rating</option>
@@ -2539,6 +2561,7 @@ async function libraryBadges(card) {
   const read = (el) => ({
     content_rating: el.querySelector('[data-k="content_rating"]').checked,
     quality: Boolean(el.querySelector('[data-k="quality"]')?.checked),
+    tv_icon: Boolean(el.querySelector('[data-k="tv_icon"]')?.checked),
     rating: el.querySelector('[data-k="rating"]').value, rating_min: 0, size: el.querySelector('[data-k="size"]').value,
   });
   box.querySelectorAll("[data-lib-preview]").forEach((b) => b.onclick = () => guard(async () => {
@@ -2554,7 +2577,7 @@ async function libraryBadges(card) {
     const body = {};
     box.querySelectorAll("[data-lib]").forEach((el) => {
       const b = read(el);
-      if (b.content_rating || b.quality || b.rating) body[el.dataset.lib] = b;
+      if (b.content_rating || b.quality || b.rating || b.tv_icon) body[el.dataset.lib] = b;
     });
     const added = Object.keys(body).filter((k) => !saved[k]);
     if (added.length && !confirm(`Draw badges on every title in ${libs.filter((l) => added.includes(l.id)).map((l) => l.title).join(", ")}?\n\n`

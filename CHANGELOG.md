@@ -3,6 +3,15 @@
 The version shown in the web UI's sidebar matches these entries. Each
 release is also published as `ghcr.io/gaterunner341/curatarr:<version>`.
 
+## 0.30.0
+
+- **TV rating icons:** shows can show their US TV rating as an icon (TV-Y, TV-G, TV-PG, TV-14, TV-MA) in the top-left corner, on a dark backing so it reads on any poster.
+  - Turn it on per collection (Poster overlays → "TV rating icon on shows") or for a whole TV library (Settings → Poster overlays → Whole libraries).
+  - If a ribbon is in the top-left corner, the icon sits below it. When a show has the icon, the content rating isn't repeated as a text badge.
+  - Ratings with no icon (e.g. TV-Y7) keep the text badge if that's on.
+- **IMDb Top 250 feed:** the built-in now follows TMDB's list "Top 250 IMDb" (themoviedb.org/list/634). IMDb often blocks automated requests; TMDB doesn't. A built-in still on the old IMDb-chart default moves to it automatically. A feed you chose yourself is kept.
+- **Hall of Fame: Remove** button on each library's built-in collection. It takes the ribbon off every poster (the originals go back) and can also delete the collection from Plex.
+
 ## 0.29.0
 
 - **Netflix Top 10** in the Hall of Fame: this week's most-watched on Netflix worldwide, from netflix.com/tudum/top10.

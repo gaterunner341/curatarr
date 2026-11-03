@@ -17,7 +17,9 @@ BUILTINS: list[dict] = [
         "name": "IMDb Top 250",
         "media": "movie",
         "description": "The 250 highest-rated movies on IMDb, in IMDb's order.",
-        "sources": {"movie": {"type": "imdb_chart", "value": "top"}},
+        "sources": {"movie": {"type": "tmdb_list", "value": "https://www.themoviedb.org/list/634-top-250-imdb"}},
+        # Earlier default feeds: a collection still on one of these moves to the current default.
+        "old_sources": [{"type": "imdb_chart", "value": "top"}],
         "poster": "imdb",
         "fixed": {
             "name": "IMDb Top 250",
@@ -91,8 +93,13 @@ def refresh_all() -> int:
     count = 0
     for row in db.list_collections():
         cfg = row["config"]
-        if get(cfg.get("builtin", "")):
+        builtin = get(cfg.get("builtin", ""))
+        if builtin:
             fixed = enforce(cfg, cfg)
+            feed = [{k: s.get(k) for k in ("type", "value")} for s in cfg.get("sources") or []]
+            if feed and all(s in builtin.get("old_sources", []) for s in feed):
+                media = next((t for t, s in builtin["sources"].items()), "movie")
+                fixed["sources"] = [dict(builtin["sources"][media])]
             if fixed != cfg:
                 db.update_collection_config(row["id"], fixed)
                 count += 1

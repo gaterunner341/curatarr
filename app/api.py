@@ -1022,8 +1022,9 @@ def overlay_preview(body: dict = Body(...)):
     sample = {"kind": "badges", "quality": ["4K", "DV", "ATMOS"] if badges.quality else [],
               "rating": ({"source": "imdb", "value": "8.4"} if badges.rating == "audience"
                          else {"source": "rottentomatoes", "value": "92%"}) if badges.rating else None,
-              "content_rating": "PG-13" if badges.content_rating else ""}
-    has_sample = bool(sample["quality"] or sample["rating"] or sample["content_rating"])
+              "content_rating": "PG-13" if badges.content_rating else "",
+              "tv_icon": "TV-14" if badges.tv_icon else ""}
+    has_sample = bool(sample["quality"] or sample["rating"] or sample["content_rating"] or sample["tv_icon"])
     fresh = bool(body.get("fresh_poster"))
     row = db.get_collection(int(body["collection_id"])) if body.get("collection_id") else None
     section = str(body.get("section_id") or "")
@@ -1053,9 +1054,11 @@ def overlay_preview(body: dict = Body(...)):
                     # Sample values where this title has none, so the preview shows the look.
                     quality, rating = quality or sample["quality"], rating or sample["rating"]
                     certificate = certificate or sample["content_rating"]
-                    if quality or rating or certificate:
+                    icon = (overlays.tv_icon_name(item.get("contentRating")) or sample["tv_icon"]) \
+                        if badges.tv_icon and item.get("type") == "show" else (sample["tv_icon"] if not section else "")
+                    if quality or rating or certificate or icon:
                         specs.append({"kind": "badges", "quality": quality, "rating": rating,
-                                      "content_rating": certificate})
+                                      "content_rating": certificate, "tv_icon": icon, "size": badges.size})
                 elif has_sample:
                     specs.append(sample)
                 data = overlays.preview(specs, plex, thumb, rk, fresh)

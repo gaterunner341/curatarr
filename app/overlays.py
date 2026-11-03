@@ -217,6 +217,8 @@ def _badges(img: Image.Image, spec: dict, clear: dict[str, float] | None = None)
     """
     w, h = img.size
     clear = clear or {}
+    if spec.get("tv_icon"):              # the icon shows the rating already
+        spec = {**spec, "content_rating": ""}
     pill = w * 0.09 * BADGE_SIZES.get(spec.get("size") or "medium", 1.0)
     margin = w * 0.04
     y = h - margin - pill
@@ -238,6 +240,32 @@ def _badges(img: Image.Image, spec: dict, clear: dict[str, float] | None = None)
         _pill(img, right, y, pill, parts, right=True)
 
 
+TV_ICONS = Path(__file__).parent / "static" / "tvratings"
+
+
+def tv_icon_name(rating: str | None) -> str:
+    """The TV rating icon for a content rating ("TV-14"), or "" when there's none for it."""
+    name = content_rating_label(rating).upper()
+    return name if name.startswith("TV-") and (TV_ICONS / f"{name}.png").is_file() else ""
+
+
+def _tv_icon(img: Image.Image, spec: dict, top: float) -> None:
+    """The TV rating icon in the top-left corner, ``top`` pixels down (below a top-left ribbon),
+    on a dark backing so the white icon reads on any poster."""
+    w, _ = img.size
+    icon = Image.open(TV_ICONS / f"{spec['tv_icon']}.png").convert("RGBA")
+    height = int(w * 0.11 * BADGE_SIZES.get(spec.get("size") or "medium", 1.0))
+    icon = icon.resize((round(icon.width * height / icon.height), height), Image.LANCZOS)
+    margin = int(w * 0.04)
+    x, y = margin, int(max(margin, top + margin * 0.5))
+    pad = max(2, height // 14)
+    backing = Image.new("RGBA", img.size, (0, 0, 0, 0))
+    ImageDraw.Draw(backing).rounded_rectangle([x - pad, y - pad, x + icon.width + pad, y + height + pad],
+                                              radius=pad * 2, fill=(0, 0, 0, 130))
+    img.alpha_composite(backing)
+    img.alpha_composite(icon, (x, y))
+
+
 def render(original: bytes, specs: list[dict]) -> bytes:
     """The original poster with ``specs`` drawn on it, as a JPEG."""
     try:
@@ -248,6 +276,7 @@ def render(original: bytes, specs: list[dict]) -> bytes:
         img = img.resize((W, round(img.height * W / img.width)), Image.LANCZOS)
     corners: dict[str, int] = {}
     clear: dict[str, float] = {}      # how far bottom-corner ribbons reach along the bottom edge
+    top_left = 0.0                    # how far a top-left ribbon reaches down the left edge
     for spec in (s for s in specs if s["kind"] == "ribbon"):
         slot = corners.get(spec["corner"], 0)
         corners[spec["corner"]] = slot + 1
@@ -255,7 +284,11 @@ def render(original: bytes, specs: list[dict]) -> bytes:
         _, side, end = CORNERS.get(spec["corner"], CORNERS["top-right"])
         if end == "bottom":
             clear[side] = max(clear.get(side, 0), reach)
+        elif side == "left":
+            top_left = max(top_left, reach)
     for spec in (s for s in specs if s["kind"] == "badges"):
+        if spec.get("tv_icon"):
+            _tv_icon(img, spec, top_left)
         _badges(img, spec, clear)
     out = io.BytesIO()
     img.convert("RGB").save(out, "JPEG", quality=92, optimize=True)
@@ -302,7 +335,7 @@ def ribbon_spec(cfg: CollectionConfig) -> dict | None:
 
 def badge_settings(cfg: CollectionConfig) -> dict | None:
     if cfg.kind not in ("collection", "overlay") or not (cfg.badges.quality or cfg.badges.rating
-                                                         or cfg.badges.content_rating):
+                                                         or cfg.badges.content_rating or cfg.badges.tv_icon):
         return None
     return cfg.badges.model_dump()
 
@@ -329,7 +362,7 @@ def library_settings() -> dict[str, dict]:
             badges = Badges(**raw).model_dump()
         except (TypeError, ValueError):
             continue
-        if badges["quality"] or badges["rating"] or badges["content_rating"]:
+        if badges["quality"] or badges["rating"] or badges["content_rating"] or badges["tv_icon"]:
             out[str(section_id)] = badges
     return out
 
@@ -356,6 +389,7 @@ def _merge_badges(entry: dict, badges: dict) -> None:
         merged["size"] = badges["size"]
     merged["quality"] = merged["quality"] or badges["quality"]
     merged["content_rating"] = merged["content_rating"] or badges["content_rating"]
+    merged["tv_icon"] = merged.get("tv_icon") or badges.get("tv_icon", False)
     if badges["rating"] and not merged["rating"]:      # the first choice wins
         merged["rating"], merged["rating_min"] = badges["rating"], badges["rating_min"]
     entry["badges"] = merged
@@ -481,10 +515,17 @@ def _specs(plex: Plex, rk: str, entry: dict, row: dict | None) -> tuple[list[dic
         if not item.get("contentRating"):
             detail = detail or plex.item(rk) or item
         certificate = content_rating_label((item.get("contentRating") or (detail or {}).get("contentRating")))
-    if quality or rating or certificate:
+    icon = ""
+    if settings and settings.get("tv_icon") and entry["type"] == "show":
+        if not item.get("contentRating"):
+            detail = detail or plex.item(rk) or item
+        icon = tv_icon_name(item.get("contentRating") or (detail or {}).get("contentRating"))
+    if quality or rating or certificate or icon:
         badge = {"kind": "badges", "quality": quality, "rating": rating, "size": settings.get("size") or "medium"}
         if certificate:             # only when used, so posters drawn before 0.14 keep their signature
             badge["content_rating"] = certificate
+        if icon:
+            badge["tv_icon"] = icon
         specs.append(badge)
     return specs, key, quality
 
