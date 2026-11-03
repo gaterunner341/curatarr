@@ -37,7 +37,7 @@ FONTS = {
     "mono": ("Mono bold", ["DejaVuSansMono-Bold.ttf", "consolab.ttf"]),
 }
 SIZES = {"small": 0.8, "medium": 1.0, "large": 1.25, "xlarge": 1.5}     # ribbon thickness
-STYLE_VERSION = 3                 # bump when the drawing changes, so posters are redrawn
+STYLE_VERSION = 4                 # bump when the drawing changes, so posters are redrawn
 BADGE_SIZES = {"small": 0.75, "medium": 1.0, "large": 1.3, "xlarge": 1.6}
 W = 1000                          # posters are drawn at this width
 
@@ -67,28 +67,21 @@ def _ribbon(img: Image.Image, spec: dict, slot: int) -> float:
     """
     w, h = img.size
     scale = SIZES.get(spec.get("size") or "medium", 1.0)
-    thick = w * 0.12 * scale
+    # Kometa-like proportions: a thick band close to the corner.
+    thick = w * 0.19 * scale
     # Distance from the corner, along each edge, to where the band's middle crosses it.
-    reach = w * 0.40 * scale + slot * thick * 1.5
-    length = int(reach * math.sqrt(2) * 2)
+    reach = w * 0.30 * scale + slot * thick * 1.5
+    length = int(reach * math.sqrt(2) * 2 + thick * 2)
     strip = Image.new("RGBA", (length, int(thick)), (0, 0, 0, 0))
     draw = ImageDraw.Draw(strip)
     draw.rectangle([0, 0, length, thick], fill=hex_rgb(spec["color"]))
-    edge = max(2, int(thick * 0.05))       # a fine darker line along both edges
+    edge = max(2, int(thick * 0.04))       # a fine darker line along both edges
     draw.rectangle([0, 0, length, edge], fill=(0, 0, 0, 40))
     draw.rectangle([0, thick - edge, length, thick], fill=(0, 0, 0, 40))
-    text = spec.get("text") or ""
-    if text:
-        room = (reach * math.sqrt(2) - thick) * 0.92     # visible length of the band's middle
-        size = int(thick * 0.66)            # as big as fits in the band
-        names = FONTS.get(spec.get("font") or "sans", FONTS["sans"])[1]
-        while size > 8:
-            fnt = _font(names, size)
-            if draw.textlength(text, font=fnt) <= room:
-                break
-            size -= 2
-        draw.text((length / 2, thick / 2), text, font=fnt, fill=hex_rgb(spec["text_color"]), anchor="mm")
     angle, side, end = CORNERS.get(spec["corner"], CORNERS["top-right"])
+    text = (spec.get("text") or "").strip()
+    if text:
+        _ribbon_text(draw, text, spec, length, thick, reach, toward_corner_is_top=end == "top")
     band = strip.rotate(angle, expand=True, resample=Image.BICUBIC)
     cx = w - reach / 2 if side == "right" else reach / 2
     cy = reach / 2 if end == "top" else h - reach / 2
@@ -98,6 +91,49 @@ def _ribbon(img: Image.Image, spec: dict, slot: int) -> float:
     img.alpha_composite(shadow.filter(ImageFilter.GaussianBlur(thick * 0.12)))
     img.alpha_composite(band, pos)
     return reach + thick * 0.75          # the band's half-width, measured along an edge
+
+
+def _fit(draw: ImageDraw.ImageDraw, text: str, names: list[str], size: int, room: float):
+    """The font size (and font) at which ``text`` fits in ``room``, starting from ``size``."""
+    while size > 8:
+        fnt = _font(names, size)
+        if draw.textlength(text, font=fnt) <= room:
+            return size, fnt
+        size -= 2
+    return size, _font(names, size)
+
+
+def _ribbon_text(draw: ImageDraw.ImageDraw, text: str, spec: dict, length: int, thick: float, reach: float,
+                 toward_corner_is_top: bool) -> None:
+    """Ribbon text as big as the band allows. Text that would come out small on one line is split
+    over two, like Kometa's ribbons: the first part large on the inner (longer) side of the band,
+    the rest smaller on the side nearer the corner."""
+    names = FONTS.get(spec.get("font") or "sans", FONTS["sans"])[1]
+    colour = hex_rgb(spec["text_color"])
+    mid = length / 2
+
+    def room(offset: float) -> float:
+        # Visible length of a line ``offset`` from the band's middle (+ = away from the corner).
+        return max(0.0, (reach * math.sqrt(2) + 2 * offset) * 0.86)
+
+    size, fnt = _fit(draw, text, names, int(thick * 0.62), room(0))
+    words = text.split()
+    if size >= thick * 0.45 or len(words) < 2:
+        draw.text((mid, thick / 2), text, font=fnt, fill=colour, anchor="mm")
+        return
+    # Two lines: the split that lets the first (bigger) line be largest while the second still fits.
+    best = None
+    for i in range(1, len(words)):
+        first, second = " ".join(words[:i]), " ".join(words[i:])
+        s1, f1 = _fit(draw, first, names, int(thick * 0.50), room(thick * 0.22))
+        s2, f2 = _fit(draw, second, names, int(thick * 0.32), room(-thick * 0.25))
+        score = min(s1, s2 * 1.5)
+        if best is None or score > best[0]:
+            best = (score, first, f1, second, f2)
+    _, first, f1, second, f2 = best
+    inner, outer = (thick * 0.62, thick * 0.24) if toward_corner_is_top else (thick * 0.38, thick * 0.76)
+    draw.text((mid, inner), first, font=f1, fill=colour, anchor="mm")
+    draw.text((mid, outer), second, font=f2, fill=colour, anchor="mm")
 
 
 def _font(names: list[str], size: int):

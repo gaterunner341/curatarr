@@ -3,6 +3,14 @@
 The version shown in the web UI's sidebar matches these entries. Each
 release is also published as `ghcr.io/gaterunner341/curatarr:<version>`.
 
+## 0.27.0
+
+- **Kometa-style ribbons:** ribbons are drawn with Kometa's proportions, in any of the four corners as before.
+  - The band is thicker and sits closer to the corner.
+  - Text that would come out small on one line is split over two, like Kometa's: the first part large on the inner side of the band, the rest smaller nearer the corner, e.g. "IMDb" over "TOP 250". Short text such as "4K" stays on one line, as big as fits.
+  - The size and font options still apply. Badges still move clear of a ribbon in a bottom corner.
+- Posters that already have ribbons are redrawn in the new style on the next overlay pass, from their saved originals.
+
 ## 0.26.2
 
 - **Dashboard:** details in the cards (Needs attention, Coming up, Recent syncs) wrap inside the card instead of being cut off with "…". A very long message, such as an error, stops after four lines; hover to see all of it.
