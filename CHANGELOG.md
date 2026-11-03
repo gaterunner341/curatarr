@@ -3,6 +3,15 @@
 The version shown in the web UI's sidebar matches these entries. Each
 release is also published as `ghcr.io/gaterunner341/curatarr:<version>`.
 
+## 0.31.0
+
+- **US rating icons from Kometa, for movies and shows:** G, PG, PG-13, R, NC-17, Not Rated, TV-Y, TV-G, TV-PG, TV-14 and TV-MA, in the top-left corner.
+  - Choose **White** (outline, on a dark backing) or **Colour** (Kometa's coloured icons).
+  - Turn it on per collection (Poster overlays → "US rating icon") or for any whole library (Settings → Poster overlays → Whole libraries → Rating icon).
+  - Only US ratings get an icon: a UK "PG" doesn't show as the US one. Ratings with no icon (e.g. TV-Y7) keep the text badge if that's on.
+  - These replace the TV icons added in 0.30.0. Where that option was on, movies now get their icon too.
+  - The icons are part of Curatarr (`app/static/ratings`, with Kometa's MIT License alongside), not downloaded at runtime.
+
 ## 0.30.4
 
 - **Netflix Top 10 feed:** in movie libraries the built-in now follows TMDB's list "Top 10 Movies Netflix" (themoviedb.org/list/8300585). TV libraries keep Netflix's own Top 10 TV chart. A Netflix Top 10 still on the old films chart moves to the TMDB list automatically. A feed you chose yourself is kept.

@@ -242,29 +242,40 @@ def _badges(img: Image.Image, spec: dict, clear: dict[str, float] | None = None)
         _pill(img, right, y, pill, parts, right=True)
 
 
-TV_ICONS = Path(__file__).parent / "static" / "tvratings"
+RATING_ICONS = Path(__file__).parent / "static" / "ratings"      # Kometa's US rating icons
+US_ICONS = {"G": "usg", "PG": "uspg", "PG-13": "uspg-13", "R": "usr", "NC-17": "usnc-17",
+            "NR": "usnr", "NOT RATED": "usnr", "UNRATED": "usnr",
+            "TV-Y": "ustv-y", "TV-G": "ustv-g", "TV-PG": "ustv-pg", "TV-14": "ustv-14", "TV-MA": "ustv-ma"}
 
 
-def tv_icon_name(rating: str | None) -> str:
-    """The TV rating icon for a content rating ("TV-14"), or "" when there's none for it."""
-    name = content_rating_label(rating).upper()
-    return name if name.startswith("TV-") and (TV_ICONS / f"{name}.png").is_file() else ""
+def rating_icon_name(rating: str | None, style: str = "white") -> str:
+    """The icon file (without .png) for a US content rating, or "" when it has none. Ratings from
+    other countries ("gb/PG") get no icon, so a UK PG never shows as the US one."""
+    raw = (rating or "").strip()
+    if "/" in raw and not raw.lower().startswith("us/"):
+        return ""
+    name = US_ICONS.get(content_rating_label(raw).upper(), "")
+    return f"{name}c" if name and style == "color" else name
 
 
 def _tv_icon(img: Image.Image, spec: dict, top: float) -> None:
-    """The TV rating icon in the top-left corner, ``top`` pixels down (below a top-left ribbon),
-    on a dark backing so the white icon reads on any poster."""
+    """The rating icon in the top-left corner, ``top`` pixels down (below a top-left ribbon). The
+    white icons get a dark backing so they read on any poster."""
     w, _ = img.size
-    icon = Image.open(TV_ICONS / f"{spec['tv_icon']}.png").convert("RGBA")
+    path = RATING_ICONS / f"{spec['tv_icon']}.png"
+    if not path.is_file():
+        return
+    icon = Image.open(path).convert("RGBA")
     height = int(w * 0.11 * BADGE_SIZES.get(spec.get("size") or "medium", 1.0))
     icon = icon.resize((round(icon.width * height / icon.height), height), Image.LANCZOS)
     margin = int(w * 0.04)
     x, y = margin, int(max(margin, top + margin * 0.5))
-    pad = max(2, height // 14)
-    backing = Image.new("RGBA", img.size, (0, 0, 0, 0))
-    ImageDraw.Draw(backing).rounded_rectangle([x - pad, y - pad, x + icon.width + pad, y + height + pad],
-                                              radius=pad * 2, fill=(0, 0, 0, 130))
-    img.alpha_composite(backing)
+    if spec.get("icon_style") != "color":
+        pad = max(2, height // 14)
+        backing = Image.new("RGBA", img.size, (0, 0, 0, 0))
+        ImageDraw.Draw(backing).rounded_rectangle([x - pad, y - pad, x + icon.width + pad, y + height + pad],
+                                                  radius=pad * 2, fill=(0, 0, 0, 130))
+        img.alpha_composite(backing)
     img.alpha_composite(icon, (x, y))
 
 
@@ -391,6 +402,8 @@ def _merge_badges(entry: dict, badges: dict) -> None:
         merged["size"] = badges["size"]
     merged["quality"] = merged["quality"] or badges["quality"]
     merged["content_rating"] = merged["content_rating"] or badges["content_rating"]
+    if badges.get("tv_icon") and not merged.get("tv_icon"):     # the first style chosen wins
+        merged["icon_style"] = badges.get("icon_style") or "white"
     merged["tv_icon"] = merged.get("tv_icon") or badges.get("tv_icon", False)
     if badges["rating"] and not merged["rating"]:      # the first choice wins
         merged["rating"], merged["rating_min"] = badges["rating"], badges["rating_min"]
@@ -518,16 +531,18 @@ def _specs(plex: Plex, rk: str, entry: dict, row: dict | None) -> tuple[list[dic
             detail = detail or plex.item(rk) or item
         certificate = content_rating_label((item.get("contentRating") or (detail or {}).get("contentRating")))
     icon = ""
-    if settings and settings.get("tv_icon") and entry["type"] == "show":
+    if settings and settings.get("tv_icon"):
         if not item.get("contentRating"):
             detail = detail or plex.item(rk) or item
-        icon = tv_icon_name(item.get("contentRating") or (detail or {}).get("contentRating"))
+        icon = rating_icon_name(item.get("contentRating") or (detail or {}).get("contentRating"),
+                                settings.get("icon_style") or "white")
     if quality or rating or certificate or icon:
         badge = {"kind": "badges", "quality": quality, "rating": rating, "size": settings.get("size") or "medium"}
         if certificate:             # only when used, so posters drawn before 0.14 keep their signature
             badge["content_rating"] = certificate
         if icon:
             badge["tv_icon"] = icon
+            badge["icon_style"] = settings.get("icon_style") or "white"
         specs.append(badge)
     return specs, key, quality
 

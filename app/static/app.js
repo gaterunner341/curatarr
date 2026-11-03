@@ -1461,7 +1461,11 @@ async function editor(id, params = new URLSearchParams()) {
             <label class="check"><input type="checkbox" id="b-cert" ${cfg.badges?.content_rating ? "checked" : ""}>
             Content rating badge: PG-13, TV-MA and so on</label>
             <label class="check"><input type="checkbox" id="b-tvicon" ${cfg.badges?.tv_icon ? "checked" : ""}>
-            TV rating icon on shows (TV-Y, TV-G, TV-PG, TV-14, TV-MA), top left</label>
+            US rating icon, top left (G, PG, PG-13, R, NC-17, Not Rated, TV-Y, TV-G, TV-PG, TV-14, TV-MA)</label>
+            <div class="row" style="margin:2px 0 6px 26px"><label for="b-istyle" class="small" style="margin:0">Icon style</label>
+              <select id="b-istyle" style="width:auto">
+                <option value="white" ${cfg.badges?.icon_style !== "color" ? "selected" : ""}>White</option>
+                <option value="color" ${cfg.badges?.icon_style === "color" ? "selected" : ""}>Colour</option></select></div>
             <label class="check"><input type="checkbox" id="f-fresh" ${cfg.fresh_poster ? "checked" : ""}>
             Start from a fresh poster from Plex's sources</label>
             <div class="hint">Swaps each title's poster for the first one from Plex's metadata sources (such as TMDB),
@@ -1646,6 +1650,7 @@ async function editor(id, params = new URLSearchParams()) {
     quality: !isPlaylist && view.querySelector("#b-quality").checked,
     content_rating: !isPlaylist && view.querySelector("#b-cert").checked,
     tv_icon: !isPlaylist && view.querySelector("#b-tvicon").checked,
+    icon_style: view.querySelector("#b-istyle").value,
     size: view.querySelector("#b-size").value,
     rating: isPlaylist ? "" : view.querySelector("#b-rating").value,
     rating_min: Number(view.querySelector("#b-min").value || 0),
@@ -2562,7 +2567,10 @@ async function libraryBadges(card) {
         <div class="lib-name"><strong>${esc(l.title)}</strong> <span class="muted small">(${l.type === "show" ? "TV" : "Movies"})</span></div>
         <label class="check"><input type="checkbox" data-k="content_rating" ${b.content_rating ? "checked" : ""}> Content rating</label>
         ${l.type === "movie" ? `<label class="check"><input type="checkbox" data-k="quality" ${b.quality ? "checked" : ""}> Quality</label>`
-          : `<label class="check"><input type="checkbox" data-k="tv_icon" ${b.tv_icon ? "checked" : ""}> TV rating icon</label>`}
+          : ""}
+        <label class="check"><input type="checkbox" data-k="tv_icon" ${b.tv_icon ? "checked" : ""}> Rating icon</label>
+        <select data-k="icon_style" title="Rating icon style"><option value="white">White icons</option>
+          <option value="color" ${b.icon_style === "color" ? "selected" : ""}>Colour icons</option></select>
         <select data-k="rating" title="Rating badge">
           <option value="">No rating badge</option>
           <option value="audience" ${b.rating === "audience" ? "selected" : ""}>Audience rating</option>
@@ -2586,6 +2594,7 @@ async function libraryBadges(card) {
     content_rating: el.querySelector('[data-k="content_rating"]').checked,
     quality: Boolean(el.querySelector('[data-k="quality"]')?.checked),
     tv_icon: Boolean(el.querySelector('[data-k="tv_icon"]')?.checked),
+    icon_style: el.querySelector('[data-k="icon_style"]').value,
     rating: el.querySelector('[data-k="rating"]').value, rating_min: 0, size: el.querySelector('[data-k="size"]').value,
   });
   box.querySelectorAll("[data-lib-preview]").forEach((b) => b.onclick = () => guard(async () => {

@@ -1048,6 +1048,7 @@ class FakeOverlayPlex(httpx.BaseTransport):
         self.original = dict(self.posters)
         self.uploads: list[str] = []
         self.labels: dict[str, list[str]] = {"1": ["Kids"], "2": []}
+        self.members = list(self.version)        # what's in collection 100
 
     def thumb(self, rk):
         return f"/library/metadata/{rk}/thumb/{self.version[rk]}"
@@ -1061,7 +1062,7 @@ class FakeOverlayPlex(httpx.BaseTransport):
                                                      "thumb": self.thumb(rk), "audienceRating": 8.4 if rk == "1" else 6.1,
                                                      "audienceRatingImage": "imdb://image.rating",
                                                      "Media": [{"id": 50 + int(rk), "videoResolution": "4k"}]}
-                                                    for rk in self.version]})
+                                                    for rk in self.members]})
         if path.startswith("/library/metadata/") and "thumb" in parts:
             return httpx.Response(200, content=self.posters[parts[2]], headers={"content-type": "image/jpeg"})
         if path.endswith("/posters") and method == "POST":
@@ -1361,7 +1362,7 @@ def test_library_wide_badges(monkeypatch):
     assert not overlays.needed()
     overlays.save_library_settings({"1": {"content_rating": True}, "9": {}})
     assert overlays.library_settings() == {"1": {"size": "medium", "quality": False, "content_rating": True,
-                                                 "tv_icon": False, "rating": "", "rating_min": 0}}
+                                                 "tv_icon": False, "icon_style": "white", "rating": "", "rating_min": 0}}
     assert overlays.apply_all()["drawn"] == 2
     assert fake.posters["1"] != fake.original["1"] and len(db.overlay_rows()) == 2
 
@@ -1839,18 +1840,41 @@ def test_builtin_refresh_moves_old_default_feed():
     db.delete_collection(cid); db.delete_collection(mine)
 
 
-def test_tv_rating_icon():
+def test_us_rating_icons():
     import io
     from PIL import Image
     from app import overlays
-    assert overlays.tv_icon_name("TV-14") == "TV-14" and overlays.tv_icon_name("us/TV-MA") == "TV-MA"
-    assert overlays.tv_icon_name("PG-13") == "" and overlays.tv_icon_name("TV-Y7") == ""      # no icon for those
+    name = overlays.rating_icon_name
+    assert name("TV-14") == "ustv-14" and name("us/TV-MA") == "ustv-ma" and name("PG-13") == "uspg-13"
+    assert name("Not Rated") == "usnr" and name("R", "color") == "usrc"
+    assert name("gb/PG") == "" and name("TV-Y7") == "" and name("") == ""      # not US, or no icon for it
+    for stem in overlays.US_ICONS.values():
+        assert (overlays.RATING_ICONS / f"{stem}.png").is_file() and (overlays.RATING_ICONS / f"{stem}c.png").is_file()
     base = Image.new("RGB", (1000, 1500), (250, 250, 250))
     buf = io.BytesIO(); base.save(buf, "JPEG")
     out = Image.open(io.BytesIO(overlays.render(buf.getvalue(), [
-        {"kind": "badges", "quality": [], "rating": None, "content_rating": "TV-14", "tv_icon": "TV-14"}]))).convert("RGB")
+        {"kind": "badges", "quality": [], "rating": None, "content_rating": "TV-14", "tv_icon": "ustv-14"}]))).convert("RGB")
     assert out.getpixel((45, 45))[0] < 170                  # darker backing in the top-left corner
     assert out.getpixel((60, 1440))[0] > 230                 # no text rating badge as well
+
+
+def test_title_leaving_a_list_loses_its_ribbon(monkeypatch):
+    from app import overlays, plex as plexmod
+    for row in db.list_collections():
+        db.delete_collection(row["id"])
+    fake = FakeOverlayPlex()
+    monkeypatch.setattr(plexmod, "from_settings", lambda *a, **k: Plex("http://plex", "t", client=httpx.Client(transport=fake)))
+    cfg = CollectionConfig(name="Netflix Top 10", library="Movies", section_id="1", builtin="netflix_top_10",
+                           sources=[Source(type="static", value="x")],
+                           ribbon={"enabled": True, "text": "TOP 10", "corner": "bottom-right", "image": "netflix_top_10"})
+    cid = db.create_collection(cfg.model_dump())
+    db.update_collection_state(cid, plex_rating_key="100")
+    assert overlays.apply_all()["drawn"] == 2
+    fake.members = ["1"]                           # title 2 dropped off the list (the sync took it out)
+    assert overlays.apply_all()["restored"] == 1
+    assert fake.posters["2"] == fake.original["2"] and set(db.overlay_rows()) == {"1"}
+    db.delete_collection(cid)
+    overlays.apply_all()
 
 
 def test_overlay_progress_lists_queued_triggers():
