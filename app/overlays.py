@@ -38,7 +38,7 @@ FONTS = {
     "mono": ("Mono bold", ["DejaVuSansMono-Bold.ttf", "consolab.ttf"]),
 }
 SIZES = {"small": 0.8, "medium": 1.0, "large": 1.25, "xlarge": 1.5}     # ribbon thickness
-STYLE_VERSION = 5                 # bump when the drawing changes, so posters are redrawn
+STYLE_VERSION = 6                 # bump when the drawing changes, so posters are redrawn
 BADGE_SIZES = {"small": 0.75, "medium": 1.0, "large": 1.3, "xlarge": 1.6}
 W = 1000                          # posters are drawn at this width
 
@@ -72,7 +72,7 @@ def _ribbon(img: Image.Image, spec: dict, slot: int) -> float:
     scale = SIZES.get(spec.get("size") or "medium", 1.0)
     picture = _ribbon_image(spec.get("image") or "")
     if picture is not None:                # a built-in's ribbon picture, made for the bottom-right corner
-        side = int(w * 0.42 * scale)
+        side = int(w * 0.351 * scale)      # Kometa draws these 351 px on a 1000 px poster
         picture = picture.resize((side, side), Image.LANCZOS)
         img.alpha_composite(picture, (w - side, h - side))
         return float(side)

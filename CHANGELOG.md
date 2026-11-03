@@ -3,6 +3,12 @@
 The version shown in the web UI's sidebar matches these entries. Each
 release is also published as `ghcr.io/gaterunner341/curatarr:<version>`.
 
+## 0.30.2
+
+- **Hall of Fame ribbons:** the IMDb Top 250 and Netflix Top 10 collections use Kometa's yellow ribbon images, drawn in the bottom-right corner at Kometa's size. The rating badge moves clear of them.
+  - The images are part of Curatarr (`app/static/ribbons`, with Kometa's MIT License alongside), not downloaded at runtime.
+  - Posters with the previous text ribbon are redrawn on the next overlay pass.
+
 ## 0.30.1
 
 - **Overlay progress says what started it:** the top-bar indicator names the trigger, e.g. "Drawing poster overlays (IMDb Top 250 synced) · 9 / 662". Hover for the full text if it's cut short. Triggers: a collection synced, a collection's overlay settings changed, a collection removed, whole-library badges changed, a poster uploaded, napalm finished, or Redraw / Remove all clicked. Requests made during a pass are listed together.
