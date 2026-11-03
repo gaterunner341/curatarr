@@ -1903,3 +1903,54 @@ def test_netflix_builtin_moves_to_tmdb_movie_list():
     assert builtins.collection_config(builtins.get("netflix_top_10"), {"id": "1", "title": "M", "type": "movie"}
                                       )["sources"][0]["type"] == "tmdb_list"
     db.delete_collection(films); db.delete_collection(tv)
+
+
+def test_stuck_and_orphaned_collections(monkeypatch):
+    from contextlib import nullcontext
+    from datetime import date, timedelta
+    from fastapi.testclient import TestClient
+    from app import api as api_mod
+    from app.main import app
+    start, end = date.today() + timedelta(days=30), date.today() + timedelta(days=40)
+    stuck = db.create_collection({"name": "Stuck Day", "library": "Movies", "section_id": "1", "seasonal_only": True,
+                                  "promote_window": True, "promote_home": True, "promote_start": start.isoformat(),
+                                  "promote_end": end.isoformat(), "sources": [{"type": "static", "value": "tt1"}]})
+    db.update_collection_state(stuck, plex_rating_key="700", plex_owned=0)
+    client = TestClient(app)
+    item = next(a for a in client.get("/api/dashboard").json()["attention"] if a["id"] == stuck)
+    assert item["status"] == "stuck" and "Take over" in item["message"]
+    db.update_collection_state(stuck, plex_owned=1)          # taken over: no longer stuck
+    assert not any(a["id"] == stuck and a["status"] == "stuck" for a in client.get("/api/dashboard").json()["attention"])
+
+    class P:
+        deleted = []
+        def sections(self): return [{"id": "1", "title": "Movies", "type": "movie"}]
+        def collections(self, sid):
+            return [{"ratingKey": "700", "title": "Stuck Day", "childCount": 3, "labels": ["Curatarr"]},
+                    {"ratingKey": "800", "title": "Old Curatarr One", "childCount": 5, "labels": ["curatarr"]},
+                    {"ratingKey": "900", "title": "Mine", "childCount": 2, "labels": []}]
+        def delete_collection(self, sid, rk): self.deleted.append(rk)
+    plex = P()
+    monkeypatch.setattr(api_mod, "_plex", lambda: nullcontext(plex))
+    db.save_settings({"managed_label": "Curatarr"})
+    orphans = client.get("/api/dashboard/orphans").json()
+    assert [o["ratingKey"] for o in orphans] == ["800"] and orphans[0]["section_title"] == "Movies"
+    assert client.delete("/api/plex/collections/700?section_id=1").status_code == 409    # managed by Curatarr
+    assert client.delete("/api/plex/collections/800?section_id=1").json()["deleted"] and plex.deleted == ["800"]
+    db.delete_collection(stuck)
+
+
+def test_preview_starts_from_the_saved_original(monkeypatch, tmp_path):
+    import io
+    from PIL import Image
+    from app import overlays
+
+    class P:
+        def image(self, path):
+            raise AssertionError("Plex's poster (which may carry an overlay) shouldn't be used")
+    original = Image.new("RGB", (1000, 1500), (0, 200, 0))
+    buf = io.BytesIO(); original.save(buf, "JPEG")
+    monkeypatch.setattr(overlays, "ORIGINALS", tmp_path)
+    (tmp_path / "42.jpg").write_bytes(buf.getvalue())
+    out = Image.open(io.BytesIO(overlays.preview([], P(), "/library/metadata/42/thumb/1", "42"))).convert("RGB")
+    assert out.getpixel((500, 750))[1] > 150

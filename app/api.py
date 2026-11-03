@@ -549,6 +549,48 @@ def enable_holiday(key: str, section_id: str = Body(..., embed=True),
     return _collection_out(db.get_collection(collection_id))
 
 
+def _off_season(cfg: dict, today: date) -> bool:
+    try:
+        return CollectionConfig(**cfg).off_season(today)
+    except (ValidationError, ValueError):
+        return False
+
+
+@router.get("/dashboard/orphans")
+def dashboard_orphans():
+    """Plex collections with Curatarr's label that no Curatarr collection manages any more
+    (asks Plex, so the dashboard loads it separately)."""
+    label = (db.get_settings().get("managed_label") or "").strip().lower()
+    if not label:
+        return []
+    managed = {str(r["plex_rating_key"]) for r in db.list_collections() if r.get("plex_rating_key")}
+    out = []
+    with _plex() as plex:
+        try:
+            for section in plex.sections():
+                for coll in plex.collections(section["id"]):
+                    if coll["ratingKey"] not in managed and label in [(t or "").lower() for t in coll["labels"]]:
+                        out.append({"ratingKey": coll["ratingKey"], "title": coll["title"], "items": coll["childCount"],
+                                    "section_id": section["id"], "section_title": section["title"],
+                                    "section_type": section["type"]})
+        except PlexError as exc:
+            raise HTTPException(502, str(exc))
+    return out
+
+
+@router.delete("/plex/collections/{rating_key}")
+def delete_plex_collection(rating_key: str, section_id: str = Query(...)):
+    """Delete a Plex collection that Curatarr doesn't manage (an orphaned one)."""
+    if any(str(r.get("plex_rating_key")) == rating_key for r in db.list_collections()):
+        raise HTTPException(409, "A Curatarr collection manages this one; delete it from Curatarr instead")
+    with _plex() as plex:
+        try:
+            plex.delete_collection(section_id, rating_key)
+        except PlexError as exc:
+            raise HTTPException(502, str(exc))
+    return {"deleted": True}
+
+
 @router.get("/dashboard")
 def dashboard():
     """Overview from the database only (fast)."""
@@ -572,7 +614,14 @@ def dashboard():
                 missing_rank.append({**brief, "missing": len(run["missing"]), "matched": run["matched"],
                                      "library": " + ".join(cfg.get("libraries") or []) if cfg.get("kind") == "playlist"
                                      else cfg.get("library", "")})
-        if r.get("last_status") in ("error", "warning") or not cfg.get("enabled", True):
+        stuck = (cfg.get("seasonal_only") and r.get("plex_rating_key") and r.get("plex_owned") == 0
+                 and _off_season(cfg, today))
+        if stuck:     # out of season, yet left in Plex: Curatarr thinks someone else made it
+            attention.append({**brief, "status": "stuck", "href": f"#/collections/{r['id']}/items",
+                              "message": "Out of season but still in Plex, because Curatarr thinks it didn't make "
+                                         "this Plex collection. Open it and use Take over & sync.",
+                              "when": r.get("last_run")})
+        elif r.get("last_status") in ("error", "warning") or not cfg.get("enabled", True):
             attention.append({**brief, "status": r.get("last_status") if cfg.get("enabled", True) else "paused",
                               "message": r.get("last_message") or "", "when": r.get("last_run")})
         try:

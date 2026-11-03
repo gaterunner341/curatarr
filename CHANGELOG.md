@@ -3,6 +3,15 @@
 The version shown in the web UI's sidebar matches these entries. Each
 release is also published as `ghcr.io/gaterunner341/curatarr:<version>`.
 
+## 0.32.0
+
+- **Stuck and orphaned collections in "Needs attention":**
+  - **Stuck:** a seasonal collection still in Plex out of season because Curatarr thinks it didn't make that Plex collection (e.g. Independence Day). Its page has a **Take over & sync** button: Curatarr takes full control and syncs it straight away, which puts it back on its schedule (out of season, that removes it from Plex until its dates). Any collection in that state shows the button.
+  - **Orphaned:** a Plex collection with Curatarr's label that no Curatarr collection manages any more. It can be linked to a list again (**Sync with a list**) or deleted from Plex. The titles in it stay in your library either way.
+- **Hall of Fame settings:** the fixed look isn't offered as settings any more. The Poster overlays, Appearance and Artwork sections are hidden, and a read-only preview shows the collection's ribbon.
+- **Fixed: preview drew overlays twice.** The overlay preview started from the title's current Plex poster, which already carried Curatarr's overlay. It now starts from the saved original.
+- **Removed the watched tick** on collection titles and the "watched" count.
+
 ## 0.31.0
 
 - **US rating icons from Kometa, for movies and shows:** G, PG, PG-13, R, NC-17, Not Rated, TV-Y, TV-G, TV-PG, TV-14 and TV-MA, in the top-left corner.

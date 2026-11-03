@@ -322,7 +322,9 @@ def preview(specs: list[dict], plex: Plex | None = None, thumb: str = "", rating
     """``specs`` drawn on a title's poster (its fresh one with ``fresh``), or on a plain sample."""
     if plex and thumb:
         try:
-            base = plex.image(thumb)[0]
+            original = _original_path(rating_key) if rating_key else None
+            # Plex's poster may already carry Curatarr's overlay; the saved original doesn't.
+            base = original.read_bytes() if original and original.is_file() else plex.image(thumb)[0]
             if fresh and rating_key:
                 choice = plex.fresh_choice(rating_key)
                 if choice:

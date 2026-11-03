@@ -511,7 +511,6 @@ async function collectionItems({ id = null, ratingKey = null, playlist = false, 
   // Keep the page the collection came from highlighted in the menu.
   document.querySelector(`[data-nav="${back.slice(2)}"]`)?.classList.add("active");
 
-  const watched = items.filter((i) => i.watched).length;
   // Poster overlays on this collection: how many posters have them so far.
   const wantsOverlay = row && (row.config.ribbon?.enabled || row.config.badges?.quality || row.config.badges?.rating
     || row.config.badges?.content_rating || row.config.fresh_poster);
@@ -526,7 +525,6 @@ async function collectionItems({ id = null, ratingKey = null, playlist = false, 
     <div class="item" data-rk="${esc(i.ratingKey)}" data-search="${esc(`${i.title} ${i.year || ""}`.toLowerCase())}">
       <div class="item-poster">
         ${i.thumb ? `<img loading="lazy" src="/api/plex/image?path=${encodeURIComponent(i.thumb)}" alt="">` : "▦"}
-        ${i.watched ? `<span class="item-watched" title="Watched">✔</span>` : ""}
         ${row ? `<button type="button" class="item-exclude" data-exclude="${esc(i.ratingKey)}" data-title="${esc(i.title)}"
           title="Remove and keep out of this collection">✕</button>` : ""}
       </div>
@@ -549,6 +547,11 @@ async function collectionItems({ id = null, ratingKey = null, playlist = false, 
       </div>
     </div>
     ${row?.last_message ? `<p class="small muted" style="margin-top:-8px">${badge(row.last_status)} ${esc(row.last_message)}</p>` : ""}
+    ${row && row.plex_owned === 0 && row.plex_rating_key ? `<div class="notice">
+      Curatarr treats this Plex collection as one it didn't make, so it only adds titles: it never removes any,
+      and ${row.config.seasonal_only ? "leaves it in Plex out of season" : "never deletes it"}.
+      If Curatarr made it (or should manage it fully), take it over and sync it back onto its settings.
+      <button type="button" class="small primary" id="takeOver" style="margin-left:8px">Take over &amp; sync</button></div>` : ""}
     ${row && !row.config.enabled ? `<div class="notice">Syncing is paused for this collection.
       <button type="button" class="small" id="resume" style="margin-left:8px">Resume syncing</button></div>` : ""}
     ${change ? `<div class="notice small">
@@ -562,7 +565,7 @@ async function collectionItems({ id = null, ratingKey = null, playlist = false, 
     ${inPlex ? `
       <div class="row" style="margin-bottom:16px">
         <div class="grow"><input type="text" id="itemFilter" placeholder="Filter ${items.length} title${items.length === 1 ? "" : "s"}…"></div>
-        <span class="small muted" id="itemCount">${items.length} in Plex · ${watched} watched</span>
+        <span class="small muted" id="itemCount">${items.length} in Plex</span>
         ${canArrange ? `<button type="button" id="arrange">Arrange order</button>
           <span class="arrange-tools" hidden>
             <button type="button" class="primary" id="saveOrder">Save order</button>
@@ -590,7 +593,7 @@ async function collectionItems({ id = null, ratingKey = null, playlist = false, 
       el.hidden = q && !el.dataset.search.includes(q);
       if (!el.hidden) shown++;
     });
-    view.querySelector("#itemCount").textContent = q ? `${shown} of ${items.length} shown` : `${items.length} in Plex · ${watched} watched`;
+    view.querySelector("#itemCount").textContent = q ? `${shown} of ${items.length} shown` : `${items.length} in Plex`;
   };
   if (!row) return;
   view.querySelector("#runNow").onclick = (e) => guard(async () => {
@@ -598,6 +601,13 @@ async function collectionItems({ id = null, ratingKey = null, playlist = false, 
     await api("POST", `/collections/${row.id}/run`);
     toast("Sync started");
   });
+  view.querySelector("#takeOver")?.addEventListener("click", (e) => guard(async () => {
+    e.target.disabled = true;
+    await api("POST", `/collections/${row.id}/own`);
+    await api("POST", `/collections/${row.id}/run`);
+    toast("Taken over; syncing now");
+    setTimeout(route, 2500);
+  }));
   view.querySelector("#resume")?.addEventListener("click", () => guard(async () => {
     await api("PUT", `/collections/${row.id}`, { ...row.config, enabled: true });
     toast("Syncing resumed");
@@ -741,7 +751,7 @@ function bindArrange(row) {
 async function dashboardPage() {
   const d = await api("GET", "/dashboard");
   const c = d.counts;
-  const link = (x) => x.kind === "holidays" ? "#/holidays" : `#/collections/${x.id}/items`;
+  const link = (x) => x.href || (x.kind === "holidays" ? "#/holidays" : `#/collections/${x.id}/items`);
   const day = (iso) => {
     const [y, m, dd] = iso.split("-").map(Number);
     return new Date(y, m - 1, dd).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
@@ -757,7 +767,7 @@ async function dashboardPage() {
       ${stat(c.missing.toLocaleString(), "Missing from Plex")}
     </div>
     <div class="dash">
-      <div class="card"><h2>Needs attention</h2>
+      <div class="card" id="attentionCard"><h2>Needs attention</h2>
         ${d.attention.length || d.rogue?.files ? `<ul class="dash-list">${d.rogue?.files ? `
           <li><a href="#/rogue">Rogue Filenames</a> <span class="badge">${d.rogue.files}</span>
             <div class="small muted">${d.rogue.files} file${d.rogue.files === 1 ? "" : "s"} in ${d.rogue.titles} title${d.rogue.titles === 1 ? "" : "s"}
@@ -787,6 +797,29 @@ async function dashboardPage() {
           <p class="small"><a href="#/history">All history</a></p>`
           : `<p class="muted small">No syncs yet.</p>`}</div>
     </div>`;
+  // Orphans: Plex collections with Curatarr's label that no Curatarr collection manages (asks Plex).
+  const orphans = await api("GET", "/dashboard/orphans").catch(() => []);
+  const card = view.querySelector("#attentionCard");
+  if (orphans.length && card) {
+    card.querySelector(":scope > p.muted")?.remove();
+    let list = card.querySelector("ul.dash-list");
+    if (!list) { list = document.createElement("ul"); list.className = "dash-list"; card.appendChild(list); }
+    list.insertAdjacentHTML("beforeend", orphans.map((o) => `
+      <li><a href="${plexView({ ratingKey: o.ratingKey, title: o.title, section_title: o.section_title, section_id: o.section_id },
+          o.section_type)}">${esc(o.title)}</a>
+        <span class="small muted">(${esc(o.section_title)})</span> ${badge("orphaned")}
+        <div class="small muted">In Plex with Curatarr's label, but no Curatarr collection manages it (${o.items} item${o.items === 1 ? "" : "s"}).</div>
+        <div class="row" style="margin-top:6px">
+          <a class="btn small" href="#/collections/new?${esc(new URLSearchParams({ link: o.ratingKey, section: o.section_id, title: o.title, items: o.items }))}">Sync with a list</a>
+          <button type="button" class="small danger" data-orphan="${esc(o.ratingKey)}" data-section="${esc(o.section_id)}" data-title="${esc(o.title)}">Delete from Plex</button>
+        </div></li>`).join(""));
+    list.querySelectorAll("[data-orphan]").forEach((b) => b.onclick = () => guard(async () => {
+      if (!confirm(`Delete the Plex collection "${b.dataset.title}"? The movies and shows in it stay in Plex.`)) return;
+      await api("DELETE", `/plex/collections/${b.dataset.orphan}?section_id=${encodeURIComponent(b.dataset.section)}`);
+      toast(`Deleted "${b.dataset.title}" from Plex`);
+      b.closest("li").remove();
+    }));
+  }
 }
 
 // ---------- unmatched titles ----------
@@ -1405,7 +1438,7 @@ async function editor(id, params = new URLSearchParams()) {
       </div>
     </div>
 
-    <div class="card" ${isOverlay ? "hidden" : ""}>
+    <div class="card" ${isOverlay || cfg.builtin ? "hidden" : ""}>
       <h2>Appearance in Plex</h2>
       <div class="grid">
         <div class="full"><label for="f-summary">Summary</label><textarea id="f-summary">${esc(cfg.summary)}</textarea></div>
@@ -1436,7 +1469,11 @@ async function editor(id, params = new URLSearchParams()) {
       </div>
     </div>
 
-    <div class="card" ${isPlaylist ? "hidden" : ""}>
+    ${cfg.builtin ? `<div class="card"><h2>Poster overlay</h2>
+      <p class="hint" style="margin-top:-6px">Fixed for this built-in collection: every title in it gets this ribbon,
+        and loses it when it drops off the list.</p>
+      <div class="overlay-preview image-box" id="r-out">▦</div></div>` : ""}
+    <div class="card" ${isPlaylist || cfg.builtin ? "hidden" : ""}>
       <h2>Poster overlays</h2>
       <p class="hint" style="margin-top:-6px">Draws a ribbon and badges on every title's poster in this collection.
         The original posters are kept and put back if you turn these off or delete the collection.</p>
@@ -1484,11 +1521,11 @@ async function editor(id, params = new URLSearchParams()) {
           <div class="full"><span class="hint">The preview updates as you change these. It shows the collection's
               first title (sample badges where it has no data). Applied to Plex after you save, then kept up to date at every sync.</span></div>
         </div>
-        <div class="overlay-preview image-box" id="r-out">▦</div>
+        ${cfg.builtin ? "" : `<div class="overlay-preview image-box" id="r-out">▦</div>`}
       </div>
     </div>
 
-    <div class="card" ${isOverlay ? "hidden" : ""}>
+    <div class="card" ${isOverlay || cfg.builtin ? "hidden" : ""}>
       <h2>Artwork</h2>
       <div class="images">
         ${imageSlot(id, cfg, "poster", "Poster (2:3)")}
@@ -1637,7 +1674,7 @@ async function editor(id, params = new URLSearchParams()) {
   view.querySelector("#addPlexFilter").onclick = () => { cfg.sources.push({ type: "plex_filter", value: "", limit: null }); renderSources(); };
 
   // The ribbon text box shows a suggestion; an empty box uses it.
-  const ribbonFields = () => ({
+  const ribbonFields = () => cfg.builtin ? { ...cfg.ribbon } : ({
     enabled: !isPlaylist && view.querySelector("#r-on").checked,
     text: view.querySelector("#r-text").value.trim() || view.querySelector("#r-text").placeholder,
     corner: view.querySelector("#r-corner").value,
@@ -1646,7 +1683,7 @@ async function editor(id, params = new URLSearchParams()) {
     color: view.querySelector("#r-color").value,
     text_color: view.querySelector("#r-tcolor").value,
   });
-  const badgeFields = () => ({
+  const badgeFields = () => cfg.builtin ? { ...cfg.badges } : ({
     quality: !isPlaylist && view.querySelector("#b-quality").checked,
     content_rating: !isPlaylist && view.querySelector("#b-cert").checked,
     tv_icon: !isPlaylist && view.querySelector("#b-tvicon").checked,
