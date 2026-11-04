@@ -3,6 +3,10 @@
 The version shown in the web UI's sidebar matches these entries. Each
 release is also published as `ghcr.io/gaterunner341/curatarr:<version>`.
 
+## 0.32.4
+
+- **Overlay progress names the library:** a pass started by a sync says which library's collection set it off, e.g. "Drawing poster overlays for IMDb Top 250 (MoviesSpecial) · 193 / 839".
+
 ## 0.32.3
 
 - **Hall of Fame collections sort first in Plex:** IMDb Top 250 and Netflix Top 10 get the sort titles "!00_IMDb Top 250" and "!00_Netflix Top 10", so they sit at the top of a library's Collections tab, above the holiday collections (!01_). Existing ones pick it up at their next sync.

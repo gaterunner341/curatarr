@@ -1954,3 +1954,14 @@ def test_preview_starts_from_the_saved_original(monkeypatch, tmp_path):
     (tmp_path / "42.jpg").write_bytes(buf.getvalue())
     out = Image.open(io.BytesIO(overlays.preview([], P(), "/library/metadata/42/thumb/1", "42"))).convert("RGB")
     assert out.getpixel((500, 750))[1] > 150
+
+
+def test_overlay_reason_names_the_library(monkeypatch):
+    from app import sync as sync_mod
+    cid = db.create_collection({"name": "IMDb Top 250", "library": "MoviesSpecial", "section_id": "1",
+                                "sources": [{"type": "static_ids", "value": "tt0111161"}]})
+    reasons = []
+    monkeypatch.setattr(sync_mod, "_run_collection", lambda *a: {"collection_name": "IMDb Top 250"})
+    monkeypatch.setattr(sync_mod, "run_overlays", lambda reason="": reasons.append(reason))
+    sync_mod.run_collection(cid)
+    assert reasons == ["IMDb Top 250 (MoviesSpecial)"]

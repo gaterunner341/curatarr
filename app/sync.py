@@ -684,7 +684,10 @@ def run_collection(collection_id: int, trigger: str = "manual", dry_run: bool = 
     finally:
         lock.release()
     if not dry_run:
-        run_overlays(run.get("collection_name") or "a collection")
+        row = db.get_collection(collection_id)
+        library = ((row or {}).get("config") or {}).get("library")
+        name = run.get("collection_name") or "a collection"
+        run_overlays(f"{name} ({library})" if library else name)
     return run
 
 
