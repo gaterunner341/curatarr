@@ -3,6 +3,10 @@
 The version shown in the web UI's sidebar matches these entries. Each
 release is also published as `ghcr.io/gaterunner341/curatarr:<version>`.
 
+## 0.32.3
+
+- **Hall of Fame collections sort first in Plex:** IMDb Top 250 and Netflix Top 10 get the sort titles "!00_IMDb Top 250" and "!00_Netflix Top 10", so they sit at the top of a library's Collections tab, above the holiday collections (!01_). Existing ones pick it up at their next sync.
+
 ## 0.32.2
 
 - **Overlay progress in plain words:** the top bar says what a pass is for, e.g. "Drawing poster overlays for IMDb Top 250 · 9 / 662" or "Drawing poster overlays for library badges · 198 / 835 · next: every collection".

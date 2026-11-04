@@ -24,6 +24,7 @@ BUILTINS: list[dict] = [
         "poster": "imdb",
         "fixed": {
             "name": "IMDb Top 250",
+            "sort_title": "!00_IMDb Top 250",      # above everything in Plex, holidays (!01_) included
             "summary": "The 250 highest-rated movies on IMDb, as voted by IMDb users.",
             "order": "custom",
             "sync_mode": "sync",
@@ -44,6 +45,7 @@ BUILTINS: list[dict] = [
         "poster": "netflix",
         "fixed": {
             "name": "Netflix Top 10",
+            "sort_title": "!00_Netflix Top 10",      # above everything in Plex, holidays (!01_) included
             "summary": "This week's most-watched on Netflix, in Netflix's order.",
             "order": "custom",
             "sync_mode": "sync",
