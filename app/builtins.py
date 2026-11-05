@@ -113,6 +113,34 @@ def refresh_all() -> int:
     return count
 
 
+def fix_plex_sort_titles() -> int:
+    """Give each Hall of Fame collection in Plex its fixed sort title when Plex has a different one
+    (or none), so it sorts first without waiting for its next sync. Returns how many were fixed."""
+    import logging
+    from . import db, plex as plexmod
+    log = logging.getLogger(__name__)
+    wanted: dict[str, dict[str, str]] = {}          # section id -> {collection rating key: sort title}
+    for row in db.list_collections():
+        builtin = get(row["config"].get("builtin", ""))
+        if builtin and row.get("plex_rating_key") and row["config"].get("section_id"):
+            wanted.setdefault(str(row["config"]["section_id"]), {})[str(row["plex_rating_key"])] =                 builtin["fixed"]["sort_title"]
+    if not wanted:
+        return 0
+    fixed = 0
+    try:
+        with plexmod.from_settings(db.get_settings(), timeout=30) as plex:
+            for section_id, keys in wanted.items():
+                for coll in plex.collections(section_id):
+                    sort_title = keys.get(coll["ratingKey"])
+                    if sort_title and coll["titleSort"] != sort_title:
+                        plex.edit_collection(section_id, coll["ratingKey"], sort_title=sort_title)
+                        log.info("Hall of Fame: set the sort title of '%s' to '%s'", coll["title"], sort_title)
+                        fixed += 1
+    except plexmod.PlexError as exc:
+        log.warning("Hall of Fame: could not check sort titles in Plex: %s", exc)
+    return fixed
+
+
 def poster(builtin: dict) -> bytes:
     """The built-in's poster as a JPEG."""
     return _netflix_poster() if builtin.get("poster") == "netflix" else _imdb_poster()

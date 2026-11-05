@@ -1965,3 +1965,24 @@ def test_overlay_reason_names_the_library(monkeypatch):
     monkeypatch.setattr(sync_mod, "run_overlays", lambda reason="": reasons.append(reason))
     sync_mod.run_collection(cid)
     assert reasons == ["IMDb Top 250 (MoviesSpecial)"]
+
+
+def test_hall_of_fame_sort_titles_fixed_in_plex(monkeypatch):
+    from app import builtins, plex as plexmod
+    cid = db.create_collection(builtins.collection_config(builtins.get("imdb_top_250"), {"id": "7", "title": "M", "type": "movie"}))
+    db.update_collection_state(cid, plex_rating_key="501")
+    edits = []
+
+    def handler(request):
+        if request.url.path == "/library/sections/7/collections":
+            return httpx.Response(200, json={"MediaContainer": {"Metadata": [
+                {"ratingKey": "501", "title": "IMDb Top 250"},                      # no sort title yet
+                {"ratingKey": "502", "title": "Someone else's"}]}})
+        edits.append(dict(request.url.params))
+        return httpx.Response(200, json={"MediaContainer": {}})
+
+    monkeypatch.setattr(plexmod, "from_settings", lambda *a, **k: Plex("http://plex", "t", client=httpx.Client(
+        transport=httpx.MockTransport(handler))))
+    assert db.get_collection(cid)["config"]["sort_title"] == "!00_IMDb Top 250"
+    assert builtins.fix_plex_sort_titles() == 1
+    assert edits[0]["id"] == "501" and edits[0]["titleSort.value"] == "!00_IMDb Top 250"

@@ -260,7 +260,7 @@ class Plex:
     def collections(self, section_id: str) -> list[dict]:
         data = self._request("GET", f"/library/sections/{section_id}/collections")
         return [
-            {"ratingKey": str(m["ratingKey"]), "title": m.get("title"),
+            {"ratingKey": str(m["ratingKey"]), "title": m.get("title"), "titleSort": m.get("titleSort") or "",
              "childCount": int(m.get("childCount", 0)), "thumb": m.get("thumb"),
              "smart": bool(int(m.get("smart", 0) or 0)),
              "labels": [t.get("tag") for t in m.get("Label") or []]}

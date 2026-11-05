@@ -3,6 +3,10 @@
 The version shown in the web UI's sidebar matches these entries. Each
 release is also published as `ghcr.io/gaterunner341/curatarr:<version>`.
 
+## 0.32.6
+
+- **Hall of Fame sort titles fixed in Plex at startup:** when Curatarr starts, it checks each Hall of Fame collection in Plex and sets its sort title ("!00_IMDb Top 250", "!00_Netflix Top 10") wherever it's missing or different, so they sort first straight away instead of at their next sync. Each fix is logged.
+
 ## 0.32.5
 
 - **Whole-library badge previews:** each library's preview sits on its own row, beside its settings, instead of below the list. It draws when the page loads from that library's saved settings and redraws as you change them, so the Preview button is gone.

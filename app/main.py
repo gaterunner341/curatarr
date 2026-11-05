@@ -48,6 +48,7 @@ async def lifespan(app: FastAPI):
     except ValueError as exc:
         log.error("Could not read %s: %s", config.SEED_FILE, exc)
     scheduler.start()
+    scheduler.run_task(builtins.fix_plex_sort_titles, "Hall of Fame sort titles")
     log.info("Curatarr %s started (config: %s)", config.VERSION, config.CONFIG_DIR)
     yield
     scheduler.shutdown()
