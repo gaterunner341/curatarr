@@ -2601,6 +2601,7 @@ async function libraryBadges(card) {
     const b = saved[l.id] || {};
     return `
       <div class="library-badge" data-lib="${esc(l.id)}">
+        <div class="lib-controls">
         <div class="lib-name"><strong>${esc(l.title)}</strong> <span class="muted small">(${l.type === "show" ? "TV" : "Movies"})</span></div>
         <label class="check"><input type="checkbox" data-k="content_rating" ${b.content_rating ? "checked" : ""}> Content rating</label>
         ${l.type === "movie" ? `<label class="check"><input type="checkbox" data-k="quality" ${b.quality ? "checked" : ""}> Quality</label>`
@@ -2614,7 +2615,8 @@ async function libraryBadges(card) {
           <option value="critic" ${b.rating === "critic" ? "selected" : ""}>Critic rating</option></select>
         <select data-k="size" title="Badge size">${[["small", "Small"], ["medium", "Medium"], ["large", "Large"],
           ["xlarge", "Extra large"]].map(([v, lbl]) => `<option value="${v}" ${(b.size || "medium") === v ? "selected" : ""}>${lbl}</option>`).join("")}</select>
-        <button type="button" class="small" data-lib-preview>Preview</button>
+        </div>
+        <div class="overlay-preview image-box" data-lib-preview>▦</div>
       </div>`;
   };
   box.innerHTML = `
@@ -2624,8 +2626,7 @@ async function libraryBadges(card) {
       The first update draws one poster per title, which takes a while for a big library (roughly an hour for 5,000 titles);
       progress shows in the top bar. Turning a library off puts its original posters back.</p>
     ${libs.map(row).join("")}
-    <div class="row" style="margin-top:10px"><button type="button" class="primary" id="libSave">Save library badges</button>
-      <div class="overlay-preview image-box" id="libPreview" hidden></div></div>`;
+    <div class="row" style="margin-top:10px"><button type="button" class="primary" id="libSave">Save library badges</button></div>`;
   card.appendChild(box);
   const read = (el) => ({
     content_rating: el.querySelector('[data-k="content_rating"]').checked,
@@ -2634,15 +2635,32 @@ async function libraryBadges(card) {
     icon_style: el.querySelector('[data-k="icon_style"]').value,
     rating: el.querySelector('[data-k="rating"]').value, rating_min: 0, size: el.querySelector('[data-k="size"]').value,
   });
-  box.querySelectorAll("[data-lib-preview]").forEach((b) => b.onclick = () => guard(async () => {
-    const el = b.closest("[data-lib]");
-    const out = box.querySelector("#libPreview");
-    out.hidden = false;
-    out.textContent = "…";
-    const resp = await api("POST", "/overlays/preview", { badges: read(el), section_id: el.dataset.lib }, true);
-    if (!resp.ok) { out.textContent = "▦"; throw new Error(`Preview failed (HTTP ${resp.status})`); }
-    out.innerHTML = `<img src="${URL.createObjectURL(await resp.blob())}" alt="Badge preview">`;
-  }));
+  // Each library's preview sits beside its settings and redraws shortly after any of them changes;
+  // only the newest request's image is shown, the old one stays (dimmed) until it arrives.
+  box.querySelectorAll("[data-lib]").forEach((el) => {
+    const out = el.querySelector("[data-lib-preview]");
+    let seq = 0;
+    let timer = null;
+    const draw = async () => {
+      const mine = ++seq;
+      out.classList.add("loading");
+      try {
+        const resp = await api("POST", "/overlays/preview", { badges: read(el), section_id: el.dataset.lib }, true);
+        if (mine !== seq) return;
+        if (!resp.ok) { out.textContent = "Preview failed"; return; }
+        out.innerHTML = `<img src="${URL.createObjectURL(await resp.blob())}" alt="Badge preview">`;
+      } catch {
+        if (mine === seq) out.textContent = "Preview failed";
+      } finally {
+        if (mine === seq) out.classList.remove("loading");
+      }
+    };
+    el.querySelectorAll("input, select").forEach((c) => c.addEventListener("change", () => {
+      clearTimeout(timer);
+      timer = setTimeout(draw, 350);
+    }));
+    draw();
+  });
   box.querySelector("#libSave").onclick = () => guard(async () => {
     const body = {};
     box.querySelectorAll("[data-lib]").forEach((el) => {

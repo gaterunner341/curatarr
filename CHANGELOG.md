@@ -3,6 +3,10 @@
 The version shown in the web UI's sidebar matches these entries. Each
 release is also published as `ghcr.io/gaterunner341/curatarr:<version>`.
 
+## 0.32.5
+
+- **Whole-library badge previews:** each library's preview sits on its own row, beside its settings, instead of below the list. It draws when the page loads from that library's saved settings and redraws as you change them, so the Preview button is gone.
+
 ## 0.32.4
 
 - **Overlay progress names the library:** a pass started by a sync says which library's collection set it off, e.g. "Drawing poster overlays for IMDb Top 250 (MoviesSpecial) · 193 / 839".

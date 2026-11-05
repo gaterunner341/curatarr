@@ -196,7 +196,9 @@ input[type=color] { width: 64px; height: 36px; padding: 2px; background: var(--b
 .napalm-warning li { margin: 3px 0; }
 .napalm-grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); margin-top: 12px; }
 .napalm-imgs { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 6px; }
-.library-badge { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; padding: 8px 0; border-bottom: 1px solid var(--panel-2); }
+.library-badge { display: flex; align-items: center; gap: 14px; padding: 8px 0; border-bottom: 1px solid var(--panel-2); }
+.library-badge .lib-controls { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; flex: 1; min-width: 0; }
+.library-badge .overlay-preview { width: 110px; }
 .library-badge .lib-name { min-width: 200px; }
 .library-badge .check { margin: 0; }
 .library-badge select { width: auto; }
