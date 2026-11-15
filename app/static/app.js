@@ -518,19 +518,27 @@ async function collectionItems({ id = null, ratingKey = null, playlist = false, 
   const overlayLine = wantsOverlay && inPlex && items.length ? `<p class="small muted" style="margin-top:-8px">
     <span class="overlay-dot"></span>Poster overlays on <strong>${overlaid}</strong> of ${items.length} posters${overlaid < items.length
       ? " (the rest are drawn at the next sync; titles with nothing to show, such as no rating, are left alone)" : ""}.
-    The posters below are the ones in Plex.</p>` : "";
+    Posters below are shown without the overlay; the corner mark shows which ones have it in Plex.</p>` : "";
   // Arranging by hand works for playlists and collections in list order.
   const canArrange = row && items.length > 1 && (playlist || row.config.order === "custom");
+  // Posters are shown as they were before Curatarr's overlay; a corner mark says the overlay is on in Plex.
   const tile = (i) => `
     <div class="item" data-rk="${esc(i.ratingKey)}" data-search="${esc(`${i.title} ${i.year || ""}`.toLowerCase())}">
       <div class="item-poster">
-        ${i.thumb ? `<img loading="lazy" src="/api/plex/image?path=${encodeURIComponent(i.thumb)}" alt="">` : "▦"}
+        ${i.thumb ? `<img loading="lazy" src="/api/plex/image?path=${encodeURIComponent(i.thumb)}${i.overlay
+          ? `&original=${encodeURIComponent(i.ratingKey)}` : ""}" alt="">` : "▦"}
+        ${i.overlay ? `<span class="item-flag" title="Has Curatarr's poster overlay in Plex"></span>` : ""}
         ${row ? `<button type="button" class="item-exclude" data-exclude="${esc(i.ratingKey)}" data-title="${esc(i.title)}"
           title="Remove and keep out of this collection">✕</button>` : ""}
       </div>
-      <div class="item-title" title="${esc(i.title)}">${i.overlay ? `<span class="overlay-dot" title="Has a Curatarr poster overlay"></span>` : ""}${esc(i.title)}</div>
-      <div class="small muted">${esc(i.year || "")}${i.episodes ? ` · ${i.episodes} episode${i.episodes === 1 ? "" : "s"}` : ""}</div>
+      <div class="item-text">
+        <div class="item-title" title="${esc(i.title)}">${esc(i.title)}</div>
+        <div class="small muted">${esc(i.year || "")}${i.episodes ? ` · ${i.episodes} episode${i.episodes === 1 ? "" : "s"}` : ""}${i.overlay
+          ? `<span class="item-flag-text"> · overlay in Plex</span>` : ""}</div>
+      </div>
     </div>`;
+  let layout = "tiles";
+  try { layout = localStorage.getItem("curatarr.itemLayout") === "list" ? "list" : "tiles"; } catch { /* no storage */ }
 
   view.innerHTML = `
     <p class="small" style="margin:0 0 8px"><a href="${back}">← Back</a></p>
@@ -561,11 +569,26 @@ async function collectionItems({ id = null, ratingKey = null, playlist = false, 
       <button type="button" class="small" id="undo" style="margin-left:8px">${change.trigger === "undo" ? "Redo" : "Undo"} this change</button>
     </div>` : ""}
     ${overlayLine}
+    ${row?.config.exclude?.length ? `<details class="card" id="excludedCard">
+      <summary><strong>${row.config.exclude.length}</strong> excluded title${row.config.exclude.length === 1 ? "" : "s"}
+        <span class="muted small">(kept out even when a list has them)</span></summary>
+      <div class="excluded-list">${row.config.exclude.map((e) => {
+        const rk = e.id.startsWith("plex:") ? e.id.slice(5) : "";
+        return `<div class="excluded-item">
+          <div class="item-poster">${rk ? `<img loading="lazy" src="/api/plex/image?path=${encodeURIComponent(`/library/metadata/${rk}/thumb`)}" alt="">` : "▦"}</div>
+          <span class="grow">${esc(e.title || e.id)}</span>
+          <button type="button" class="small" data-allow="${esc(e.id)}" data-title="${esc(e.title || e.id)}">Add back</button></div>`;
+      }).join("")}</div>
+    </details>` : ""}
     <div id="missingOut"></div>
     ${inPlex ? `
       <div class="row" style="margin-bottom:16px">
         <div class="grow"><input type="text" id="itemFilter" placeholder="Filter ${items.length} title${items.length === 1 ? "" : "s"}…"></div>
         <span class="small muted" id="itemCount">${items.length} in Plex</span>
+        <span class="seg" role="group" aria-label="Layout">
+          <button type="button" class="small ${layout === "tiles" ? "on" : ""}" data-layout="tiles" title="Posters as tiles">Tiles</button>
+          <button type="button" class="small ${layout === "list" ? "on" : ""}" data-layout="list" title="A list with small posters">List</button>
+        </span>
         ${canArrange ? `<button type="button" id="arrange">Arrange order</button>
           <span class="arrange-tools" hidden>
             <button type="button" class="primary" id="saveOrder">Save order</button>
@@ -575,7 +598,7 @@ async function collectionItems({ id = null, ratingKey = null, playlist = false, 
       </div>
       <p class="hint arrange-tools" hidden style="margin-top:-8px">Drag titles into the order you want, then click <strong>Save order</strong>.
         New titles from your lists are added at the end.</p>
-      ${items.length ? `<div class="items">${items.map(tile).join("")}</div>` : `<div class="card empty">This ${playlist ? "playlist" : "collection"} is empty in Plex.</div>`}`
+      ${items.length ? `<div class="items ${layout === "list" ? "list" : ""}">${items.map(tile).join("")}</div>` : `<div class="card empty">This ${playlist ? "playlist" : "collection"} is empty in Plex.</div>`}`
     : `<div class="notice">
         This ${playlist ? "playlist" : "collection"} isn't in Plex right now.
         ${row?.config.kind === "overlay" ? "Its titles are found when it next syncs."
@@ -585,6 +608,12 @@ async function collectionItems({ id = null, ratingKey = null, playlist = false, 
       <div id="planned"><p class="muted">Fetching lists and matching against Plex…</p></div>`}`;
   if (!inPlex && row) loadPlanned(row, tile);
 
+  view.querySelectorAll("[data-layout]").forEach((b) => b.onclick = () => {
+    layout = b.dataset.layout;
+    try { localStorage.setItem("curatarr.itemLayout", layout); } catch { /* no storage */ }
+    view.querySelectorAll(".items").forEach((g) => g.classList.toggle("list", layout === "list"));
+    view.querySelectorAll("[data-layout]").forEach((x) => x.classList.toggle("on", x === b));
+  });
   const filter = view.querySelector("#itemFilter");
   if (filter) filter.oninput = () => {
     const q = filter.value.trim().toLowerCase();
@@ -627,6 +656,12 @@ async function collectionItems({ id = null, ratingKey = null, playlist = false, 
     await api("POST", `/collections/${row.id}/exclude`, { id: `plex:${b.dataset.exclude}`, title: b.dataset.title });
     b.closest(".item").remove();
     toast(`Excluded "${b.dataset.title}"`);
+  }));
+  view.querySelectorAll("[data-allow]").forEach((b) => b.onclick = () => guard(async () => {
+    b.disabled = true;
+    await api("DELETE", `/collections/${row.id}/exclude?item=${encodeURIComponent(b.dataset.allow)}`);
+    toast(`"${b.dataset.title}" is allowed again; syncing now to add it back`);
+    setTimeout(route, 2500);
   }));
   // Titles from the lists that aren't in the Plex library (fetched on demand: lists can be slow).
   view.querySelector("#showMissing").onclick = (e) => guard(async () => {

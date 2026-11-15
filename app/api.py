@@ -314,7 +314,14 @@ def tmdb_posters(query: str = "", collection: list[str] = Query(default=[])):
 
 
 @router.get("/plex/image")
-def plex_image(path: str):
+def plex_image(path: str, original: str = ""):
+    """Plex artwork; with ``original`` (a title's rating key), the poster as it was before
+    Curatarr drew an overlay on it, when Curatarr saved one."""
+    from . import overlays
+    if original.isdigit():
+        saved = overlays._original_path(original)
+        if saved.is_file():
+            return Response(saved.read_bytes(), media_type="image/jpeg", headers={"Cache-Control": "max-age=300"})
     with _plex() as plex:
         try:
             data, content_type = plex.image(path)
@@ -841,6 +848,23 @@ def exclude_title(collection_id: int, body: dict = Body(...)):
                 sync.remove_titles(plex, CollectionConfig(**cfg), row["plex_rating_key"], [ident[5:]])
             except PlexError as exc:
                 raise HTTPException(502, f"Excluded, but removing it from Plex failed: {exc}")
+    return _collection_out(db.get_collection(collection_id))
+
+
+@router.delete("/collections/{collection_id}/exclude")
+def allow_title(collection_id: int, item: str = Query(...)):
+    """Let an excluded title back in; a sync starts so it's added again when a list still has it."""
+    row = db.get_collection(collection_id)
+    if not row:
+        raise HTTPException(404, "Collection not found")
+    cfg = row["config"]
+    kept = [e for e in cfg.get("exclude") or [] if e["id"] != item]
+    if len(kept) == len(cfg.get("exclude") or []):
+        raise HTTPException(404, "That title isn't excluded")
+    cfg["exclude"] = kept
+    db.update_collection_config(collection_id, _validate(cfg).model_dump())
+    if cfg.get("enabled", True) and not sync.is_running(collection_id):
+        scheduler.run_now(collection_id)
     return _collection_out(db.get_collection(collection_id))
 
 

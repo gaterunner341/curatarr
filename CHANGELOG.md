@@ -3,6 +3,12 @@
 The version shown in the web UI's sidebar matches these entries. Each
 release is also published as `ghcr.io/gaterunner341/curatarr:<version>`.
 
+## 0.33.0
+
+- **Clean posters on a collection's page:** posters are shown as they were before Curatarr drew its overlay, so a ribbon or badge doesn't cover them. A small corner mark (and "overlay in Plex" in the list) shows which titles have the overlay in Plex. Plex's posters are unchanged.
+- **Tiles or list:** a Tiles / List switch above the titles. The list shows each title with a small poster, its year and episode count. Your choice is remembered in this browser.
+- **Excluded titles on a collection's page:** titles you removed with ✕ are listed in an "excluded titles" section, each with **Add back**. That lets the title in again and syncs the collection, so it returns when a list still has it.
+
 ## 0.32.6
 
 - **Hall of Fame sort titles fixed in Plex at startup:** when Curatarr starts, it checks each Hall of Fame collection in Plex and sets its sort title ("!00_IMDb Top 250", "!00_Netflix Top 10") wherever it's missing or different, so they sort first straight away instead of at their next sync. Each fix is logged.

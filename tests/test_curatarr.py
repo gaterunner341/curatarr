@@ -1959,7 +1959,7 @@ def test_preview_starts_from_the_saved_original(monkeypatch, tmp_path):
 def test_overlay_reason_names_the_library(monkeypatch):
     from app import sync as sync_mod
     cid = db.create_collection({"name": "IMDb Top 250", "library": "MoviesSpecial", "section_id": "1",
-                                "sources": [{"type": "static_ids", "value": "tt0111161"}]})
+                                "sources": [{"type": "static", "value": "tt0111161"}]})
     reasons = []
     monkeypatch.setattr(sync_mod, "_run_collection", lambda *a: {"collection_name": "IMDb Top 250"})
     monkeypatch.setattr(sync_mod, "run_overlays", lambda reason="": reasons.append(reason))
@@ -1986,3 +1986,39 @@ def test_hall_of_fame_sort_titles_fixed_in_plex(monkeypatch):
     assert db.get_collection(cid)["config"]["sort_title"] == "!00_IMDb Top 250"
     assert builtins.fix_plex_sort_titles() == 1
     assert edits[0]["id"] == "501" and edits[0]["titleSort.value"] == "!00_IMDb Top 250"
+
+
+def test_plex_image_serves_the_saved_original(monkeypatch, tmp_path):
+    from contextlib import nullcontext
+    from fastapi.testclient import TestClient
+    from app import api as api_mod, overlays
+    from app.main import app
+
+    class Plex:
+        def image(self, path):
+            return b"plex-poster", "image/jpeg"
+
+    monkeypatch.setattr(api_mod, "_plex", lambda: nullcontext(Plex()))
+    monkeypatch.setattr(overlays, "ORIGINALS", tmp_path)
+    (tmp_path / "42.jpg").write_bytes(b"original")
+    client = TestClient(app)
+    assert client.get("/api/plex/image", params={"path": "/library/metadata/42/thumb/1", "original": "42"}).content == b"original"
+    assert client.get("/api/plex/image", params={"path": "/library/metadata/43/thumb/1", "original": "43"}).content == b"plex-poster"
+    assert client.get("/api/plex/image", params={"path": "/library/metadata/42/thumb/1"}).content == b"plex-poster"
+
+
+def test_allow_excluded_title_back(monkeypatch):
+    from fastapi.testclient import TestClient
+    from app import scheduler
+    from app.main import app
+
+    runs = []
+    monkeypatch.setattr(scheduler, "run_now", lambda cid, *a, **k: runs.append(cid))
+    cid = db.create_collection({"name": "Picks", "library": "Movies", "section_id": "1",
+                                "sources": [{"type": "static", "value": "tt0111161"}],
+                                "exclude": [{"id": "plex:7", "title": "Black Doves"}, {"id": "tt1", "title": "Other"}]})
+    client = TestClient(app)
+    r = client.delete(f"/api/collections/{cid}/exclude", params={"item": "plex:7"})
+    assert r.status_code == 200, r.text
+    assert [e["id"] for e in r.json()["config"]["exclude"]] == ["tt1"] and runs == [cid]
+    assert client.delete(f"/api/collections/{cid}/exclude", params={"item": "plex:7"}).status_code == 404

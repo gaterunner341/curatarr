@@ -147,6 +147,26 @@ a.coll-title:hover { color: var(--accent); }
 ul.changes { margin: 6px 0 0; padding-left: 0; list-style: none; max-height: 240px; overflow: auto; }
 .overlay-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); margin-right: 6px; vertical-align: middle; }
 .item-title { margin-top: 6px; font-size: .9rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.item-flag { position: absolute; top: 0; right: 0; width: 0; height: 0; border-style: solid; border-width: 0 22px 22px 0;
+  border-color: transparent var(--accent) transparent transparent; filter: drop-shadow(0 0 2px rgba(0,0,0,.6)); }
+.item-flag-text { display: none; }
+.excluded-list { margin-top: 10px; }
+.excluded-item { display: flex; align-items: center; gap: 12px; padding: 6px 0; border-bottom: 1px solid var(--panel-2); }
+.excluded-item .grow { flex: 1; min-width: 0; }
+.excluded-item .item-poster { width: 36px; flex: none; border-radius: 4px; font-size: .9rem; }
+.items.list { grid-template-columns: 1fr; gap: 0; }
+.items.list .item { display: flex; align-items: center; gap: 12px; padding: 6px 0; border-bottom: 1px solid var(--panel-2); }
+.items.list .item-poster { width: 46px; flex: none; border-radius: 4px; font-size: 1rem; }
+.items.list .item-flag { border-width: 0 12px 12px 0; }
+.items.list .item-exclude { top: 2px; left: 2px; width: 18px; height: 18px; font-size: .6rem; }
+.items.list .item-text { flex: 1; min-width: 0; }
+.items.list .item-title { margin-top: 0; }
+.items.list .item-flag-text { display: inline; }
+.seg { display: inline-flex; }
+.seg button { border-radius: 0; }
+.seg button:first-child { border-radius: 6px 0 0 6px; }
+.seg button:last-child { border-radius: 0 6px 6px 0; margin-left: -1px; }
+.seg button.on { background: var(--accent); border-color: var(--accent); color: #111; }
 .coll-actions { margin-top: auto; display: flex; gap: 6px; flex-wrap: wrap; padding-top: 8px; }
 
 .badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: .75rem; font-weight: 600; background: var(--panel-2); color: var(--muted); }
