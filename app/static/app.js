@@ -208,6 +208,7 @@ async function loadStatus() {
   try {
     const s = await api("GET", "/status");
     document.getElementById("version").textContent = `v${s.version}`;
+    document.getElementById("version").onclick = (e) => { e.preventDefault(); releaseNotes(s.version); };
     state.machineId = s.plex?.machine_id || "";
     el.innerHTML = s.plex
       ? `<span class="dot" style="background:var(--ok)"></span>${esc(s.plex.name)} · Plex ${esc(s.plex.version)}`
@@ -2617,6 +2618,59 @@ async function overlayCard(card) {
     await api("POST", "/overlays/apply?remove_all=true");
     toast("Restoring original posters in the background");
   });
+}
+
+// Release notes (CHANGELOG.md) in a popup, opened from the version in the menu.
+function markdown(text) {
+  const inline = (t) => esc(t).replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>").replace(/`([^`]+)`/g, "<code>$1</code>")
+    .replace(/\[([^\]]+)\]\((https?:[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+  const out = [];
+  const depth = [];                         // indent of each open list
+  const close = (to) => { while (depth.length > to) { out.push("</li></ul>"); depth.pop(); } };
+  for (const line of text.split(/\r?\n/)) {
+    const item = line.match(/^(\s*)- (.*)$/);
+    if (item) {
+      const indent = item[1].length;
+      while (depth.length && indent < depth[depth.length - 1]) close(depth.length - 1);
+      if (!depth.length || indent > depth[depth.length - 1]) { out.push("<ul><li>"); depth.push(indent); }
+      else out.push("</li><li>");
+      out.push(inline(item[2]));
+    } else if (line.trim()) {
+      close(0);
+      const h = line.match(/^(#{1,3}) (.*)$/);
+      out.push(h ? `<h${h[1].length + 1}>${inline(h[2])}</h${h[1].length + 1}>` : `<p>${inline(line)}</p>`);
+    } else if (!depth.length) {
+      out.push("");
+    }
+  }
+  close(0);
+  return out.join("");
+}
+
+async function releaseNotes(current) {
+  const dlg = document.createElement("dialog");
+  dlg.className = "notes-dialog";
+  dlg.innerHTML = `<div class="notes-head"><h2>Release notes</h2>
+      <button type="button" class="small" data-close>Close</button></div>
+    <div class="notes-body"><p class="muted">Loading…</p></div>`;
+  document.body.appendChild(dlg);
+  dlg.addEventListener("close", () => dlg.remove());
+  dlg.addEventListener("click", (e) => { if (e.target === dlg || e.target.closest("[data-close]")) dlg.close(); });
+  dlg.showModal();
+  const body = dlg.querySelector(".notes-body");
+  try {
+    const resp = await fetch("/api/release-notes");
+    if (!resp.ok) throw new Error(resp.status === 404 ? "Release notes aren't included in this build." : `HTTP ${resp.status}`);
+    // Skip the file's own title and intro: start at the first version.
+    const text = await resp.text();
+    const start = text.search(/^## /m);
+    body.innerHTML = markdown(start >= 0 ? text.slice(start) : text);
+    body.querySelectorAll("h3").forEach((h) => {
+      if (h.textContent.trim() === current) h.insertAdjacentHTML("beforeend", ` <span class="badge success">installed</span>`);
+    });
+  } catch (err) {
+    body.innerHTML = `<p class="no">${esc(err.message)}</p>`;
+  }
 }
 
 // Badges on every movie or show in a library, not just those in a collection.

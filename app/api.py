@@ -62,6 +62,15 @@ def health():
     return {"status": "ok", "version": config.VERSION}
 
 
+@router.get("/release-notes", response_class=PlainTextResponse)
+def release_notes():
+    """CHANGELOG.md, as shipped with this version."""
+    path = Path(__file__).resolve().parent.parent / "CHANGELOG.md"
+    if not path.is_file():
+        raise HTTPException(404, "Release notes aren't included in this build")
+    return path.read_text(encoding="utf-8")
+
+
 @router.get("/status")
 def status():
     settings = db.get_settings()

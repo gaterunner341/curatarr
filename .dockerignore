@@ -7,4 +7,5 @@ tests
 **/__pycache__
 *.md
 !README.md
+!CHANGELOG.md
 tools

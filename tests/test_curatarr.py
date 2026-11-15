@@ -2022,3 +2022,12 @@ def test_allow_excluded_title_back(monkeypatch):
     assert r.status_code == 200, r.text
     assert [e["id"] for e in r.json()["config"]["exclude"]] == ["tt1"] and runs == [cid]
     assert client.delete(f"/api/collections/{cid}/exclude", params={"item": "plex:7"}).status_code == 404
+
+
+def test_release_notes_endpoint():
+    from fastapi.testclient import TestClient
+    from app import config
+    from app.main import app
+
+    r = TestClient(app).get("/api/release-notes")
+    assert r.status_code == 200 and f"## {config.VERSION}" in r.text

@@ -3,6 +3,10 @@
 The version shown in the web UI's sidebar matches these entries. Each
 release is also published as `ghcr.io/gaterunner341/curatarr:<version>`.
 
+## 0.33.1
+
+- **Release notes:** click the version in the bottom-left corner of the menu to read every release's notes in a popup. The version you're running is marked "installed". The notes now ship in the image.
+
 ## 0.33.0
 
 - **Clean posters on a collection's page:** posters are shown as they were before Curatarr drew its overlay, so a ribbon or badge doesn't cover them. A small corner mark (and "overlay in Plex" in the list) shows which titles have the overlay in Plex. Plex's posters are unchanged.
