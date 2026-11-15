@@ -603,7 +603,7 @@ async function collectionItems({ id = null, ratingKey = null, playlist = false, 
     : `<div class="notice">
         This ${playlist ? "playlist" : "collection"} isn't in Plex right now.
         ${row?.config.kind === "overlay" ? "Its titles are found when it next syncs."
-          : row?.config.seasonal_only ? "It's only in Plex during its dates." : "It's created in Plex on its next sync."}
+          : row?.config.seasonal_only ? "It's only in Plex during the dates above." : "It's created in Plex on its next sync."}
         Below are the titles from your library it will have.
       </div>
       <div id="planned"><p class="muted">Fetching lists and matching against Plex…</p></div>`}`;

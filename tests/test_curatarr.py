@@ -570,7 +570,11 @@ def test_remove_off_season_deletes_only_owned_collections():
     gone = remove_off_season(cfg, {"plex_rating_key": "100", "plex_owned": 1, "poster_applied": "x"},
                              plex, SECTION, today=date(2026, 11, 2))
     assert "DELETE /library/metadata/100" in fake.calls and "100" not in fake.collections
-    assert gone.status == "skipped" and "until Oct 1" in gone.messages[0]
+    assert gone.status == "skipped" and gone.messages[0] == "Off season: removed from Plex. In Plex Oct 1 – Oct 31"
+    from app.sync import season_dates
+    assert season_dates(_cal(promote_start="2026-11-25", promote_end="2027-01-05", promote_yearly=True),
+                        date(2026, 11, 2)) == "Nov 25 – Jan 5"
+    assert season_dates(_cal(promote_yearly=False), date(2026, 9, 2)) == "Oct 1, 2026 – Oct 31, 2026"
     assert gone.state["plex_rating_key"] is None and gone.state["poster_applied"] is None
 
 

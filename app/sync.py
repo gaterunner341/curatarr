@@ -814,6 +814,21 @@ def next_start(cfg: CollectionConfig, today: date) -> date:
     return candidate if candidate > today else candidate.replace(year=today.year + 1)
 
 
+def season_dates(cfg: CollectionConfig, today: date) -> str:
+    """The next window, e.g. "Nov 25 – Jan 5" (with years when it isn't yearly)."""
+    opens = next_start(cfg, today)
+    end = date.fromisoformat(cfg.promote_end)
+    if cfg.promote_yearly:
+        try:
+            end = end.replace(year=opens.year)
+        except ValueError:                # Feb 29
+            end = date(opens.year, 3, 1)
+        if end < opens:
+            end = end.replace(year=opens.year + 1)
+        return f"{opens:%b} {opens.day} – {end:%b} {end.day}"
+    return f"{opens:%b} {opens.day}, {opens.year} – {end:%b} {end.day}, {end.year}"
+
+
 def next_calendar_change(cfg: CollectionConfig, today: date) -> tuple[date, bool] | None:
     """(day, appears) for a calendar collection's next change, or None when there's none.
 
@@ -838,8 +853,7 @@ def remove_off_season(cfg: CollectionConfig, state: dict, plex: Plex, section: d
     """Delete a seasonal collection from Plex while it's out of season."""
     today = today or date.today()
     result = SyncResult(status="skipped", state=dict(state))
-    opens = next_start(cfg, today)
-    back = f"{opens:%b} {opens.day}"
+    dates = season_dates(cfg, today)
     rk = state.get("plex_rating_key")
     owned = state.get("plex_owned")
     owned = True if owned is None else bool(owned)
@@ -851,13 +865,13 @@ def remove_off_season(cfg: CollectionConfig, state: dict, plex: Plex, section: d
                                    "so it was left in place")
             return result
         if dry_run:
-            result.messages.append(f"Dry run: would remove it from Plex until {back}")
+            result.messages.append(f"Dry run: would remove it from Plex; it's back {dates}")
             return result
         plex.delete_collection(section["id"], rk)
-        log.info("'%s': off season, deleted Plex collection %s until %s", cfg.name, rk, back)
-        result.messages.append(f"Off season: removed from Plex until {back}")
+        log.info("'%s': off season, deleted Plex collection %s; back %s", cfg.name, rk, dates)
+        result.messages.append(f"Off season: removed from Plex. In Plex {dates}")
     else:
-        result.messages.append(f"Off season: not in Plex until {back}")
+        result.messages.append(f"Off season. In Plex {dates}")
     result.state.update(plex_rating_key=None, plex_owned=None, poster_applied=None, art_applied=None,
                         hub_pinned=None)
     return result

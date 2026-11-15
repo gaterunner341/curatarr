@@ -3,6 +3,10 @@
 The version shown in the web UI's sidebar matches these entries. Each
 release is also published as `ghcr.io/gaterunner341/curatarr:<version>`.
 
+## 0.33.2
+
+- **Off-season dates in full:** a seasonal collection's status shows its whole window, e.g. "Off season. In Plex Nov 25 – Jan 5", instead of only "not in Plex until Nov 25". The notice below it now says it's "only in Plex during the dates above". Collections show the new wording after their next sync.
+
 ## 0.33.1
 
 - **Release notes:** click the version in the bottom-left corner of the menu to read every release's notes in a popup. The version you're running is marked "installed". The notes now ship in the image.
