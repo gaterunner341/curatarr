@@ -3,6 +3,10 @@
 The version shown in the web UI's sidebar matches these entries. Each
 release is also published as `ghcr.io/gaterunner341/curatarr:<version>`.
 
+## 0.33.5
+
+- **"Coming up" puts what's showing now first:** collections in their dates right now (e.g. Thanksgiving, showing until Nov 28) are listed above the ones still to start, instead of being sorted by the date they end.
+
 ## 0.33.4
 
 - **Excluded titles keep a current poster:** each sync updates an excluded title's small poster from Plex while the title is there, including when it comes back to Plex as a new item.

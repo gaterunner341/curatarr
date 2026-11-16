@@ -928,6 +928,13 @@ def test_dashboard_merges_coming_up_across_libraries():
     d = TestClient(app).get("/api/dashboard").json()
     merged = [c for c in d["coming"] if c["name"] == "Merge Day"]
     assert len(merged) == 1 and merged[0]["libraries"] == ["Movies", "Movies 4K"]
+    # showing now (ends after Merge Day starts) still comes first
+    db.create_collection({"name": "Now Day", "library": "Movies", "section_id": "1", "promote_home": True,
+                          "promote_window": True, "promote_start": (date.today() - timedelta(days=2)).isoformat(),
+                          "promote_end": (date.today() + timedelta(days=20)).isoformat(),
+                          "sources": [{"type": "static", "value": "tt1"}]})
+    d = TestClient(app).get("/api/dashboard").json()
+    assert d["coming"][0]["name"] == "Now Day" and not d["coming"][0]["appears"]
 
 
 def test_dashboard_endpoint():

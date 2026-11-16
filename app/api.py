@@ -664,7 +664,8 @@ def dashboard():
         "counts": {**kinds, "titles": titles, "missing": missing,
                    "enabled": sum(1 for r in rows if r["config"].get("enabled", True))},
         "attention": attention,
-        "coming": sorted(coming, key=lambda c: c["date"])[:5],
+        # What's showing now (its next change is the end) first, then by date.
+        "coming": sorted(coming, key=lambda c: (c["appears"], c["date"]))[:5],
         "most_missing": sorted(missing_rank, key=lambda m: -m["missing"])[:5],
         "recent": recent,
         "rogue": _rogue_summary(),
