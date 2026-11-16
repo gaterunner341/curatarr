@@ -674,7 +674,7 @@ async function collectionItems({ id = null, ratingKey = null, playlist = false, 
     out.innerHTML = `<p class="muted">Fetching lists and matching against Plex…</p>`;
     try {
       const cfg = row.config;
-      const r = await api("POST", "/preview", { section_id: cfg.section_id, library: cfg.library, section_ids: cfg.section_ids || [], sources: cfg.sources, item_limit: cfg.item_limit, language_only: cfg.language_only });
+      const r = await api("POST", "/preview", { section_id: cfg.section_id, library: cfg.library, section_ids: cfg.section_ids || [], sources: cfg.sources, item_limit: cfg.item_limit, language_only: cfg.language_only, exclude: cfg.exclude || [] });
       const missing = r.items.filter((i) => !i.in_plex);
       const service = (i) => ((r.library.type || i.media_type) === "show" ? "Sonarr" : "Radarr");
       out.innerHTML = `
@@ -707,7 +707,7 @@ async function collectionItems({ id = null, ratingKey = null, playlist = false, 
             const search = async (list, b) => {
               b.disabled = true;
               try {
-                const res = await api("POST", "/arr/search", { items: list.map(typed) });
+                const res = await api("POST", "/arr/search", { items: list.map(typed), collection_id: row.id });
                 toast(`Search started for ${res.searched} title${res.searched === 1 ? "" : "s"}`);
                 b.textContent = "Searching ✓";
               } catch (err) {

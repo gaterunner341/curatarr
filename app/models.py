@@ -232,3 +232,4 @@ class PreviewRequest(BaseModel):
     sources: list[Source] = Field(min_length=1)
     item_limit: int = 0
     language_only: bool = False
+    exclude: list[Exclusion] = []    # a collection's exclusions: these titles are left out

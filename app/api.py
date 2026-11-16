@@ -899,6 +899,10 @@ def request_title(collection_id: int, body: dict = Body(...)):
     kind = "sonarr" if body.get("media_type") == "show" else "radarr"
     fields = {k: body.get(k) for k in ("title", "year", "imdb", "tmdb", "tvdb")}
     ref = sources.MediaRef(media_type=body.get("media_type"), **{k: v for k, v in fields.items() if v})
+    cfg = CollectionConfig(**row["config"])
+    if arr.excluded_by(cfg.exclude, ref):
+        raise HTTPException(409, "This title is on this collection's exclusion list, so it isn't sent to "
+                                 f"{kind.title()}. Add it back first if you want it.")
     settings = db.get_settings()
     with httpx.Client(timeout=30) as http:
         section_id = str(row["config"].get("section_id") or "")
@@ -914,7 +918,16 @@ def request_title(collection_id: int, body: dict = Body(...)):
         if not client.configured:
             raise HTTPException(400, f"{kind.title()} isn't set up in Settings")
         try:
-            outcome = client.add(ref)
+            found = client.lookup(ref)
+            hit = arr.excluded_by(cfg.exclude, ref, found) if found else None
+            if hit:
+                hit.ids.extend(i for i in arr.entry_ids(found) if i not in hit.ids)
+                db.update_collection_config(collection_id, {**row["config"],
+                                                            "exclude": [e.model_dump() for e in cfg.exclude]})
+                raise HTTPException(409, f"{kind.title()} knows this title as \"{found.get('title')}\", which is on "
+                                         "this collection's exclusion list, so it isn't sent. Add it back first if "
+                                         "you want it.")
+            outcome = client.add(ref, found=found) if found else "not_found"
         except arr.ArrError as exc:
             raise HTTPException(502, str(exc))
     if outcome == "not_found":
@@ -1202,12 +1215,17 @@ def arr_have(body: dict = Body(...)):
 def arr_search(body: dict = Body(...)):
     """Start a search in Radarr (movies) or Sonarr (shows) for titles it already has."""
     items = body.get("items") or []
+    row = db.get_collection(int(body["collection_id"])) if body.get("collection_id") else None
+    exclusions = CollectionConfig(**row["config"]).exclude if row else []
     settings = db.get_settings()
-    out = {"searched": 0, "not_found": 0}
+    out = {"searched": 0, "not_found": 0, "excluded": 0}
     with httpx.Client(timeout=30) as http:
         for kind in ("radarr", "sonarr"):
-            refs = [sources.MediaRef(**{k: i.get(k) for k in ("imdb", "tmdb", "tvdb")}) for i in items
+            refs = [sources.MediaRef(**{k: i.get(k) for k in ("title", "imdb", "tmdb", "tvdb")}) for i in items
                     if (i.get("media_type") == "show") == (kind == "sonarr")]
+            allowed = [r for r in refs if not arr.excluded_by(exclusions, r)]
+            out["excluded"] += len(refs) - len(allowed)
+            refs = allowed
             if not refs:
                 continue
             try:
@@ -1215,7 +1233,7 @@ def arr_search(body: dict = Body(...)):
             except (arr.ArrError, httpx.HTTPError, ValueError) as exc:
                 raise HTTPException(502, str(exc))
             log.info("%s: searching for %d title(s)", kind.title(), result["searched"])
-            out = {k: out[k] + result[k] for k in out}
+            out = {**out, **{k: out[k] + result[k] for k in result}}
     return out
 
 
@@ -1385,7 +1403,7 @@ def source_test(req: PreviewRequest):
 def preview(req: PreviewRequest):
     try:
         return sync.preview(req.section_id, req.library, req.sources, req.item_limit, req.section_ids,
-                            req.language_only)
+                            req.language_only, req.exclude)
     except (PlexError, sync.SyncError) as exc:
         raise HTTPException(400, str(exc))
 

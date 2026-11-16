@@ -348,6 +348,7 @@ def match_refs(cfg: CollectionConfig, refs: list[MediaRef],
                 e.thumb = thumb
                 break
     excluded_ids = {i for e in cfg.exclude for i in (e.id, *e.ids)}
+    excluded_titles = {plexmod.normalize_title(e.title) for e in cfg.exclude if e.title}
     blocked = {index.lookup(i) for _, index in indexes for i in excluded_ids} - {None}
     matched: list[str] = []
     seen: set[str] = set()
@@ -355,7 +356,7 @@ def match_refs(cfg: CollectionConfig, refs: list[MediaRef],
     over_rating = 0
     kept_out: list[str] = []
     for ref in refs:
-        if excluded_ids & ref_ids(ref):
+        if excluded_ids & ref_ids(ref) or (ref.title and plexmod.normalize_title(ref.title) in excluded_titles):
             kept_out.append(ref.title)
             continue
         rk = index = None
@@ -973,7 +974,8 @@ def apply_home_calendars(today: date | None = None) -> int:
 
 
 def preview(section_id: str, library: str, sources, item_limit: int = 0,
-            section_ids: list[str] | None = None, language_only: bool = False) -> dict:
+            section_ids: list[str] | None = None, language_only: bool = False,
+            exclude: list | None = None) -> dict:
     """Fetch lists and report which titles are already in Plex, without changing anything.
 
     ``section_ids`` (a playlist's libraries) matches against several libraries at once.
@@ -988,8 +990,13 @@ def preview(section_id: str, library: str, sources, item_limit: int = 0,
         if language_only:
             refs, _ = language.filter_refs(refs, settings, http)
         indexes = [(s, library_index(plex, s, refresh=True)) for s in sections]
+        exclude = exclude or []
+        excluded_ids = {i for e in exclude for i in (e.id, *e.ids)}
+        blocked = {index.lookup(i) for _, index in indexes for i in excluded_ids} - {None}
         items = []
         for ref in refs:
+            if arr.excluded_by(exclude, ref):
+                continue
             rk = title = None
             for section, index in indexes:
                 if ref.media_type and section["type"] != ref.media_type:
@@ -998,6 +1005,8 @@ def preview(section_id: str, library: str, sources, item_limit: int = 0,
                 if rk:
                     title = index.titles.get(rk)
                     break
+            if rk is not None and rk in blocked:
+                continue
             items.append({**ref.to_dict(), "in_plex": rk is not None, "rating_key": rk, "plex_title": title})
     library = sections[0] if len(sections) == 1 else {
         "id": ",".join(s["id"] for s in sections), "title": " + ".join(s["title"] for s in sections),

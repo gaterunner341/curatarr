@@ -741,9 +741,22 @@ def test_exclude_and_request_endpoints(monkeypatch):
     assert client.post(f"/api/collections/{cid}/request", json={"imdb": "tt1"}).status_code == 400
     added = []
     monkeypatch.setattr(arr_mod.Arr, "configured", property(lambda self: True))
-    monkeypatch.setattr(arr_mod.Arr, "add", lambda self, ref: added.append((self.kind, ref.imdb)) or "added")
+    monkeypatch.setattr(arr_mod.Arr, "lookup", lambda self, ref: {"title": "Seven" if ref.imdb == "tt7" else "WWE Raw",
+                                                                   "imdbId": ref.imdb, "tvdbId": 76779})
+    monkeypatch.setattr(arr_mod.Arr, "add", lambda self, ref, found=None: added.append((self.kind, ref.imdb)) or "added")
     r = client.post(f"/api/collections/{cid}/request", json={"imdb": "tt7", "media_type": "show"})
     assert r.json() == {"status": "added", "service": "sonarr"} and added == [("sonarr", "tt7")]
+    # an excluded title is never sent, not even by hand: by the list's title...
+    client.post(f"/api/collections/{cid}/exclude", json={"id": "plex:1", "title": "WWE Raw"})
+    r = client.post(f"/api/collections/{cid}/request", json={"title": "WWE Raw", "media_type": "show"})
+    assert r.status_code == 409 and "exclusion list" in r.json()["detail"]
+    # ...and by the name Sonarr gives it, which teaches the exclusion Sonarr's ids
+    r = client.post(f"/api/collections/{cid}/request", json={"imdb": "tt0185103", "title": "Raw", "media_type": "show"})
+    assert r.status_code == 409 and added == [("sonarr", "tt7")]
+    raw = next(e for e in db.get_collection(cid)["config"]["exclude"] if e["title"] == "WWE Raw")
+    assert "tvdb:76779" in raw["ids"]
+    r = client.post(f"/api/collections/{cid}/request", json={"tvdb": 76779, "title": "Raw", "media_type": "show"})
+    assert r.status_code == 409 and added == [("sonarr", "tt7")]
 
 
 def test_plex_filter_source():
@@ -2157,9 +2170,20 @@ def test_arr_search_endpoint():
             {"tmdb": 9, "media_type": "movie"}, {"tvdb": 76779, "media_type": "show"}]})
     finally:
         api_mod.httpx.Client = real
-    assert r.json() == {"searched": 3, "not_found": 1}
+    assert r.json() == {"searched": 3, "not_found": 1, "excluded": 0}
     assert commands == [("radarr", {"name": "MoviesSearch", "movieIds": [11, 12]}),
                         ("sonarr", {"name": "SeriesSearch", "seriesId": 21})]
+    # from a collection: its excluded titles are never searched
+    cid = db.create_collection({"name": "NT", "library": "TV", "sources": [{"type": "static", "value": "x"}],
+                                "exclude": [{"id": "plex:7", "title": "WWE Raw", "ids": ["tvdb:76779"]}]})
+    commands.clear()
+    api_mod.httpx.Client = lambda **kw: real(transport=httpx.MockTransport(handler))
+    try:
+        r = TestClient(app).post("/api/arr/search", json={"collection_id": cid, "items": [
+            {"tvdb": 76779, "title": "Raw", "media_type": "show"}]})
+    finally:
+        api_mod.httpx.Client = real
+    assert r.json() == {"searched": 0, "not_found": 0, "excluded": 1} and commands == []
     db.save_settings({"radarr_url": "", "radarr_api_key": "", "sonarr_url": "", "sonarr_api_key": ""})
 
 
@@ -2189,3 +2213,24 @@ def test_language_filter():
     with httpx.Client(transport=httpx.MockTransport(handler)) as http:
         language.filter_refs(refs[1:3], {**db.get_settings(), "tmdb_api_key": "k"}, http)
     assert calls == []
+
+
+def test_show_missing_titles_leaves_out_excluded_titles(monkeypatch):
+    """The "Show missing titles" list must not offer an excluded title (no Add to Sonarr button)."""
+    from contextlib import nullcontext
+    from app import sync as sync_mod
+    from app.models import Exclusion
+    from app.plex import LibraryIndex
+    show = {"id": "2", "title": "TV", "type": "show"}
+    below = {"ratingKey": "71", "title": "Below", "year": 2026, "Guid": [{"id": "tvdb://5"}]}
+    raw_in_plex = {"ratingKey": "70", "title": "WWE Raw", "year": 1993, "Guid": [{"id": "tvdb://76779"}]}
+    refs = [MediaRef("show", title="Raw", tvdb=76779), MediaRef("show", title="WWE Raw"),
+            MediaRef("show", title="Below", tvdb=5), MediaRef("show", title="Other", tvdb=9)]
+    monkeypatch.setattr(sync_mod.plexmod, "from_settings", lambda s: nullcontext(object()))
+    monkeypatch.setattr(sync_mod, "resolve_section", lambda plex, sid, lib: show)
+    monkeypatch.setattr(sync_mod, "resolve", lambda sources, ctx, limit: (list(refs), []))
+    exclude = [Exclusion(id="plex:7", title="WWE Raw", ids=["tvdb:76779"])]
+    for items in ([below], [below, raw_in_plex]):
+        monkeypatch.setattr(sync_mod, "library_index", lambda plex, s, refresh=False, items=items: LibraryIndex(items))
+        out = sync_mod.preview("2", "TV", [Source(type="static", value="x")], exclude=exclude)
+        assert [i["title"] for i in out["items"]] == ["Below", "Other"]

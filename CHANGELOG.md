@@ -3,6 +3,14 @@
 The version shown in the web UI's sidebar matches these entries. Each
 release is also published as `ghcr.io/gaterunner341/curatarr:<version>`.
 
+## 0.35.3
+
+- **An excluded title is never sent to Radarr or Sonarr, by any path.**
+  - **Show missing titles** no longer lists a collection's excluded titles, so there's no Add or Search button for them.
+  - The per-title **Add to Radarr/Sonarr** button refuses an excluded title. It checks the list's ids and title, and the name Radarr/Sonarr gives it, so WWE Raw is caught even when the list calls it "Raw".
+  - **Search** and **Search all** skip excluded titles.
+  - Titles a list gives with the same name as an excluded title are kept out of the sync too.
+
 ## 0.35.2
 
 - **Fix: an excluded title could still be sent to Radarr/Sonarr.** If the title wasn't in Plex and its exclusion was an old one without ids (like WWE Raw, which the Netflix list calls "Raw"), nothing stopped the request. Now every missing title is checked against the exclusion list right before it's requested: by the list's ids and title, and again by the ids and title Radarr/Sonarr gives it. An excluded title is never added, and the exclusion remembers those ids from then on.
