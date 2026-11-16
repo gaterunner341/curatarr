@@ -331,7 +331,14 @@ def match_refs(cfg: CollectionConfig, refs: list[MediaRef],
     for e in cfg.exclude:      # remember the ids of a title excluded from Plex while it's still there
         if e.id.startswith("plex:"):
             for _, index in indexes:
-                found = [i for i in index.external_ids(e.id[5:]) if i not in e.ids]
+                rk = e.id[5:]
+                if rk not in index.titles and not e.ids and e.title:
+                    # An exclusion saved before ids were kept, whose Plex item is gone (deleted and
+                    # re-added, e.g. by Sonarr): find it again by its exact title in this library.
+                    want = plexmod.normalize_title(e.title)
+                    same = [k for k, t in index.titles.items() if t and plexmod.normalize_title(t) == want]
+                    rk = same[0] if len(same) == 1 else rk
+                found = [i for i in index.external_ids(rk) if i not in e.ids]
                 e.ids.extend(found)
     for e in cfg.exclude:      # keep its poster current (it may be back in Plex as a new item)
         for _, index in indexes:
@@ -346,8 +353,10 @@ def match_refs(cfg: CollectionConfig, refs: list[MediaRef],
     seen: set[str] = set()
     titles: dict[str, str] = {}
     over_rating = 0
+    kept_out: list[str] = []
     for ref in refs:
         if excluded_ids & ref_ids(ref):
+            kept_out.append(ref.title)
             continue
         rk = index = None
         for section, candidate in indexes:
@@ -359,7 +368,11 @@ def match_refs(cfg: CollectionConfig, refs: list[MediaRef],
                 break
         if rk is None:
             result.missing.append(ref.to_dict())
-        elif rk in blocked or rk in seen:
+        elif rk in blocked:
+            if rk not in seen:
+                seen.add(rk)
+                kept_out.append(index.titles.get(rk) or ref.title)
+        elif rk in seen:
             continue
         elif not cfg.allows_rating(index.ratings.get(rk)):
             over_rating += 1
@@ -368,6 +381,8 @@ def match_refs(cfg: CollectionConfig, refs: list[MediaRef],
             matched.append(rk)
             titles[rk] = index.titles.get(rk, "")
     result.matched = len(matched)
+    if kept_out:
+        result.messages.append(f"Kept out (on the exclusion list): {', '.join(kept_out)}")
     if over_rating:
         result.messages.append(f"{over_rating} title(s) left out by the {cfg.max_rating} rating cap")
     return matched, titles

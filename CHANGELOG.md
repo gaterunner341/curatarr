@@ -3,6 +3,11 @@
 The version shown in the web UI's sidebar matches these entries. Each
 release is also published as `ghcr.io/gaterunner341/curatarr:<version>`.
 
+## 0.35.1
+
+- **Fix: old exclusions that stopped working.** An exclusion made before 0.33.3 only knew the Plex item. If that item was deleted and added again (for example by Sonarr), the exclusion no longer matched and the title came back. Curatarr now finds such a title again by its exact name in the library, and from then on remembers its ids.
+- **Last change says what the exclusion list kept out:** the collection's "Last change" line, and the sync message, now list titles left out because they're on the exclusion list (for example "Kept out (on the exclusion list): WWE Raw").
+
 ## 0.35.0
 
 - **Only titles in your language:** a new **Your language** setting (Settings → General, English by default), and a collection option **Only titles originally in English** (or whichever language you picked).

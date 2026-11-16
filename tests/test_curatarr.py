@@ -2070,6 +2070,24 @@ def test_excluded_title_isnt_requested_once_it_leaves_plex():
     sync_mod.clear_index_cache()
 
 
+def test_old_exclusion_finds_its_title_again_after_plex_item_was_replaced():
+    """An exclusion saved before ids were kept (plex:<rk> only) whose Plex item was deleted and
+    re-added under a new rating key: it's found again by exact title, and the sync says so."""
+    from app.sync import SyncResult, match_refs
+    from app.plex import LibraryIndex
+    new = {"ratingKey": "70", "title": "WWE Raw", "year": 1993, "Guid": [{"id": "tvdb://76779"}]}
+    other = {"ratingKey": "71", "title": "Below", "year": 2026, "Guid": [{"id": "tvdb://5"}]}
+    cfg = CollectionConfig(name="Top", library="TV", sources=[Source(type="static", value="x")],
+                           exclude=[{"id": "plex:7", "title": "WWE Raw"}])
+    show = {"id": "2", "title": "TV", "type": "show"}
+    result = SyncResult()
+    keys, _ = match_refs(cfg, [MediaRef("show", title="WWE Raw", year=1993), MediaRef("show", tvdb="5", title="Below")],
+                         [(show, LibraryIndex([new, other]))], result)
+    assert keys == ["71"]
+    assert cfg.exclude[0].ids == ["tvdb:76779"]
+    assert "Kept out (on the exclusion list): WWE Raw" in result.messages
+
+
 def test_arr_search_endpoint():
     from fastapi.testclient import TestClient
     from app import api as api_mod
