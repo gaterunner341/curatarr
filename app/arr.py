@@ -118,6 +118,28 @@ class Arr:
                  "season": f.get("seasonNumber"), "episodes": f.get("episodeNumbers") or []}
                 for f in self._json("/rename", **{key: item_id})]
 
+    def search_titles(self, refs: list[MediaRef]) -> dict:
+        """Start an automatic search for these titles in Radarr/Sonarr (those it has).
+        Returns {"searched": n, "not_found": n}."""
+        by_id: dict[tuple[str, str], int] = {}
+        for item in self._json("/series" if self.kind == "sonarr" else "/movie"):
+            for key, field in (("tmdb", "tmdbId"), ("tvdb", "tvdbId"), ("imdb", "imdbId")):
+                if item.get(field):
+                    by_id[(key, str(item[field]))] = item["id"]
+        ids: list[int] = []
+        for ref in refs:
+            found = next((by_id[(k, str(getattr(ref, k)))] for k in ("tmdb", "tvdb", "imdb")
+                          if getattr(ref, k) and (k, str(getattr(ref, k))) in by_id), None)
+            if found is not None and found not in ids:
+                ids.append(found)
+        commands = ([{"name": "MoviesSearch", "movieIds": ids}] if self.kind == "radarr" and ids else
+                    [{"name": "SeriesSearch", "seriesId": i} for i in ids])      # Sonarr: one series a command
+        for command in commands:
+            resp = self._request("POST", "/command", json=command)
+            if resp.status_code >= 400:
+                raise ArrError(f"{self.kind.title()} returned HTTP {resp.status_code} starting a search")
+        return {"searched": len(ids), "not_found": len(refs) - len(ids)}
+
     @staticmethod
     def already_has(ref: MediaRef, have: dict[str, set]) -> bool:
         return any(getattr(ref, key) and str(getattr(ref, key)) in have[key]

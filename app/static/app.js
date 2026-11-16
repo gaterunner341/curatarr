@@ -679,6 +679,9 @@ async function collectionItems({ id = null, ratingKey = null, playlist = false, 
       out.innerHTML = `
         <details class="card" open>
           <summary><strong>${missing.length}</strong> of ${r.total} list titles aren't in ${esc(r.library.title)}</summary>
+          <div class="row" style="margin-top:8px" id="searchAllRow" hidden>
+            <button type="button" class="small primary" id="searchAll"></button>
+            <span class="small muted">Asks Radarr/Sonarr to look for every missing title it already has.</span></div>
           ${r.errors.map((err) => `<p class="no small">${esc(err)}</p>`).join("")}
           ${missing.length ? `<div class="table-wrap" style="max-height:320px;overflow:auto;margin-top:10px"><table>
             <thead><tr><th>Title</th><th>Year</th><th>IDs</th><th></th></tr></thead>
@@ -694,8 +697,31 @@ async function collectionItems({ id = null, ratingKey = null, playlist = false, 
           .then(({ have }) => have.forEach((yes, n) => {
             if (!yes) return;
             const b = out.querySelector(`[data-request="${n}"]`);
-            if (b) b.outerHTML = `<span class="badge success" title="Waiting for ${service(missing[n])} to download it">In ${service(missing[n])}</span>`;
+            if (b) b.outerHTML = `<span class="badge success" title="Waiting for ${service(missing[n])} to download it">In ${service(missing[n])}</span>
+              <button type="button" class="small" data-arr-search="${n}" title="Ask ${service(missing[n])} to look for it now">Search</button>`;
           }))
+          .then(() => {
+            const inArr = [...out.querySelectorAll("[data-arr-search]")].map((b) => missing[Number(b.dataset.arrSearch)]);
+            const typed = (i) => ({ ...i, media_type: r.library.type || i.media_type });
+            const search = async (list, b) => {
+              b.disabled = true;
+              try {
+                const res = await api("POST", "/arr/search", { items: list.map(typed) });
+                toast(`Search started for ${res.searched} title${res.searched === 1 ? "" : "s"}`);
+                b.textContent = "Searching ✓";
+              } catch (err) {
+                b.disabled = false;
+                throw err;
+              }
+            };
+            out.querySelectorAll("[data-arr-search]").forEach((b) => b.onclick = () => guard(() => search([missing[Number(b.dataset.arrSearch)]], b)));
+            if (inArr.length) {
+              const all = out.querySelector("#searchAll");
+              all.textContent = `Search all ${inArr.length} in ${service(inArr[0])}`;
+              all.onclick = () => guard(() => search(inArr, all));
+              out.querySelector("#searchAllRow").hidden = false;
+            }
+          })
           .catch(() => {});        // the buttons still work without the status
       }
       out.querySelectorAll("[data-keepout]").forEach((b) => b.onclick = () => guard(async () => {

@@ -1197,6 +1197,27 @@ def arr_have(body: dict = Body(...)):
     return {"have": out}
 
 
+@router.post("/arr/search")
+def arr_search(body: dict = Body(...)):
+    """Start a search in Radarr (movies) or Sonarr (shows) for titles it already has."""
+    items = body.get("items") or []
+    settings = db.get_settings()
+    out = {"searched": 0, "not_found": 0}
+    with httpx.Client(timeout=30) as http:
+        for kind in ("radarr", "sonarr"):
+            refs = [sources.MediaRef(**{k: i.get(k) for k in ("imdb", "tmdb", "tvdb")}) for i in items
+                    if (i.get("media_type") == "show") == (kind == "sonarr")]
+            if not refs:
+                continue
+            try:
+                result = arr.Arr(kind, settings, http).search_titles(refs)
+            except (arr.ArrError, httpx.HTTPError, ValueError) as exc:
+                raise HTTPException(502, str(exc))
+            log.info("%s: searching for %d title(s)", kind.title(), result["searched"])
+            out = {k: out[k] + result[k] for k in out}
+    return out
+
+
 @router.post("/collections/{collection_id}/undo")
 def undo_collection(collection_id: int):
     if not db.get_collection(collection_id):

@@ -3,6 +3,10 @@
 The version shown in the web UI's sidebar matches these entries. Each
 release is also published as `ghcr.io/gaterunner341/curatarr:<version>`.
 
+## 0.34.0
+
+- **Search Radarr/Sonarr from a collection:** in **Show missing titles**, each title Radarr or Sonarr already has gets a **Search** button next to "In Radarr"/"In Sonarr". It asks Radarr/Sonarr to look for that title now. **Search all N in Radarr/Sonarr** at the top does the same for every missing title it has, in one go. No need to open Radarr or Sonarr for each.
+
 ## 0.33.5
 
 - **"Coming up" puts what's showing now first:** collections in their dates right now (e.g. Thanksgiving, showing until Nov 28) are listed above the ones still to start, instead of being sorted by the date they end.

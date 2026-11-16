@@ -2068,3 +2068,33 @@ def test_excluded_title_isnt_requested_once_it_leaves_plex():
     assert match_refs(cfg, [ref], [(show, LibraryIndex([again]))], SyncResult())[0] == []
     assert cfg.exclude[0].thumb == "/library/metadata/70/thumb/2"
     sync_mod.clear_index_cache()
+
+
+def test_arr_search_endpoint():
+    from fastapi.testclient import TestClient
+    from app import api as api_mod
+    from app.main import app
+    commands = []
+
+    def handler(request):
+        if request.method == "POST":
+            commands.append((request.url.host, json.loads(request.content)))
+            return httpx.Response(201, json={})
+        if request.url.path.endswith("/movie"):
+            return httpx.Response(200, json=[{"id": 11, "tmdbId": 1408207}, {"id": 12, "imdbId": "tt5"}])
+        return httpx.Response(200, json=[{"id": 21, "tvdbId": 76779}])
+
+    real = httpx.Client
+    db.save_settings({"radarr_url": "http://radarr", "radarr_api_key": "k", "sonarr_url": "http://sonarr",
+                      "sonarr_api_key": "k"})
+    api_mod.httpx.Client = lambda **kw: real(transport=httpx.MockTransport(handler))
+    try:
+        r = TestClient(app).post("/api/arr/search", json={"items": [
+            {"tmdb": 1408207, "media_type": "movie"}, {"imdb": "tt5", "media_type": "movie"},
+            {"tmdb": 9, "media_type": "movie"}, {"tvdb": 76779, "media_type": "show"}]})
+    finally:
+        api_mod.httpx.Client = real
+    assert r.json() == {"searched": 3, "not_found": 1}
+    assert commands == [("radarr", {"name": "MoviesSearch", "movieIds": [11, 12]}),
+                        ("sonarr", {"name": "SeriesSearch", "seriesId": 21})]
+    db.save_settings({"radarr_url": "", "radarr_api_key": "", "sonarr_url": "", "sonarr_api_key": ""})
