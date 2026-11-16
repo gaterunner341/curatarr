@@ -2098,3 +2098,31 @@ def test_arr_search_endpoint():
     assert commands == [("radarr", {"name": "MoviesSearch", "movieIds": [11, 12]}),
                         ("sonarr", {"name": "SeriesSearch", "seriesId": 21})]
     db.save_settings({"radarr_url": "", "radarr_api_key": "", "sonarr_url": "", "sonarr_api_key": ""})
+
+
+def test_language_filter():
+    from app import language
+    from app.sources.base import MediaRef
+    calls = []
+
+    def handler(request):
+        calls.append(request.url.path)
+        if request.url.path.endswith("/movie/2"):
+            return httpx.Response(200, json={"original_language": "ko"})
+        if request.url.path.endswith("/find/tt3"):
+            return httpx.Response(200, json={"movie_results": [{"original_language": "en"}]})
+        return httpx.Response(404, json={})
+
+    db.save_settings({"language_cache": ""})
+    settings = {**db.get_settings(), "tmdb_api_key": "k", "language": "en"}
+    refs = [MediaRef("movie", "A", tmdb=1, language="en"), MediaRef("movie", "B", tmdb=2),
+            MediaRef("movie", "C", imdb="tt3"), MediaRef("movie", "D", imdb="tt4"),
+            MediaRef("movie", "E", tmdb=5, language="fr")]
+    with httpx.Client(transport=httpx.MockTransport(handler)) as http:
+        kept, left_out = language.filter_refs(refs, settings, http)
+    assert [r.title for r in kept] == ["A", "C", "D"] and left_out == 2     # D: unknown, kept
+    # looked-up languages are remembered: no second lookup
+    calls.clear()
+    with httpx.Client(transport=httpx.MockTransport(handler)) as http:
+        language.filter_refs(refs[1:3], {**db.get_settings(), "tmdb_api_key": "k"}, http)
+    assert calls == []

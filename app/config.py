@@ -2,7 +2,7 @@
 import os
 from pathlib import Path
 
-VERSION = "0.34.0"
+VERSION = "0.35.0"
 APP_NAME = "Curatarr"
 
 
@@ -63,6 +63,7 @@ DEFAULT_SETTINGS = {
     "sonarr_library_folders": "",       # JSON {plex section id: Sonarr root folder}
     "primary_movie_library": "",        # section id listed (and picked) first; "" = Plex's order
     "primary_tv_library": "",
+    "language": "en",                   # collections set to "my language only" keep titles made in it
 }
 
 SECRET_SETTINGS = {

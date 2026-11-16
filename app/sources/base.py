@@ -21,6 +21,7 @@ class MediaRef:
     imdb: str | None = None
     tmdb: int | None = None
     tvdb: int | None = None
+    language: str | None = None     # TMDB's original_language ("en"), when the list gives it
 
     def key(self) -> str:
         if self.imdb:

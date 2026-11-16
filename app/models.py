@@ -136,6 +136,7 @@ class CollectionConfig(BaseModel):
     exclude: list[Exclusion] = []
     max_rating: str = ""         # content rating cap, e.g. "PG-13"; blank = no cap
     drop_unrated: bool = False   # with a cap: also leave out unrated titles
+    language_only: bool = False  # only titles originally in the language set in Settings > General
     # Order set by dragging on the View page (rating keys). Titles not in it follow
     # in list order. Only used with list order ("custom") and for playlists.
     manual_order: list[str] = []
@@ -230,3 +231,4 @@ class PreviewRequest(BaseModel):
     section_ids: list[str] = []      # a playlist's libraries
     sources: list[Source] = Field(min_length=1)
     item_limit: int = 0
+    language_only: bool = False

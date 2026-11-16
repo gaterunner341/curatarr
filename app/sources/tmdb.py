@@ -107,10 +107,12 @@ def _ref(item: dict, default_type: str | None) -> MediaRef | None:
     kind = item.get("media_type") or default_type
     if kind in ("tv", "show"):
         return MediaRef("show", item.get("name") or item.get("title") or "",
-                        year_of(item.get("first_air_date")), tmdb=to_int(item.get("id")))
+                        year_of(item.get("first_air_date")), tmdb=to_int(item.get("id")),
+                        language=item.get("original_language"))
     if kind == "movie":
         return MediaRef("movie", item.get("title") or item.get("name") or "",
-                        year_of(item.get("release_date")), tmdb=to_int(item.get("id")))
+                        year_of(item.get("release_date")), tmdb=to_int(item.get("id")),
+                        language=item.get("original_language"))
     return None   # people and other media types are ignored
 
 

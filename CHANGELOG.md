@@ -3,6 +3,13 @@
 The version shown in the web UI's sidebar matches these entries. Each
 release is also published as `ghcr.io/gaterunner341/curatarr:<version>`.
 
+## 0.35.0
+
+- **Only titles in your language:** a new **Your language** setting (Settings → General, English by default), and a collection option **Only titles originally in English** (or whichever language you picked).
+  - With it on, titles made in other languages are left out. They aren't added to the collection or sent to Radarr/Sonarr, and they don't show in "Show missing titles".
+  - A title's language is TMDB's original language. Lists from TMDB already include it; titles from other lists are looked up once by their TMDB, IMDb or TVDB id and remembered. This needs a TMDB API key.
+  - Titles whose language can't be found are kept. The sync message says how many titles were left out.
+
 ## 0.34.0
 
 - **Search Radarr/Sonarr from a collection:** in **Show missing titles**, each title Radarr or Sonarr already has gets a **Search** button next to "In Radarr"/"In Sonarr". It asks Radarr/Sonarr to look for that title now. **Search all N in Radarr/Sonarr** at the top does the same for every missing title it has, in one go. No need to open Radarr or Sonarr for each.

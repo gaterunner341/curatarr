@@ -8,7 +8,7 @@ from datetime import date
 
 import httpx
 
-from . import arr, config, db, plex as plexmod
+from . import arr, config, db, language, plex as plexmod
 from .models import CollectionConfig
 from .plex import COLLECTION_MODES, COLLECTION_ORDERS, LibraryIndex, Plex, PlexError
 from .sources import MediaRef, SourceContext, resolve
@@ -751,6 +751,12 @@ def _run_collection(collection_id: int, trigger: str, dry_run: bool) -> dict:
                          ", ".join(f"'{s['title']}' (id {s['id']}, {s['type']})" for s in sections),
                          len(cfg.sources))
                 refs, source_errors = resolve(cfg.sources, ctx, cfg.item_limit)
+                left_out = 0
+                if cfg.language_only:
+                    refs, left_out = language.filter_refs(refs, settings, http)
+                    if left_out:
+                        log.info("'%s': %d title(s) left out: not originally in %s", cfg.name, left_out,
+                                 language.name(settings.get("language") or "en"))
                 run["source_count"] = len(refs)
                 for err in source_errors:
                     log.warning("'%s': source failed: %s", cfg.name, err)
@@ -763,6 +769,9 @@ def _run_collection(collection_id: int, trigger: str, dry_run: bool) -> dict:
                     result = sync_overlay_list(cfg, row.get("members") or [], plex, sections, refs)
                 else:
                     result = sync_collection(cfg, state, plex, section, refs, settings, dry_run=dry_run)
+                if left_out:
+                    result.messages.append(f"{left_out} title(s) left out: not originally in "
+                                           f"{language.name(settings.get('language') or 'en')}")
             for err in source_errors:
                 result.warn(err)
             exclude = [e.model_dump() for e in cfg.exclude]
@@ -942,7 +951,7 @@ def apply_home_calendars(today: date | None = None) -> int:
 
 
 def preview(section_id: str, library: str, sources, item_limit: int = 0,
-            section_ids: list[str] | None = None) -> dict:
+            section_ids: list[str] | None = None, language_only: bool = False) -> dict:
     """Fetch lists and report which titles are already in Plex, without changing anything.
 
     ``section_ids`` (a playlist's libraries) matches against several libraries at once.
@@ -954,6 +963,8 @@ def preview(section_id: str, library: str, sources, item_limit: int = 0,
         ctx = SourceContext(settings, http, sections[0]["type"] if len(types) == 1 else None, plex,
                             sections[0] if len(sections) == 1 else None)
         refs, errors = resolve(sources, ctx, item_limit)
+        if language_only:
+            refs, _ = language.filter_refs(refs, settings, http)
         indexes = [(s, library_index(plex, s, refresh=True)) for s in sections]
         items = []
         for ref in refs:

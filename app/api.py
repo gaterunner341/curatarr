@@ -98,6 +98,7 @@ def source_catalog():
 def get_settings():
     values = db.get_settings()
     values.pop(config.PLEX_CLIENT_ID_KEY, None)
+    values.pop("language_cache", None)      # internal; can be large
     from_env = [k for k, env in config.ENV_SETTINGS.items()
                 if values.get(k) and values[k] == os.environ.get(env)]
     for key in config.SECRET_SETTINGS:
@@ -1383,7 +1384,8 @@ def source_test(req: PreviewRequest):
 @router.post("/preview")
 def preview(req: PreviewRequest):
     try:
-        return sync.preview(req.section_id, req.library, req.sources, req.item_limit, req.section_ids)
+        return sync.preview(req.section_id, req.library, req.sources, req.item_limit, req.section_ids,
+                            req.language_only)
     except (PlexError, sync.SyncError) as exc:
         raise HTTPException(400, str(exc))
 

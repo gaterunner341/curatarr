@@ -673,7 +673,7 @@ async function collectionItems({ id = null, ratingKey = null, playlist = false, 
     out.innerHTML = `<p class="muted">Fetching lists and matching against Plex…</p>`;
     try {
       const cfg = row.config;
-      const r = await api("POST", "/preview", { section_id: cfg.section_id, library: cfg.library, section_ids: cfg.section_ids || [], sources: cfg.sources, item_limit: cfg.item_limit });
+      const r = await api("POST", "/preview", { section_id: cfg.section_id, library: cfg.library, section_ids: cfg.section_ids || [], sources: cfg.sources, item_limit: cfg.item_limit, language_only: cfg.language_only });
       const missing = r.items.filter((i) => !i.in_plex);
       const service = (i) => ((r.library.type || i.media_type) === "show" ? "Sonarr" : "Radarr");
       out.innerHTML = `
@@ -1274,7 +1274,7 @@ const DEFAULTS = {
   poster_url: "", art_url: "", poster_file: "", art_file: "", item_limit: 0, min_items: 1,
   delete_below_min: false, promote_home: false, promote_shared: false, promote_recommended: false,
   promote_window: false, promote_start: "", promote_end: "", promote_yearly: true, seasonal_only: false, pin_top: false,
-  schedule: "", request_missing: false, enabled: true, exclude: [], max_rating: "", drop_unrated: false,
+  schedule: "", request_missing: false, enabled: true, exclude: [], max_rating: "", drop_unrated: false, language_only: false,
 };
 
 // Content-rating caps, youngest audience first (mirrors models.RATING_LEVELS).
@@ -1506,6 +1506,10 @@ async function editor(id, params = new URLSearchParams()) {
             ${RATING_CAPS.map(([v, label]) => `<option value="${v}" ${cfg.max_rating === v ? "selected" : ""}>${esc(label)}</option>`).join("")}
           </select>
           <label class="check"><input type="checkbox" id="f-unrated" ${cfg.drop_unrated ? "checked" : ""}> Also leave out unrated titles</label></div>
+        <div><label class="check"><input type="checkbox" id="f-lang" ${cfg.language_only ? "checked" : ""}>
+          Only titles originally in ${esc(LANGUAGES[settings.values.language || "en"] || settings.values.language)}</label>
+          <div class="hint">Leaves out titles made in other languages (TMDB's original language), so they aren't added or sent to
+            Radarr/Sonarr. Set the language in Settings → General. Needs a TMDB API key.</div></div>
         <div class="full"><label>Excluded titles</label><div id="excluded"></div>
           <div class="hint">Excluded titles are never added, even when a list has them. Exclude a title from the ${noun}'s <strong>View</strong> page.</div></div>
       </div>
@@ -1826,6 +1830,7 @@ async function editor(id, params = new URLSearchParams()) {
       request_missing: view.querySelector("#f-request").checked,
       max_rating: view.querySelector("#f-rating").value,
       drop_unrated: view.querySelector("#f-unrated").checked,
+      language_only: view.querySelector("#f-lang").checked,
       summary: view.querySelector("#f-summary").value,
       sort_title: view.querySelector("#f-sort").value,
       labels: view.querySelector("#f-labels").value.split(",").map((s) => s.trim()).filter(Boolean),
@@ -2412,8 +2417,12 @@ const SETTING_GROUPS = [
     ["managed_label", "Label added to managed collections", "text", "Curatarr"],
     ["primary_movie_library", "Primary movie library", "library", "movie"],
     ["primary_tv_library", "Primary TV library", "library", "show"],
+    ["language", "Your language (for collections set to only titles in your language)", "select", null],
   ], hint: "The primary libraries are listed first everywhere and are the ones pages and new collections start on." },
 ];
+const LANGUAGES = { en: "English", es: "Spanish", fr: "French", de: "German", it: "Italian", pt: "Portuguese",
+  ja: "Japanese", ko: "Korean", zh: "Chinese", hi: "Hindi" };
+SETTING_GROUPS.find((g) => g.title === "General").fields.find((f) => f[0] === "language")[3] = LANGUAGES;
 
 function settingField([key, label, type, extra], values, fromEnv) {
   const env = fromEnv.includes(key) ? ` <span class="badge">env</span>` : "";
