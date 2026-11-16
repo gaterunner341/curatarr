@@ -575,8 +575,10 @@ async function collectionItems({ id = null, ratingKey = null, playlist = false, 
         <span class="muted small">(kept out even when a list has them)</span></summary>
       <div class="excluded-list">${row.config.exclude.map((e) => {
         const rk = e.id.startsWith("plex:") ? e.id.slice(5) : "";
+        const thumb = e.thumb || (rk ? `/library/metadata/${rk}/thumb` : "");
         return `<div class="excluded-item">
-          <div class="item-poster">${rk ? `<img loading="lazy" src="/api/plex/image?path=${encodeURIComponent(`/library/metadata/${rk}/thumb`)}" alt="">` : "▦"}</div>
+          <div class="item-poster">${thumb ? `<img loading="lazy" src="/api/plex/image?path=${encodeURIComponent(thumb)}" alt=""
+            onerror="this.replaceWith('▦')">` : "▦"}</div>
           <span class="grow">${esc(e.title || e.id)}</span>
           <button type="button" class="small" data-allow="${esc(e.id)}" data-title="${esc(e.title || e.id)}">Add back</button></div>`;
       }).join("")}</div>
@@ -682,7 +684,8 @@ async function collectionItems({ id = null, ratingKey = null, playlist = false, 
             <thead><tr><th>Title</th><th>Year</th><th>IDs</th><th></th></tr></thead>
             <tbody>${missing.map((i, n) => `<tr><td>${esc(i.title || "—")}</td><td>${esc(i.year || "")}</td>
               <td class="small muted">${[i.imdb, i.tmdb && `tmdb:${i.tmdb}`, i.tvdb && `tvdb:${i.tvdb}`].filter(Boolean).map(esc).join(" · ")}</td>
-              <td><button type="button" class="small" data-request="${n}">Add to ${service(i)}</button></td></tr>`).join("")}
+              <td class="nowrap"><button type="button" class="small" data-request="${n}">Add to ${service(i)}</button>
+                <button type="button" class="small" data-keepout="${n}" title="Keep it out of this collection, and don't send it to ${service(i)}">Exclude</button></td></tr>`).join("")}
             </tbody></table></div>` : ""}
         </details>`;
       // Mark titles Radarr/Sonarr already has (one library check per service).
@@ -695,6 +698,14 @@ async function collectionItems({ id = null, ratingKey = null, playlist = false, 
           }))
           .catch(() => {});        // the buttons still work without the status
       }
+      out.querySelectorAll("[data-keepout]").forEach((b) => b.onclick = () => guard(async () => {
+        const item = missing[Number(b.dataset.keepout)];
+        const ids = [item.imdb, item.tmdb && `tmdb:${item.tmdb}`, item.tvdb && `tvdb:${item.tvdb}`].filter(Boolean);
+        if (!ids.length) throw new Error("This title has no IMDb, TMDB or TVDB id to exclude it by");
+        await api("POST", `/collections/${row.id}/exclude`, { id: ids[0], ids, title: item.title || ids[0] });
+        toast(`Excluded "${item.title || ids[0]}"`);
+        route();
+      }));
       out.querySelectorAll("[data-request]").forEach((b) => b.onclick = () => guard(async () => {
         b.disabled = true;
         try {

@@ -849,7 +849,18 @@ def exclude_title(collection_id: int, body: dict = Body(...)):
     cfg = row["config"]
     if any(e["id"] == ident for e in cfg.get("exclude") or []):
         return _collection_out(row)
-    cfg["exclude"] = [*(cfg.get("exclude") or []), {"id": ident, "title": body.get("title") or ""}]
+    entry = {"id": ident, "title": body.get("title") or "",
+             "ids": [str(i) for i in body.get("ids") or [] if i], "thumb": body.get("thumb") or ""}
+    if ident.startswith("plex:"):
+        # Keep its IMDb/TMDB/TVDB ids too, so it stays out of Radarr/Sonarr once it leaves Plex.
+        with _plex() as plex:
+            try:
+                meta = plex.item(ident[5:]) or {}
+            except PlexError:
+                meta = {}
+        entry["ids"] = sorted({*entry["ids"], *plexmod.item_external_ids(meta)})
+        entry["thumb"] = entry["thumb"] or meta.get("thumb") or ""
+    cfg["exclude"] = [*(cfg.get("exclude") or []), entry]
     db.update_collection_config(collection_id, _validate(cfg).model_dump())
     if ident.startswith("plex:") and row.get("plex_rating_key"):
         with _plex() as plex:

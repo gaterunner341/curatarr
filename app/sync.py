@@ -328,8 +328,13 @@ def match_refs(cfg: CollectionConfig, refs: list[MediaRef],
     and a rating key -> title map. A title is looked up in the libraries of its
     own type (all of them when the type is unknown).
     """
-    excluded_ids = {e.id for e in cfg.exclude}
-    blocked = {index.lookup(e.id) for _, index in indexes for e in cfg.exclude} - {None}
+    for e in cfg.exclude:      # remember the ids of a title excluded from Plex while it's still there
+        if e.id.startswith("plex:"):
+            for _, index in indexes:
+                found = [i for i in index.external_ids(e.id[5:]) if i not in e.ids]
+                e.ids.extend(found)
+    excluded_ids = {i for e in cfg.exclude for i in (e.id, *e.ids)}
+    blocked = {index.lookup(i) for _, index in indexes for i in excluded_ids} - {None}
     matched: list[str] = []
     seen: set[str] = set()
     titles: dict[str, str] = {}
@@ -753,6 +758,10 @@ def _run_collection(collection_id: int, trigger: str, dry_run: bool) -> dict:
                     result = sync_collection(cfg, state, plex, section, refs, settings, dry_run=dry_run)
             for err in source_errors:
                 result.warn(err)
+            exclude = [e.model_dump() for e in cfg.exclude]
+            if not dry_run and exclude != (row["config"].get("exclude") or []):
+                fresh = db.get_collection(collection_id)["config"]     # ids learned while matching
+                db.update_collection_config(collection_id, {**fresh, "exclude": exclude})
             if cfg.request_missing and result.missing and not dry_run:
                 by_type: dict[str, list[MediaRef]] = {}
                 for m in result.missing:

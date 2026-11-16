@@ -38,6 +38,10 @@ class Exclusion(BaseModel):
     """A title kept out of a collection: ``plex:<ratingKey>``, ``tt…``, ``tmdb:…`` or ``tvdb:…``."""
     id: str = Field(min_length=1)
     title: str = ""
+    # The title's IMDb/TMDB/TVDB ids (tt…, tmdb:…, tvdb:…), so it stays out (and isn't sent to
+    # Radarr/Sonarr) even when it isn't in Plex, or comes back to Plex as a new item.
+    ids: list[str] = []
+    thumb: str = ""
 
 
 # Content ratings from youngest to oldest audience. US movie and TV ratings that

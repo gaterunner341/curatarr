@@ -687,7 +687,8 @@ def test_exclude_and_request_endpoints(monkeypatch):
                                 "sources": [{"type": "static", "value": "tt0000001"}]})
     db.update_collection_state(cid, plex_rating_key="100")
     r = client.post(f"/api/collections/{cid}/exclude", json={"id": "plex:2", "title": "T2"})
-    assert r.status_code == 200 and r.json()["config"]["exclude"] == [{"id": "plex:2", "title": "T2"}]
+    assert r.status_code == 200
+    assert r.json()["config"]["exclude"] == [{"id": "plex:2", "title": "T2", "ids": [], "thumb": ""}]
     assert fake.collections["100"] == ["1"]
     client.post(f"/api/collections/{cid}/exclude", json={"id": "plex:2"})       # no duplicate
     assert len(db.get_collection(cid)["config"]["exclude"]) == 1
@@ -2035,3 +2036,25 @@ def test_release_notes_endpoint():
 
     r = TestClient(app).get("/api/release-notes")
     assert r.status_code == 200 and f"## {config.VERSION}" in r.text
+
+
+
+def test_excluded_title_isnt_requested_once_it_leaves_plex():
+    """WWE Raw: excluded from Plex by rating key, deleted, then still on the list. It must not be
+    "missing" (so not sent to Sonarr), because the exclusion learned its ids while it was in Plex."""
+    from app import sync as sync_mod
+    from app.sync import SyncResult, match_refs
+    from app.plex import LibraryIndex
+    raw = {"ratingKey": "7", "title": "WWE Raw", "Guid": [{"id": "tvdb://76779"}, {"id": "imdb://tt0185103"}]}
+    cfg = CollectionConfig(name="Top", library="TV", sources=[Source(type="static", value="x")],
+                           exclude=[{"id": "plex:7", "title": "WWE Raw"}])
+    show = {"id": "2", "title": "TV", "type": "show"}
+    ref = MediaRef("show", tvdb="76779", title="Raw")
+    match_refs(cfg, [ref], [(show, LibraryIndex([raw]))], SyncResult())
+    assert cfg.exclude[0].ids == ["tt0185103", "tvdb:76779"]
+    gone = SyncResult()
+    assert match_refs(cfg, [ref], [(show, LibraryIndex([]))], gone)[0] == [] and gone.missing == []
+    # back in Plex as a new item: still kept out
+    again = dict(raw, ratingKey="70")
+    assert match_refs(cfg, [ref], [(show, LibraryIndex([again]))], SyncResult())[0] == []
+    sync_mod.clear_index_cache()

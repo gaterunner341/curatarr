@@ -59,6 +59,17 @@ def parse_guid(guid: str) -> tuple[str, str] | None:
     return provider, ident
 
 
+def external_id(provider: str, value: str) -> str:
+    """("imdb", "tt1") -> "tt1"; ("tvdb", "5") -> "tvdb:5" (the form exclusions use)."""
+    return value if provider == "imdb" else f"{provider}:{value}"
+
+
+def item_external_ids(meta: dict) -> list[str]:
+    """The tt…/tmdb:…/tvdb:… ids in a Plex item's guids."""
+    guids = [g.get("id", "") for g in meta.get("Guid") or []] + [meta.get("guid", "")]
+    return sorted({external_id(*p) for p in map(parse_guid, guids) if p})
+
+
 def normalize_title(title: str) -> str:
     return re.sub(r"[^a-z0-9]+", "", (title or "").lower())
 
@@ -90,6 +101,10 @@ class LibraryIndex:
 
     def __len__(self) -> int:
         return len(self.titles)
+
+    def external_ids(self, rating_key: str) -> list[str]:
+        """A title's ids in exclusion form: tt…, tmdb:…, tvdb:…."""
+        return sorted(external_id(p, v) for (p, v), rk in self.by_id.items() if rk == rating_key)
 
     def lookup(self, ident: str) -> str | None:
         """Rating key for an exclusion id: ``plex:<rk>``, ``tt…``, ``tmdb:…`` or ``tvdb:…``."""
