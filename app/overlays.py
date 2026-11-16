@@ -14,7 +14,7 @@ import math
 import threading
 from pathlib import Path
 
-from PIL import Image, ImageDraw, ImageFilter
+from PIL import Image, ImageChops, ImageDraw, ImageFilter
 
 from . import config, db, plex as plexmod
 from .models import CollectionConfig
@@ -113,7 +113,9 @@ def _ribbon_image(key: str) -> Image.Image | None:
         return None
     picture = Image.open(path).convert("RGBA")
     if picture.getextrema()[3][0] == 255:          # no transparency in the file: drop the white
-        picture.putdata([(r, g, b, 0) if min(r, g, b) >= 240 else (r, g, b, a) for r, g, b, a in picture.getdata()])
+        r, g, b, a = picture.split()
+        white = ImageChops.darker(ImageChops.darker(r, g), b).point(lambda v: 255 if v >= 240 else 0)
+        picture.putalpha(ImageChops.subtract(a, white))
     return picture
 
 
@@ -554,6 +556,39 @@ def content_rating_label(rating: str | None) -> str:
     return (rating or "").split("/")[-1].strip()
 
 
+FP_SIZE = (32, 48)          # poster fingerprints: grayscale, this many cells
+FP_TOLERANCE = 24           # largest difference in any cell (0-255) for two posters to count as the same
+
+
+def fingerprint(data: bytes | None) -> bytes | None:
+    """A tiny grayscale copy of a poster. Two copies of the same poster (resized or re-saved by
+    Plex) come out nearly equal; a ribbon or badge changes some cells a lot."""
+    if not data:
+        return None
+    try:
+        return Image.open(io.BytesIO(data)).convert("L").resize(FP_SIZE, Image.BOX).tobytes()
+    except (OSError, ValueError):
+        return None
+
+
+REDRAW_TOLERANCE = 34       # drawing see-through badges again darkens them a little (a TV icon: ~26 vs ~48 new)
+
+
+def same_poster(a: bytes | None, b: bytes | None, tolerance: int = FP_TOLERANCE) -> bool:
+    return bool(a and b) and len(a) == len(b) and max(abs(x - y) for x, y in zip(a, b)) <= tolerance
+
+
+def has_overlay(data: bytes, specs: list[dict]) -> bool:
+    """Whether a poster already carries these overlays: drawing them again changes nothing."""
+    drawn = [s for s in specs if s["kind"] != "fresh"]
+    if not drawn:
+        return False
+    try:
+        return same_poster(fingerprint(render(data, drawn)), fingerprint(data), REDRAW_TOLERANCE)
+    except OverlayError:
+        return False
+
+
 def signature(specs: list[dict]) -> str:
     return hashlib.sha1(json.dumps([STYLE_VERSION, specs], sort_keys=True).encode()).hexdigest()
 
@@ -577,30 +612,71 @@ def _apply_one(plex: Plex, rk: str, entry: dict, row: dict | None) -> bool | Non
         return None
     sig = signature(specs)
     thumb = entry["thumb"]
-    replaced = not row or row["applied_thumb"] != thumb      # first time, or Plex changed the poster
-    if not replaced and row["signature"] == sig:
-        return False
     path = _original_path(rk)
-    if replaced or not path.is_file():
-        if not thumb:
-            return False
-        original, _ = plex.image(thumb)
-        ORIGINALS.mkdir(parents=True, exist_ok=True)
-        path.write_bytes(original)
+    if not thumb:
+        return False
+    # Whether Plex still shows the poster Curatarr drew is checked on the poster itself: Plex can
+    # change the poster's path without changing the poster (e.g. new episodes), or show another
+    # poster under the same path.
+    showing = fingerprint(plex.small_image(thumb)) if row else None
+    if row and path.is_file() and not row.get("applied_fp"):
+        # Drawn before 0.35.4: make sure the saved original isn't itself an overlaid poster.
+        if has_overlay(path.read_bytes(), specs):
+            clean = _clean_poster(plex, rk)
+            if clean:
+                log.info("Overlay for %s: its saved original already had the overlay; using a clean poster "
+                         "from Plex's sources", entry["item"].get("title") or rk)
+                path.write_bytes(clean)
+                row = {**row, "signature": ""}         # draw again from the clean poster
+        ours = fingerprint(render(path.read_bytes(), specs)) if row["signature"] == sig else None
+    else:
+        ours = bytes.fromhex(row["applied_fp"]) if row and row.get("applied_fp") else None
+    plex_shows_ours = bool(row) and same_poster(showing, ours)
+    if plex_shows_ours and row["signature"] == sig:
+        if row["applied_thumb"] != thumb or not row.get("applied_fp"):
+            db.confirm_overlay(rk, thumb, ours.hex())
+        return False
+    if not plex_shows_ours or not path.is_file():   # first time, or Plex shows another poster now
+        current, _ = plex.image(thumb)
+        if has_overlay(current, specs):
+            # Plex's poster already has these overlays (an earlier upload): never keep it as the original.
+            if not path.is_file():
+                clean = _clean_poster(plex, rk)
+                if not clean:
+                    log.warning("Overlay for %s: Plex's poster already has the overlay and no clean poster "
+                                "was found", entry["item"].get("title") or rk)
+                    return False
+                ORIGINALS.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(clean)
+        else:
+            ORIGINALS.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(current)
     base = path.read_bytes()
     if entry.get("fresh") and not _keeps_poster(plex, rk):     # a clean poster from Plex's sources
         fresh = plex.fresh_choice(rk)
         if fresh:
             base = plex.poster_bytes(fresh)
-    plex.upload_image(rk, "poster", data=render(base, specs))
+    drawn = render(base, specs)
+    plex.upload_image(rk, "poster", data=drawn)
     new_thumb = (plex.item(rk) or {}).get("thumb") or ""
-    db.save_overlay(rk, entry["section_id"], entry["type"], sig, new_thumb, key, quality)
+    db.save_overlay(rk, entry["section_id"], entry["type"], sig, new_thumb, key, quality,
+                    (fingerprint(drawn) or b"").hex())
     if not row:
         try:
             plex.set_item_label(entry["section_id"], rk, entry["type"], LABEL, True)
         except PlexError as exc:
             log.debug("Could not label %s: %s", rk, exc)
     return True
+
+
+def _clean_poster(plex: Plex, rk: str) -> bytes | None:
+    """A poster without overlays from Plex's metadata sources, or None."""
+    try:
+        choice = plex.fresh_choice(rk)
+        return plex.poster_bytes(choice) if choice else None
+    except PlexError as exc:
+        log.debug("No clean poster for %s: %s", rk, exc)
+        return None
 
 
 def _keeps_poster(plex: Plex, rk: str) -> bool:
@@ -614,7 +690,10 @@ def _restore_one(plex: Plex, rk: str, row: dict) -> bool:
     path = _original_path(rk)
     item = plex.item(rk)
     uploaded = False
-    if item and path.is_file() and item.get("thumb") == row["applied_thumb"]:
+    ours = bytes.fromhex(row["applied_fp"]) if row.get("applied_fp") else None
+    if item and path.is_file() and item.get("thumb") and (
+            item.get("thumb") == row["applied_thumb"]
+            or same_poster(fingerprint(plex.small_image(item["thumb"])), ours)):
         plex.upload_image(rk, "poster", data=path.read_bytes())
         uploaded = True
     if item:

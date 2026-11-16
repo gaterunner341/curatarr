@@ -3,6 +3,13 @@
 The version shown in the web UI's sidebar matches these entries. Each
 release is also published as `ghcr.io/gaterunner341/curatarr:<version>`.
 
+## 0.35.4
+
+- **Fix: posters that lost their ribbon were never redrawn.** Curatarr decided a poster was up to date by its path in Plex only. When Plex showed a different poster under the same path (as with Black Doves, Will Trent and The Diplomat in Netflix Top 10), Curatarr kept calling it "unchanged". Each pass now compares Plex's current poster (a small copy) with the one Curatarr drew, and draws it again when they differ.
+- **Fix: Curatarr could save its own overlaid poster as the "original".** When a poster's path changed but the poster didn't (for example when a show gets new episodes), Curatarr took Plex's poster, overlay and all, as the new original. That's why some titles showed a ribbon in the collection view, which is meant to show posters without the overlay. Curatarr now never keeps a poster that already has the overlay as the original.
+- **One-time repair:** on the first pass after updating, posters drawn by earlier versions are checked once. A saved original that already has the overlay is replaced with a clean poster from Plex's sources. This pass takes longer than usual, once.
+- **Security:** Pillow updated to 13.0.0 (fixes the three Dependabot alerts about TIFF/EXIF handling).
+
 ## 0.35.3
 
 - **An excluded title is never sent to Radarr or Sonarr, by any path.**

@@ -86,7 +86,7 @@ def _migrate(conn: sqlite3.Connection) -> None:
     if "members" not in columns:        # 0.19.0: a list overlay's titles (JSON list of rating keys)
         conn.execute("ALTER TABLE collections ADD COLUMN members TEXT")
     overlay_columns = {r[1] for r in conn.execute("PRAGMA table_info(overlays)")}
-    for column in ("media_key", "media"):          # 0.13.0: cached quality info for badges
+    for column in ("media_key", "media", "applied_fp"):  # 0.13.0: quality info; 0.35.4: what we drew
         if column not in overlay_columns:
             conn.execute(f"ALTER TABLE overlays ADD COLUMN {column} TEXT")
     run_columns = {r[1] for r in conn.execute("PRAGMA table_info(runs)")}
@@ -248,15 +248,22 @@ def overlay_rows() -> dict[str, dict]:
 
 
 def save_overlay(rating_key: str, section_id: str, item_type: str, signature: str,
-                 applied_thumb: str, media_key: str = "", media: list | None = None) -> None:
+                 applied_thumb: str, media_key: str = "", media: list | None = None,
+                 applied_fp: str = "") -> None:
     _execute(
         "INSERT INTO overlays (rating_key, section_id, item_type, signature, applied_thumb, updated, "
-        "media_key, media) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(rating_key) DO UPDATE SET "
+        "media_key, media, applied_fp) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(rating_key) DO UPDATE SET "
         "section_id = excluded.section_id, item_type = excluded.item_type, signature = excluded.signature, "
         "applied_thumb = excluded.applied_thumb, updated = excluded.updated, "
-        "media_key = excluded.media_key, media = excluded.media",
+        "media_key = excluded.media_key, media = excluded.media, applied_fp = excluded.applied_fp",
         (rating_key, section_id, item_type, signature, applied_thumb, now(), media_key,
-         json.dumps(media or [])))
+         json.dumps(media or []), applied_fp))
+
+
+def confirm_overlay(rating_key: str, applied_thumb: str, applied_fp: str) -> None:
+    """Plex still shows the poster Curatarr drew (its path may have changed)."""
+    _execute("UPDATE overlays SET applied_thumb = ?, applied_fp = ? WHERE rating_key = ?",
+             (applied_thumb, applied_fp, rating_key))
 
 
 def delete_overlay(rating_key: str) -> None:

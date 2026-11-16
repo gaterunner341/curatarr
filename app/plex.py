@@ -294,6 +294,18 @@ class Plex:
             raise PlexError(f"Plex returned HTTP {resp.status_code} for artwork")
         return resp.content, resp.headers.get("content-type", "image/jpeg")
 
+    def small_image(self, path: str, width: int = 160, height: int = 240) -> bytes:
+        """A small copy of a poster (Plex scales it down), for comparing posters cheaply."""
+        try:
+            resp = self.http.get(self.url + "/photo/:/transcode", params={"width": width, "height": height,
+                                                                          "url": path},
+                                 headers={**self.headers, "Accept": "image/*"})
+            if resp.status_code < 400 and resp.headers.get("content-type", "").startswith("image/"):
+                return resp.content
+        except httpx.HTTPError:
+            pass
+        return self.image(path)[0]
+
     def find_collection(self, section_id: str, title: str) -> str | None:
         wanted = title.strip().lower()
         for coll in self.collections(section_id):

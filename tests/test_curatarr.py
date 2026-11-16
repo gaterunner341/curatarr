@@ -1133,6 +1133,11 @@ class FakeOverlayPlex(httpx.BaseTransport):
                                                      "audienceRatingImage": "imdb://image.rating",
                                                      "Media": [{"id": 50 + int(rk), "videoResolution": "4k"}]}
                                                     for rk in self.members]})
+        if path.startswith("/library/metadata/") and parts[-1] == "clean":      # a source's poster
+            return httpx.Response(200, content=self.original[parts[2]], headers={"content-type": "image/jpeg"})
+        if path.startswith("/library/metadata/") and path.endswith("/posters") and method == "GET":
+            return mc({"Metadata": [{"key": f"/library/metadata/{parts[2]}/clean", "ratingKey": "tmdb://x",
+                                     "provider": "tmdb"}]})
         if path.startswith("/library/metadata/") and "thumb" in parts:
             return httpx.Response(200, content=self.posters[parts[2]], headers={"content-type": "image/jpeg"})
         if path.endswith("/posters") and method == "POST":
@@ -1193,6 +1198,50 @@ def test_overlays_draw_skip_redraw_and_restore(monkeypatch):
     assert fake.posters["1"] == fake.original["1"] and fake.posters["2"] == replaced
     assert db.overlay_rows() == {} and fake.labels["1"] == ["Kids"]
     assert not overlays.needed()
+
+
+def test_overlays_are_checked_on_the_poster_itself(monkeypatch):
+    """Black Doves: Plex showed a poster without the ribbon under the same path, and Curatarr kept
+    calling it unchanged. And a path change alone (new episodes) mustn't make Curatarr save its own
+    overlaid poster as the "original"."""
+    from app import overlays, plex as plexmod
+    for row in db.list_collections():
+        db.delete_collection(row["id"])
+    for rk in list(db.overlay_rows()):
+        db.delete_overlay(rk)
+    fake = FakeOverlayPlex()
+    monkeypatch.setattr(plexmod, "from_settings", lambda *a, **k: Plex("http://plex", "t", client=httpx.Client(transport=fake)))
+    cfg = CollectionConfig(name="Netflix Top 10", library="TV", section_id="1", sources=[Source(type="static", value="x")],
+                           ribbon={"enabled": True, "text": "TOP 10"})
+    cid = db.create_collection(cfg.model_dump())
+    db.update_collection_state(cid, plex_rating_key="100")
+    assert overlays.apply_all()["drawn"] == 2
+    drawn = dict(fake.posters)
+
+    # Plex shows the plain poster again under the same path: drawn again
+    fake.posters["1"] = fake.original["1"]
+    assert overlays.apply_all()["drawn"] == 1
+    assert overlays.has_overlay(fake.posters["1"], [overlays.ribbon_spec(cfg)])
+    assert overlays._original_path("1").read_bytes() == fake.original["1"]
+
+    # the path changes but the poster is still ours: nothing drawn, the original stays clean
+    fake.version["2"] += 1
+    uploads = len(fake.uploads)
+    assert overlays.apply_all() == {"drawn": 0, "restored": 0, "unchanged": 2, "nothing": 0, "errors": 0}
+    assert len(fake.uploads) == uploads and fake.posters["2"] == drawn["2"]
+    assert overlays._original_path("2").read_bytes() == fake.original["2"]
+    assert db.overlay_rows()["2"]["applied_thumb"] == fake.thumb("2")
+
+    # drawn by an older version whose saved original already had the ribbon: repaired from Plex's sources
+    overlays._original_path("2").write_bytes(fake.posters["2"])
+    db._execute("UPDATE overlays SET applied_fp = '' WHERE rating_key = '2'")
+    overlays.apply_all()
+    assert overlays._original_path("2").read_bytes() == fake.original["2"]
+    assert overlays.has_overlay(fake.posters["2"], [overlays.ribbon_spec(cfg)])
+    assert overlays.apply_all()["unchanged"] == 2
+    for row in db.list_collections():
+        db.delete_collection(row["id"])
+    overlays.apply_all()
 
 
 def test_quality_and_rating_badges(monkeypatch):
