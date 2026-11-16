@@ -542,6 +542,51 @@ def test_arr_requests_skip_existing_and_respect_limit():
     assert (count, limited) == (2, False)          # tmdb 1 is already in Radarr
 
 
+def test_excluded_show_is_never_sent_to_sonarr_even_with_an_old_exclusion():
+    """WWE Raw, exactly as it happened: an old exclusion (plex:<rk> and the title only, no ids), the
+    show deleted from Plex and Sonarr, and the Netflix list calling it "Raw". Sonarr names it "WWE
+    Raw", so it must not be added; the exclusion learns Sonarr's ids for next time."""
+    from app import arr as arrmod
+    posted = []
+
+    def sonarr(request):
+        p = request.url.path
+        if request.method == "POST":
+            posted.append(p)
+            return httpx.Response(201, json={})
+        if p == "/api/v3/series":
+            return httpx.Response(200, json=[])
+        if p == "/api/v3/series/lookup":
+            return httpx.Response(200, json=[{"title": "WWE Raw", "tmdbId": 4656, "tvdbId": 76779,
+                                              "imdbId": "tt0185103"}])
+        return httpx.Response(404)
+
+    settings = {"sonarr_url": "http://sonarr", "sonarr_api_key": "k", "sonarr_root_folder": "/tv",
+                "sonarr_quality_profile": "1"}
+    cfg = CollectionConfig(name="Netflix Top 10", library="TV", sources=[Source(type="static", value="x")],
+                           request_missing=True, exclude=[{"id": "plex:7", "title": "WWE Raw"}])
+    kept_out = []
+    http = httpx.Client(transport=httpx.MockTransport(sonarr))
+    count, errors, _ = arrmod.request_missing("show", [MediaRef("show", tmdb=4656, title="Raw")], settings, http,
+                                              "/tv", exclusions=cfg.exclude, kept_out=kept_out)
+    assert (count, errors, posted) == (0, [], [])
+    assert [r.title for r in kept_out] == ["Raw"]
+    assert set(cfg.exclude[0].ids) == {"tt0185103", "tmdb:4656", "tvdb:76779"}
+    # next sync: blocked by id straight away, no lookup needed
+    kept_out.clear()
+    arrmod.request_missing("show", [MediaRef("show", tmdb=4656, title="Raw")], settings, http, "/tv",
+                           exclusions=cfg.exclude, kept_out=kept_out)
+    assert posted == [] and len(kept_out) == 1
+    # a title that isn't excluded is still added
+    count, _, _ = arrmod.request_missing("show", [MediaRef("show", tmdb=1, title="Below")], {**settings},
+                                         httpx.Client(transport=httpx.MockTransport(
+                                             lambda r: httpx.Response(201, json={}) if r.method == "POST" else
+                                             httpx.Response(200, json=[] if r.url.path == "/api/v3/series" else
+                                                            [{"title": "Below", "tmdbId": 1, "tvdbId": 5}]))),
+                                         "/tv", exclusions=cfg.exclude)
+    assert count == 1
+
+
 # --- seasonal-only collections ---------------------------------------------------------
 
 def test_off_season_and_next_start():

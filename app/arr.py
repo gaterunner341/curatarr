@@ -4,6 +4,7 @@ import logging
 
 import httpx
 
+from .plex import normalize_title
 from .sources.base import MediaRef, SourceError
 from .sources.tmdb import TMDB
 
@@ -208,10 +209,14 @@ class Arr:
             f"{k} {getattr(ref, k)}" for k in ("tmdb", "imdb") if getattr(ref, k)) or ref.title, tvdb or "unknown")
         return None
 
-    def add(self, ref: MediaRef, tags: list[int] | None = None) -> str:
-        """Returns 'added', 'exists' or 'not_found'."""
+    def lookup(self, ref: MediaRef) -> dict | None:
+        """Radarr's/Sonarr's entry for a title (has an ``id`` when it's already in Radarr/Sonarr)."""
+        return self._lookup_movie(ref) if self.kind == "radarr" else self._lookup_series(ref)
+
+    def add(self, ref: MediaRef, tags: list[int] | None = None, found: dict | None = None) -> str:
+        """Returns 'added', 'exists' or 'not_found'. ``found``: a ``lookup`` result already made."""
         if self.kind == "radarr":
-            found = self._lookup_movie(ref)
+            found = found or self._lookup_movie(ref)
             if not found:
                 return "not_found"
             if found.get("id"):
@@ -222,7 +227,7 @@ class Arr:
                     "addOptions": {"searchForMovie": self.search}}
             resp = self._request("POST", "/movie", json=body)
         else:
-            found = self._lookup_series(ref)
+            found = found or self._lookup_series(ref)
             if not found:
                 return "not_found"
             if found.get("id"):
@@ -265,14 +270,38 @@ def library_folder(kind: str, settings: dict, section_id: str | None) -> str:
     return str(folders.get(str(section_id)) or "") if section_id and isinstance(folders, dict) else ""
 
 
+def entry_ids(found: dict) -> list[str]:
+    """A Radarr/Sonarr entry's ids in exclusion form: tt…, tmdb:…, tvdb:…."""
+    ids = [found["imdbId"]] if found.get("imdbId") else []
+    ids += [f"{key}:{found[key + 'Id']}" for key in ("tmdb", "tvdb") if found.get(key + "Id")]
+    return ids
+
+
+def excluded_by(exclusions: list, ref: MediaRef, found: dict | None = None):
+    """The exclusion that covers a title, by id or by exact title (the list's or Radarr's/Sonarr's)."""
+    ids = {ref.imdb, f"tmdb:{ref.tmdb}" if ref.tmdb else None, f"tvdb:{ref.tvdb}" if ref.tvdb else None}
+    ids |= set(entry_ids(found or {}))
+    titles = {normalize_title(t) for t in (ref.title, (found or {}).get("title")) if t}
+    for e in exclusions:
+        if ({e.id, *e.ids} & ids) or (e.title and normalize_title(e.title) in titles):
+            return e
+    return None
+
+
 def request_missing(media_type: str, refs: list[MediaRef], settings: dict,
-                    http: httpx.Client, root_folder: str | None = None) -> tuple[int, list[str], bool]:
+                    http: httpx.Client, root_folder: str | None = None,
+                    exclusions: list | None = None,
+                    kept_out: list | None = None) -> tuple[int, list[str], bool]:
     """Add missing refs to Radarr/Sonarr.
 
     At most ``arr_max_requests`` titles are added per call (0 = no limit), and
-    titles Radarr/Sonarr already has are skipped without a lookup each.
+    titles Radarr/Sonarr already has are skipped without a lookup each. A title on
+    ``exclusions`` is never added: it's checked by the list's ids and title and again
+    by the ids and title Radarr/Sonarr gives it; the exclusion learns those ids and the
+    ref goes in ``kept_out``.
     Returns (added count, error messages, whether the limit was reached).
     """
+    exclusions = exclusions or []
     arr = Arr("sonarr" if media_type == "show" else "radarr", settings, http, root_folder)
     if not arr.configured:
         return 0, [f"{arr.kind.title()} is not fully configured; missing titles were not requested"], False
@@ -292,8 +321,21 @@ def request_missing(media_type: str, refs: list[MediaRef], settings: dict,
             return added, errors, True
         if arr.already_has(ref, have):
             continue
+        if excluded_by(exclusions, ref):
+            if kept_out is not None:
+                kept_out.append(ref)
+            continue
         try:
-            if arr.add(ref) == "added":
+            found = arr.lookup(ref)
+            hit = excluded_by(exclusions, ref, found) if found else None
+            if hit:
+                hit.ids.extend(i for i in entry_ids(found) if i not in hit.ids)
+                log.info("%s: not adding %s, it's on the exclusion list (as %s)", arr.kind.title(),
+                         ref.title, hit.title or hit.id)
+                if kept_out is not None:
+                    kept_out.append(ref)
+                continue
+            if found and arr.add(ref, found=found) == "added":
                 added += 1
                 log.info("%s: added %s", arr.kind.title(), ref.title or ref.imdb or ref.tmdb or ref.tvdb)
         except ArrError as exc:

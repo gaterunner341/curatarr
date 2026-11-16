@@ -3,6 +3,11 @@
 The version shown in the web UI's sidebar matches these entries. Each
 release is also published as `ghcr.io/gaterunner341/curatarr:<version>`.
 
+## 0.35.2
+
+- **Fix: an excluded title could still be sent to Radarr/Sonarr.** If the title wasn't in Plex and its exclusion was an old one without ids (like WWE Raw, which the Netflix list calls "Raw"), nothing stopped the request. Now every missing title is checked against the exclusion list right before it's requested: by the list's ids and title, and again by the ids and title Radarr/Sonarr gives it. An excluded title is never added, and the exclusion remembers those ids from then on.
+- The sync message and the collection's Last change box say which titles weren't requested because they're on the exclusion list.
+
 ## 0.35.1
 
 - **Fix: old exclusions that stopped working.** An exclusion made before 0.33.3 only knew the Plex item. If that item was deleted and added again (for example by Sonarr), the exclusion no longer matched and the title came back. Curatarr now finds such a title again by its exact name in the library, and from then on remembers its ids.

@@ -789,10 +789,6 @@ def _run_collection(collection_id: int, trigger: str, dry_run: bool) -> dict:
                                            f"{language.name(settings.get('language') or 'en')}")
             for err in source_errors:
                 result.warn(err)
-            exclude = [e.model_dump() for e in cfg.exclude]
-            if not dry_run and exclude != (row["config"].get("exclude") or []):
-                fresh = db.get_collection(collection_id)["config"]     # ids learned while matching
-                db.update_collection_config(collection_id, {**fresh, "exclude": exclude})
             if cfg.request_missing and result.missing and not dry_run:
                 by_type: dict[str, list[MediaRef]] = {}
                 for m in result.missing:
@@ -803,9 +799,16 @@ def _run_collection(collection_id: int, trigger: str, dry_run: bool) -> dict:
                 for kind, missing_refs in by_type.items():
                     service = "sonarr" if kind == "show" else "radarr"
                     target = next((s for s in sections if s["type"] == kind), None)
+                    kept_out: list[MediaRef] = []
                     requested, arr_errors, hit_limit = arr.request_missing(
                         kind, missing_refs, settings, http,
-                        arr_root_folder(service, settings, http, plex, target))
+                        arr_root_folder(service, settings, http, plex, target),
+                        exclusions=cfg.exclude, kept_out=kept_out)
+                    if kept_out:
+                        drop = {r.key() for r in kept_out}
+                        result.missing = [m for m in result.missing if MediaRef(**m).key() not in drop]
+                        result.messages.append("Not requested (on the exclusion list): "
+                                               + ", ".join(r.title for r in kept_out))
                     result.requested += requested
                     limited = limited or hit_limit
                     for err in arr_errors:
@@ -813,6 +816,10 @@ def _run_collection(collection_id: int, trigger: str, dry_run: bool) -> dict:
                 if result.requested:
                     result.messages.append(f"Requested {result.requested} missing title(s)"
                                            + (" (per-sync limit reached; more next sync)" if limited else ""))
+            exclude = [e.model_dump() for e in cfg.exclude]
+            if not dry_run and exclude != (row["config"].get("exclude") or []):
+                fresh = db.get_collection(collection_id)["config"]     # ids learned while matching
+                db.update_collection_config(collection_id, {**fresh, "exclude": exclude})
         run.update(status=result.status, matched=result.matched, added=result.added,
                    removed=result.removed, requested=result.requested, missing=result.missing,
                    added_items=result.added_items, removed_items=result.removed_items,

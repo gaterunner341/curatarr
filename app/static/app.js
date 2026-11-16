@@ -568,7 +568,7 @@ async function collectionItems({ id = null, ratingKey = null, playlist = false, 
       <strong>+${change.added_items.length}</strong> / <strong>−${change.removed_items.length}</strong>
       <a href="#/history">details</a>
       <button type="button" class="small" id="undo" style="margin-left:8px">${change.trigger === "undo" ? "Redo" : "Undo"} this change</button>
-      ${(change.message || "").split(" | ").filter((m) => m.startsWith("Kept out")).map((m) => `<div class="muted" style="margin-top:6px">${esc(m)}</div>`).join("")}
+      ${(row?.last_message || "").split(" | ").filter((m) => m.startsWith("Kept out") || m.startsWith("Not requested")).map((m) => `<div class="muted" style="margin-top:6px">${esc(m)}</div>`).join("")}
     </div>` : ""}
     ${overlayLine}
     ${row?.config.exclude?.length ? `<details class="card" id="excludedCard">
