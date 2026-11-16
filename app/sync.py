@@ -333,6 +333,13 @@ def match_refs(cfg: CollectionConfig, refs: list[MediaRef],
             for _, index in indexes:
                 found = [i for i in index.external_ids(e.id[5:]) if i not in e.ids]
                 e.ids.extend(found)
+    for e in cfg.exclude:      # keep its poster current (it may be back in Plex as a new item)
+        for _, index in indexes:
+            thumbs = (index.details.get(index.lookup(i) or "", {}).get("thumb") for i in (e.id, *e.ids))
+            thumb = next(filter(None, thumbs), None)
+            if thumb:
+                e.thumb = thumb
+                break
     excluded_ids = {i for e in cfg.exclude for i in (e.id, *e.ids)}
     blocked = {index.lookup(i) for _, index in indexes for i in excluded_ids} - {None}
     matched: list[str] = []

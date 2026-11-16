@@ -3,6 +3,10 @@
 The version shown in the web UI's sidebar matches these entries. Each
 release is also published as `ghcr.io/gaterunner341/curatarr:<version>`.
 
+## 0.33.4
+
+- **Excluded titles keep a current poster:** each sync updates an excluded title's small poster from Plex while the title is there, including when it comes back to Plex as a new item.
+
 ## 0.33.3
 
 - **Fixed: excluded titles sent back to Radarr/Sonarr.** A title excluded with ✕ was only remembered by its Plex item. Once it left Plex (deleted, or removed from Sonarr), the list's copy no longer matched the exclusion. It counted as "missing", and "Send missing titles" re-added it every sync (e.g. WWE Raw from Netflix Top 10). Exclusions now keep the title's IMDb/TMDB/TVDB ids as well, so it stays out of the collection and out of Radarr/Sonarr, even after it leaves Plex or comes back as a new Plex item. Existing exclusions learn their ids at the next sync while the title is still in Plex.

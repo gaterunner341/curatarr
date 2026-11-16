@@ -2045,7 +2045,8 @@ def test_excluded_title_isnt_requested_once_it_leaves_plex():
     from app import sync as sync_mod
     from app.sync import SyncResult, match_refs
     from app.plex import LibraryIndex
-    raw = {"ratingKey": "7", "title": "WWE Raw", "Guid": [{"id": "tvdb://76779"}, {"id": "imdb://tt0185103"}]}
+    raw = {"ratingKey": "7", "title": "WWE Raw", "thumb": "/library/metadata/7/thumb/1",
+           "Guid": [{"id": "tvdb://76779"}, {"id": "imdb://tt0185103"}]}
     cfg = CollectionConfig(name="Top", library="TV", sources=[Source(type="static", value="x")],
                            exclude=[{"id": "plex:7", "title": "WWE Raw"}])
     show = {"id": "2", "title": "TV", "type": "show"}
@@ -2055,6 +2056,8 @@ def test_excluded_title_isnt_requested_once_it_leaves_plex():
     gone = SyncResult()
     assert match_refs(cfg, [ref], [(show, LibraryIndex([]))], gone)[0] == [] and gone.missing == []
     # back in Plex as a new item: still kept out
-    again = dict(raw, ratingKey="70")
+    assert cfg.exclude[0].thumb == "/library/metadata/7/thumb/1"
+    again = dict(raw, ratingKey="70", thumb="/library/metadata/70/thumb/2")
     assert match_refs(cfg, [ref], [(show, LibraryIndex([again]))], SyncResult())[0] == []
+    assert cfg.exclude[0].thumb == "/library/metadata/70/thumb/2"
     sync_mod.clear_index_cache()
