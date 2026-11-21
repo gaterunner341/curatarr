@@ -3,6 +3,10 @@
 The version shown in the web UI's sidebar matches these entries. Each
 release is also published as `ghcr.io/gaterunner341/curatarr:<version>`.
 
+## 0.36.1
+
+- **Rogue Filenames: Radarr and Sonarr tabs.** The page used to list Radarr and then Sonarr one after the other, so reaching Sonarr meant scrolling past every Radarr movie. Now **Radarr** and **Sonarr** tabs at the top, each with its file count, show one service at a time. The page remembers the tab you picked, and the filter works within the tab.
+
 ## 0.36.0
 
 - **Show a collection at the top of Plex's collection list:** a new **Show at the top of the collection list** checkbox under **Sort title** (in the collection's editor, under Appearance in Plex).

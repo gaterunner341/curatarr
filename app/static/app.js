@@ -2639,6 +2639,13 @@ async function roguePage() {
       </tbody></table>` : `<p class="muted">${filter ? "Nothing matches the filter." : "Every file follows the naming format."}</p>`}`}
     </div>`;
   };
+  // One service at a time, picked with tabs at the top (Radarr's list can be thousands of rows long).
+  const kinds = Object.keys(services);
+  const tab = kinds.includes(state.rogueTab) ? state.rogueTab : kinds[0];
+  const fileCount = (s) => s.error ? "!" : s.items.reduce((n, i) => n + i.files.length, 0).toLocaleString();
+  const tabs = kinds.length > 1 ? `<span class="seg rogue-tabs" role="tablist" aria-label="Service">${kinds.map((k) =>
+    `<button type="button" role="tab" data-rogue-tab="${k}" class="${k === tab ? "on" : ""}" aria-selected="${k === tab}">
+      ${NAMES[k]} <span class="badge">${fileCount(services[k])}</span></button>`).join("")}</span>` : "";
   view.innerHTML = `
     <div class="page-head"><h1>Rogue Filenames</h1>
       <div class="actions">
@@ -2651,8 +2658,9 @@ async function roguePage() {
     ${p.running ? `<div class="card"><span class="spinner"></span> Checking ${esc(NAMES[p.service] || "")}${p.total ? `: ${p.done} / ${p.total}` : "…"}
       <div class="small muted">One request per ${p.service === "sonarr" ? "series" : "movie"}; big libraries take a few minutes.</div></div>` : ""}
     ${last.finished ? `<p class="small muted">Last scan: ${esc(new Date(last.finished).toLocaleString())}${last.stopped ? " (stopped part way)" : ""}</p>
-      <input type="search" id="rogueFilter" placeholder="Filter by title or file name" value="${esc(state.rogueFilter || "")}" style="max-width:360px;margin-bottom:12px">
-      ${Object.keys(services).length ? Object.entries(services).map(([k, s]) => block(k, s)).join("")
+      <div class="row" style="margin-bottom:12px;align-items:center">${tabs}
+        <input type="search" id="rogueFilter" placeholder="Filter by title or file name" value="${esc(state.rogueFilter || "")}" style="max-width:360px"></div>
+      ${kinds.length ? block(tab, services[tab])
         : `<div class="card"><p class="muted">Radarr and Sonarr aren't set up in Settings, so there was nothing to scan.</p></div>`}`
       : p.running ? "" : `<div class="card"><p class="muted">No scan yet. <strong>Scan</strong> checks every movie in Radarr and every series in Sonarr.</p></div>`}`;
   view.querySelector("#rogueScan")?.addEventListener("click", () => guard(async () => {
@@ -2663,6 +2671,10 @@ async function roguePage() {
     await api("POST", "/naming/stop");
     route();
   }));
+  view.querySelectorAll("[data-rogue-tab]").forEach((b) => b.onclick = () => {
+    state.rogueTab = b.dataset.rogueTab;
+    roguePage();
+  });
   const box = view.querySelector("#rogueFilter");
   if (box) box.oninput = () => {
     state.rogueFilter = box.value;
