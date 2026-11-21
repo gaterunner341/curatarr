@@ -1068,6 +1068,42 @@ def napalm_run(body: dict = Body(...)):
     return {"queued": True}
 
 
+@router.get("/posters/search")
+def poster_search(q: str = "", section: list[str] = Query(default=[])):
+    """Movies and shows in these libraries whose title contains ``q``, to pick for fresh posters."""
+    from . import napalm
+    try:
+        return napalm.search(q, section) if q.strip() and section else []
+    except PlexError as exc:
+        raise HTTPException(400, str(exc))
+
+
+@router.post("/posters/preview")
+def poster_preview(body: dict = Body(...)):
+    """For each picked title: its current poster and the fresh one it would get."""
+    from . import napalm
+    keys = [str(k) for k in body.get("rating_keys") or []]
+    if not keys:
+        raise HTTPException(422, "Pick at least one title")
+    try:
+        return napalm.preview_titles(keys)
+    except PlexError as exc:
+        raise HTTPException(400, str(exc))
+
+
+@router.post("/posters/refresh")
+def poster_refresh(body: dict = Body(...)):
+    """Give only the picked titles a fresh poster (in the background). Overlays stay on."""
+    from . import napalm
+    keys = [str(k) for k in body.get("rating_keys") or []]
+    if not keys:
+        raise HTTPException(422, "Pick at least one title")
+    if napalm.progress["running"]:
+        raise HTTPException(409, "A poster refresh is already running")
+    scheduler.run_task(lambda: napalm.run_titles(keys), "Fresh posters for picked titles")
+    return {"queued": True}
+
+
 @router.post("/napalm/stop")
 def napalm_stop():
     from . import napalm

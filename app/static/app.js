@@ -2702,8 +2702,10 @@ async function roguePage() {
 }
 
 async function napalmPage() {
-  view.innerHTML = `<div class="page-head"><h1>Napalm</h1></div><div class="card napalm" id="napalmCard"></div>`;
-  await napalmCard(view.querySelector("#napalmCard"));
+  view.innerHTML = `<div class="page-head"><h1>Napalm</h1></div>
+    <div class="card" id="freshTitlesCard"></div>
+    <div class="card napalm" id="napalmCard"></div>`;
+  await Promise.all([freshTitlesCard(view.querySelector("#freshTitlesCard")), napalmCard(view.querySelector("#napalmCard"))]);
 }
 
 async function overlayCard(card) {
@@ -2999,6 +3001,114 @@ async function napalmCard(card) {
   card.querySelector("#napalmStop").onclick = () => guard(async () => {
     await api("POST", "/napalm/stop");
     toast("Stopping after the current title");
+  });
+}
+
+// A fresh poster for only the movies or shows the user picks (napalm does whole libraries).
+async function freshTitlesCard(card) {
+  const libs = await posterLibraries();
+  if (!libs.length) { card.hidden = true; return; }
+  const picked = new Map();          // rating key -> {title, year, library}
+  card.innerHTML = `
+    <h2>Fresh posters for specific titles</h2>
+    <p class="hint" style="margin-top:-6px">Find the TV shows or movies you want and give only those a fresh poster: the first
+      proper (tall, 2:3) poster from Plex's metadata sources, such as TMDB. Nothing else changes. Collections keep their
+      poster overlays, and a title with a Curatarr ribbon or badge gets it drawn again on the fresh poster. Titles labeled
+      <strong>Curatarr Keep Poster</strong> are skipped. The old poster stays in the title's poster list in Plex.</p>
+    <div class="row" style="align-items:center;margin-bottom:8px">
+      <input type="search" id="freshSearch" placeholder="Search for a TV show or movie" style="max-width:360px">
+      <select id="freshLib" style="width:auto"><option value="">All libraries</option>${libs.map((l) =>
+        `<option value="${esc(l.id)}">${esc(l.title)} (${l.type === "show" ? "TV" : "Movies"})</option>`).join("")}</select>
+    </div>
+    <div id="freshResults"></div>
+    <div id="freshPicked" style="margin-top:10px"></div>
+    <div class="row" style="margin-top:10px">
+      <button type="button" id="freshPreview" disabled>Preview</button>
+      <button type="button" class="primary" id="freshRun" disabled>Refresh posters</button>
+    </div>
+    <div id="freshOut"></div>`;
+  const results = card.querySelector("#freshResults");
+  const box = card.querySelector("#freshSearch");
+  const libBox = card.querySelector("#freshLib");
+  const preview = card.querySelector("#freshPreview");
+  const runBtn = card.querySelector("#freshRun");
+  let found = [];
+  const showPicked = () => {
+    const el = card.querySelector("#freshPicked");
+    el.innerHTML = picked.size ? `<div class="small muted" style="margin-bottom:4px">Picked:</div>
+      <div class="row" style="gap:6px">${[...picked].map(([rk, t]) => `<span class="chip">${esc(t.title)}${t.year
+        ? ` <span class="muted">(${esc(t.year)})</span>` : ""} <button type="button" class="small" data-unpick="${esc(rk)}"
+        title="Remove">✕</button></span>`).join("")}</div>` : "";
+    el.querySelectorAll("[data-unpick]").forEach((b) => b.onclick = () => { picked.delete(b.dataset.unpick); refresh(); });
+    preview.disabled = runBtn.disabled = !picked.size;
+    runBtn.textContent = picked.size ? `Refresh ${picked.size} poster${picked.size === 1 ? "" : "s"}` : "Refresh posters";
+  };
+  const showResults = () => {
+    results.innerHTML = !box.value.trim() ? "" : found.length ? `<div class="table-wrap" style="max-height:300px;overflow:auto">
+      <table><tbody>${found.map((t, n) => `<tr>
+        <td style="width:44px"><div class="item-poster" style="width:36px">${t.thumb ? `<img loading="lazy" src="${esc(t.thumb)}" alt="">` : "▦"}</div></td>
+        <td><strong>${esc(t.title)}</strong>${t.year ? ` <span class="muted">(${esc(t.year)})</span>` : ""}
+          <div class="small muted">${esc(t.library)}</div></td>
+        <td class="nowrap" style="text-align:right">${picked.has(t.ratingKey) ? `<span class="small muted">Picked ✓</span>`
+          : `<button type="button" class="small" data-pick="${n}">Add</button>`}</td></tr>`).join("")}</tbody></table></div>`
+      : `<p class="muted small">No titles match.</p>`;
+    results.querySelectorAll("[data-pick]").forEach((b) => b.onclick = () => {
+      const t = found[Number(b.dataset.pick)];
+      picked.set(t.ratingKey, t);
+      refresh();
+    });
+  };
+  const refresh = () => { showResults(); showPicked(); };
+  let timer, asked = 0;
+  const search = () => {
+    clearTimeout(timer);
+    timer = setTimeout(() => guard(async () => {
+      const q = box.value.trim();
+      if (!q) { found = []; return showResults(); }
+      const n = ++asked;
+      const params = new URLSearchParams({ q });
+      (libBox.value ? [libBox.value] : libs.map((l) => l.id)).forEach((s) => params.append("section", s));
+      const r = await api("GET", `/posters/search?${params}`);
+      if (n !== asked) return;           // a newer search is on its way
+      found = r;
+      showResults();
+    }), 300);
+  };
+  box.oninput = search;
+  libBox.onchange = search;
+  preview.onclick = () => guard(async () => {
+    const out = card.querySelector("#freshOut");
+    preview.disabled = true;
+    out.innerHTML = `<p class="muted small">Looking up the fresh posters…</p>`;
+    try {
+      const sample = await api("POST", "/posters/preview", { rating_keys: [...picked.keys()] });
+      out.innerHTML = `<p class="small muted">Current poster on the left, the one it would get on the right.</p>
+        <div class="napalm-grid">${sample.map((s) => `
+          <div class="napalm-pair">
+            <div class="napalm-imgs">
+              <div class="item-poster">${s.current ? `<img loading="lazy" src="${esc(s.current)}" alt="Current poster">` : "▦"}</div>
+              <span class="muted">→</span>
+              <div class="item-poster">${s.fresh ? `<img loading="lazy" src="${esc(s.fresh)}" alt="Fresh poster" referrerpolicy="no-referrer">` : "—"}</div>
+            </div>
+            <div class="item-title" title="${esc(s.title)}">${esc(s.title)}${s.year ? ` <span class="muted">(${esc(s.year)})</span>` : ""}</div>
+            <div class="small ${s.status === "changes" ? "" : "muted"}">${s.status === "changes"
+              ? (s.overlay ? "Gets the new poster, with its Curatarr overlay drawn again" : "Gets the new poster") : esc(s.status)}</div>
+          </div>`).join("")}</div>`;
+    } catch (err) {
+      out.innerHTML = `<p class="no">${esc(err.message)}</p>`;
+    } finally {
+      preview.disabled = !picked.size;
+    }
+  });
+  runBtn.onclick = () => guard(async () => {
+    if (!confirm(`Give ${picked.size} title${picked.size === 1 ? "" : "s"} a fresh poster from Plex's sources?\n\n`
+      + "Posters picked by hand on these titles are replaced. The old posters stay in each title's poster list in Plex.")) return;
+    activity.napalmStarted = Date.now();
+    await api("POST", "/posters/refresh", { rating_keys: [...picked.keys()] });
+    toast("Refreshing posters in the background. Progress is in the top bar.");
+    picked.clear();
+    card.querySelector("#freshOut").innerHTML = "";
+    refresh();
   });
 }
 

@@ -3,6 +3,15 @@
 The version shown in the web UI's sidebar matches these entries. Each
 release is also published as `ghcr.io/gaterunner341/curatarr:<version>`.
 
+## 0.37.0
+
+- **Fresh posters for specific titles:** a new card at the top of the **Napalm** page (Settings → Napalm). Refreshing whole libraries is still there, below it.
+  - Search your movie and TV libraries (all of them, or one), **Add** the titles you want, then **Preview** (current poster → the one it would get) and **Refresh N posters**.
+  - Each picked title gets the first proper (tall, 2:3) poster from Plex's metadata sources, the same choice napalm makes. Nothing else changes.
+  - Unlike a whole-library napalm, no collection's poster overlays are turned off. A title with a Curatarr ribbon or badge gets it drawn again on its fresh poster.
+  - Titles labeled **Curatarr Keep Poster** are skipped. Old posters stay in each title's poster list in Plex.
+  - Progress shows in the top bar, as with napalm.
+
 ## 0.36.2
 
 - **Rogue Filenames: sort the list.** A **Sort** menu next to the filter offers **Title A–Z**, **Title Z–A**, **Most files** and **Fewest files**. Title sorting ignores leading punctuation (so "¡Three Amigos!" is under T), and titles with the same number of files are listed A–Z. Your choice is remembered.

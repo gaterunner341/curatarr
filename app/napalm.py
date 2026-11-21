@@ -205,3 +205,109 @@ def run(section_ids: list[str]) -> dict:
     from .sync import run_overlays
     run_overlays("Napalm's fresh posters")
     return dict(progress)
+
+
+# --- specific titles --------------------------------------------------------------------
+# A fresh poster for only the titles the user picks. Unlike a whole-library run, no collection's
+# overlays are turned off: a title with a Curatarr overlay gets it drawn again on its fresh poster.
+
+def search(query: str, section_ids: list[str], limit: int = 30) -> list[dict]:
+    """Movies and shows in these libraries whose title contains ``query``."""
+    from .sync import library_index
+    want = plexmod.normalize_title(query)
+    if not want:
+        return []
+    out = []
+    with plexmod.from_settings(db.get_settings()) as plex:
+        for section in _sections(plex, section_ids):
+            index = library_index(plex, section)
+            for rk, title in index.titles.items():
+                if want in plexmod.normalize_title(title or ""):
+                    info = index.details.get(rk, {})
+                    out.append({"ratingKey": rk, "title": title, "year": info.get("year"), "type": section["type"],
+                                "library": section["title"], "section_id": section["id"],
+                                "thumb": _image_url(info["thumb"]) if info.get("thumb") else ""})
+    starts = lambda t: not plexmod.normalize_title(t["title"]).startswith(want)  # noqa: E731
+    out.sort(key=lambda t: (starts(t), t["title"].lower(), t["year"] or 0))
+    return out[:limit]
+
+
+def _compare(plex: Plex, rk: str, overlaid: set) -> dict:
+    """One title's current poster and the fresh one it would get."""
+    meta = plex.item(rk) or {}
+    entry = {"ratingKey": rk, "title": meta.get("title") or "", "year": meta.get("year"),
+             "current": _image_url(meta["thumb"]) if meta.get("thumb") else "", "fresh": "", "status": "",
+             "overlay": rk in overlaid}
+    if not meta:
+        entry["status"] = "no longer in Plex"
+        return entry
+    from .unmatched import has_keep_label
+    if has_keep_label(meta):
+        entry["status"] = "labeled Curatarr Keep Poster, so it keeps its poster"
+        return entry
+    try:
+        fresh = plex.fresh_choice(rk)
+    except PlexError as exc:
+        entry["status"] = f"error: {exc}"
+        return entry
+    if not fresh:
+        entry["status"] = "no poster-shaped image from Plex's sources; it keeps its current one"
+    else:
+        entry["fresh"] = _image_url(fresh.get("thumb") or fresh["key"])
+        entry["status"] = "already using it" if _selected(fresh) else "changes"
+    return entry
+
+
+def preview_titles(rating_keys: list[str]) -> list[dict]:
+    overlaid = set(db.overlay_rows())
+    with plexmod.from_settings(db.get_settings()) as plex:
+        return [_compare(plex, str(rk), overlaid) for rk in rating_keys]
+
+
+def run_titles(rating_keys: list[str]) -> dict:
+    """Switch only these titles to a fresh poster. Shares the progress (and the one-at-a-time
+    rule) with whole-library runs. Overlays stay on: the overlay pass afterward draws them again
+    on the fresh posters."""
+    from .unmatched import has_keep_label
+    if not _lock.acquire(blocking=False):
+        return {"running": True}
+    progress.update(running=True, done=0, total=len(rating_keys), changed=0, unchanged=0, no_poster=0, kept=0,
+                    errors=0, stopping=False, started=db.now(), finished=None, overlays_off=[])
+    try:
+        log.info("Fresh posters: refreshing %d title(s) picked by hand", len(rating_keys))
+        with plexmod.from_settings(db.get_settings()) as plex:
+            for rk in map(str, rating_keys):
+                if progress["stopping"]:
+                    log.info("Fresh posters: stopped by the user after %d title(s)", progress["done"])
+                    break
+                title = rk
+                try:
+                    meta = plex.item(rk) or {}
+                    title = meta.get("title") or rk
+                    fresh = None if not meta or has_keep_label(meta) else plex.fresh_choice(rk)
+                    if meta and has_keep_label(meta):
+                        progress["kept"] += 1
+                    elif not fresh:
+                        progress["no_poster"] += 1
+                    elif _selected(fresh):
+                        progress["unchanged"] += 1
+                    else:
+                        plex.select_poster(rk, fresh)
+                        progress["changed"] += 1
+                        log.info("Fresh posters: '%s' has a fresh poster", title)
+                except PlexError as exc:
+                    progress["errors"] += 1
+                    log.warning("Fresh posters: '%s' (%s) failed: %s", title, rk, exc)
+                progress["done"] += 1
+        log.info("Fresh posters: %d changed, %d already fresh, %d with no poster from Plex's sources, "
+                 "%d kept (Keep Poster label), %d failed", progress["changed"], progress["unchanged"],
+                 progress["no_poster"], progress["kept"], progress["errors"])
+    finally:
+        progress.update(running=False, stopping=False, finished=db.now())
+        _lock.release()
+    if progress["changed"]:
+        # Titles with overlays: Plex shows the plain fresh poster now, so the overlay pass takes it
+        # as the new original and draws the overlay on it again.
+        from .sync import run_overlays
+        run_overlays("fresh posters")
+    return dict(progress)

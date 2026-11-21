@@ -1359,6 +1359,10 @@ class FakePosterPlex(httpx.BaseTransport):
         if path.endswith("/poster") and method == "PUT":
             self.selected[parts[2]] = q["url"]
             return mc({})
+        if len(parts) == 3 and parts[1] == "metadata" and parts[2] in self.posters:
+            rk = parts[2]
+            return mc({"Metadata": [{"ratingKey": rk, "title": f"T{rk}", "thumb": f"/library/metadata/{rk}/thumb/1",
+                                     "Label": [{"tag": t} for t in getattr(self, "labels", {}).get(rk, [])]}]})
         return mc({})
 
 
@@ -2308,3 +2312,32 @@ def test_missing_list_leaves_out_a_title_excluded_from_it(monkeypatch):
     out = client.post("/api/preview", json={"section_id": "1", "library": "PhillFlix Movies",
                                             "sources": cfg["sources"], "exclude": cfg["exclude"]}).json()
     assert [i["title"] for i in out["items"]] == ["Shut In"] and out["total"] == 1
+
+
+def test_fresh_posters_for_picked_titles(monkeypatch):
+    """Napalm for only the titles picked: no collection's overlays are turned off, Keep Poster is respected."""
+    from fastapi.testclient import TestClient
+    from app import napalm, plex as plexmod, sync as sync_mod
+    from app.main import app
+    sync_mod.clear_index_cache()
+    fake = FakePosterPlex()
+    fake.labels = {"2": ["Curatarr Keep Poster"]}
+    monkeypatch.setattr(plexmod, "from_settings", lambda *a, **k: Plex("http://plex", "t", client=httpx.Client(transport=fake)))
+    passes = []
+    monkeypatch.setattr(sync_mod, "run_overlays", lambda reason="": passes.append(reason))
+    cid = db.create_collection({"name": "Top", "library": "Movies", "section_id": "1",
+                                "sources": [{"type": "static", "value": "x"}], "ribbon": {"enabled": True, "text": "TOP"}})
+
+    found = napalm.search("t1", ["1"])
+    assert [(t["ratingKey"], t["title"], t["library"]) for t in found] == [("1", "T1", "Movies")]
+    assert TestClient(app).get("/api/posters/search", params={"q": "t", "section": "1"}).json()[0]["title"] == "T1"
+    previews = {p["ratingKey"]: p["status"] for p in napalm.preview_titles(["1", "2", "3"])}
+    assert previews["1"] == "changes" and "Keep Poster" in previews["2"] and "no poster" in previews["3"]
+
+    result = napalm.run_titles(["1", "2"])
+    assert fake.selected == {"1": "metadata://posters/tmdb_1"}             # only the picked title without the label
+    assert (result["changed"], result["kept"], result["done"], result["total"]) == (1, 1, 2, 2)
+    assert passes == ["fresh posters"]                                     # overlays drawn again on the new posters
+    assert db.get_collection(cid)["config"]["ribbon"]["enabled"] is True   # overlays stay on
+    assert TestClient(app).post("/api/posters/refresh", json={"rating_keys": []}).status_code == 422
+    db.delete_collection(cid)
