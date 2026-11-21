@@ -2625,6 +2625,9 @@ async function roguePage() {
     most: (a, b) => b.files.length - a.files.length || byTitle(a, b),
     fewest: (a, b) => a.files.length - b.files.length || byTitle(a, b),
   }[sortBy];
+  // Collapsing: "Collapse all"/"Expand all" set the default; clicking a title flips just that one.
+  state.rogueFlipped ||= new Set();
+  const collapsed = (key) => Boolean(state.rogueAllShut) !== state.rogueFlipped.has(key);
   const block = (kind, s) => {
     const items = s.items.filter((i) => !filter || i.title.toLowerCase().includes(filter)
       || i.files.some((f) => f.existing.toLowerCase().includes(filter))).sort(order);
@@ -2641,10 +2644,20 @@ async function roguePage() {
           `<div><span class="muted">${FORMAT_LABELS[k]}:</span> <span class="mono">${esc(v || "")}</span></div>`).join("")}
         <div class="muted" style="margin-top:4px">Only file names are checked; ${NAMES[kind]} doesn't report folders that differ from the folder format.</div>
       </details>
-      ${items.length ? `<table style="margin-top:10px"><thead><tr><th>Title</th><th>Files: now → ${NAMES[kind]}'s format</th></tr></thead><tbody>
-        ${items.map((i) => `<tr><td style="vertical-align:top;min-width:180px"><strong>${esc(i.title)}</strong>${i.year ? ` <span class="muted">(${i.year})</span>` : ""}
+      ${items.length ? `<div class="row" style="margin-top:10px;gap:6px">
+          <button type="button" class="small" data-rogue-all="collapse">Collapse all</button>
+          <button type="button" class="small" data-rogue-all="expand">Expand all</button></div>
+        <table style="margin-top:6px"><thead><tr><th>Title</th><th>Files: now → ${NAMES[kind]}'s format</th></tr></thead><tbody>
+        ${items.map((i) => {
+          const key = `${kind}:${i.path}`;
+          const shut = collapsed(key);
+          return `<tr class="rogue-row ${shut ? "shut" : ""}" data-rogue-key="${esc(key)}">
+          <td style="vertical-align:top;min-width:180px"><button type="button" class="rogue-toggle" aria-expanded="${!shut}"
+              title="Show or hide the files"><span class="rogue-caret">▾</span> <strong>${esc(i.title)}</strong>${i.year ? ` <span class="muted">(${i.year})</span>` : ""}</button>
             <div class="small muted mono">${esc(i.path)}</div></td>
-          <td>${i.files.map((f) => `<div class="rogue-file"><span class="old">${esc(f.existing)}</span><span class="arrow">→</span>${esc(f.new)}</div>`).join("")}</td></tr>`).join("")}
+          <td><div class="rogue-summary small muted">${i.files.length} file${i.files.length === 1 ? "" : "s"} hidden. Click the title to show them.</div>
+            <div class="rogue-files">${i.files.map((f) => `<div class="rogue-file"><span class="old">${esc(f.existing)}</span><span class="arrow">→</span>${esc(f.new)}</div>`).join("")}</div></td></tr>`;
+        }).join("")}
       </tbody></table>` : `<p class="muted">${filter ? "Nothing matches the filter." : "Every file follows the naming format."}</p>`}`}
     </div>`;
   };
@@ -2683,6 +2696,22 @@ async function roguePage() {
     await api("POST", "/naming/stop");
     route();
   }));
+  view.querySelectorAll(".rogue-toggle").forEach((b) => b.onclick = () => {
+    const tr = b.closest("tr");
+    const key = tr.dataset.rogueKey;
+    if (state.rogueFlipped.has(key)) state.rogueFlipped.delete(key); else state.rogueFlipped.add(key);
+    const shut = collapsed(key);
+    tr.classList.toggle("shut", shut);
+    b.setAttribute("aria-expanded", String(!shut));
+  });
+  view.querySelectorAll("[data-rogue-all]").forEach((b) => b.onclick = () => {
+    state.rogueAllShut = b.dataset.rogueAll === "collapse";
+    state.rogueFlipped.clear();
+    view.querySelectorAll(".rogue-row").forEach((tr) => {
+      tr.classList.toggle("shut", state.rogueAllShut);
+      tr.querySelector(".rogue-toggle").setAttribute("aria-expanded", String(!state.rogueAllShut));
+    });
+  });
   const sortBox = view.querySelector("#rogueSort");
   if (sortBox) sortBox.onchange = () => {
     state.rogueSort = sortBox.value;

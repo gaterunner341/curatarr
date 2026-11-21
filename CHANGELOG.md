@@ -3,6 +3,10 @@
 The version shown in the web UI's sidebar matches these entries. Each
 release is also published as `ghcr.io/gaterunner341/curatarr:<version>`.
 
+## 0.37.2
+
+- **Rogue Filenames: collapse a series (or movie).** Click a title to hide its files; it then shows just "N files hidden". Click again to show them. **Collapse all** and **Expand all** above the table do every title at once. What you collapse stays collapsed while you filter, sort or switch tabs.
+
 ## 0.37.1
 
 - **Fresh posters for specific titles is now a poster grid, on the Poster overlays page** (Settings → Poster overlays). It used to be a search box on the Napalm page.
