@@ -3,6 +3,10 @@
 The version shown in the web UI's sidebar matches these entries. Each
 release is also published as `ghcr.io/gaterunner341/curatarr:<version>`.
 
+## 0.35.5
+
+- **Exclude in "Show missing titles" updates the list in place.** The page no longer reloads, so the list stays open. The excluded title disappears from it, the counts and **Search all** update, and the **excluded titles** box shows it right away.
+
 ## 0.35.4
 
 - **Fix: posters that lost their ribbon were never redrawn.** Curatarr decided a poster was up to date by its path in Plex only. When Plex showed a different poster under the same path (as with Black Doves, Will Trent and The Diplomat in Netflix Top 10), Curatarr kept calling it "unchanged". Each pass now compares Plex's current poster (a small copy) with the one Curatarr drew, and draws it again when they differ.

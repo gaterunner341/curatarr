@@ -2283,3 +2283,28 @@ def test_show_missing_titles_leaves_out_excluded_titles(monkeypatch):
         monkeypatch.setattr(sync_mod, "library_index", lambda plex, s, refresh=False, items=items: LibraryIndex(items))
         out = sync_mod.preview("2", "TV", [Source(type="static", value="x")], exclude=exclude)
         assert [i["title"] for i in out["items"]] == ["Below", "Other"]
+
+
+def test_missing_list_leaves_out_a_title_excluded_from_it(monkeypatch):
+    """Exclude in "Show missing titles" saves the list's ids; the next missing list mustn't show it."""
+    from contextlib import nullcontext
+    from fastapi.testclient import TestClient
+    from app import sync as sync_mod
+    from app.main import app
+    from app.plex import LibraryIndex
+    movies = {"id": "1", "title": "PhillFlix Movies", "type": "movie"}
+    refs = [MediaRef("movie", title="Confession", year=2026, tmdb=1772726),
+            MediaRef("movie", title="Shut In", year=2022, tmdb=5)]
+    monkeypatch.setattr(sync_mod.plexmod, "from_settings", lambda s: nullcontext(object()))
+    monkeypatch.setattr(sync_mod, "resolve_section", lambda plex, sid, lib: movies)
+    monkeypatch.setattr(sync_mod, "resolve", lambda sources, ctx, limit: (list(refs), []))
+    monkeypatch.setattr(sync_mod, "library_index", lambda plex, s, refresh=False: LibraryIndex([]))
+    client = TestClient(app)
+    cid = db.create_collection({"name": "DW", "library": "PhillFlix Movies", "section_id": "1",
+                                "sources": [{"type": "static", "value": "x"}]})
+    r = client.post(f"/api/collections/{cid}/exclude", json={"id": "tmdb:1772726", "ids": ["tmdb:1772726"],
+                                                             "title": "Confession"})
+    cfg = r.json()["config"]
+    out = client.post("/api/preview", json={"section_id": "1", "library": "PhillFlix Movies",
+                                            "sources": cfg["sources"], "exclude": cfg["exclude"]}).json()
+    assert [i["title"] for i in out["items"]] == ["Shut In"] and out["total"] == 1

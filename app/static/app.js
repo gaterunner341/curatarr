@@ -522,6 +522,19 @@ async function collectionItems({ id = null, ratingKey = null, playlist = false, 
     Posters below are shown without the overlay; the corner mark shows which ones have it in Plex.</p>` : "";
   // Arranging by hand works for playlists and collections in list order.
   const canArrange = row && items.length > 1 && (playlist || row.config.order === "custom");
+  const excludedCard = (r, open) => r?.config.exclude?.length ? `<details class="card" id="excludedCard" ${open ? "open" : ""}>
+      <summary><strong>${r.config.exclude.length}</strong> excluded title${r.config.exclude.length === 1 ? "" : "s"}
+        <span class="muted small">(kept out even when a list has them)</span></summary>
+      <div class="excluded-list">${r.config.exclude.map((e) => {
+        const rk = e.id.startsWith("plex:") ? e.id.slice(5) : "";
+        const thumb = e.thumb || (rk ? `/library/metadata/${rk}/thumb` : "");
+        return `<div class="excluded-item">
+          <div class="item-poster">${thumb ? `<img loading="lazy" src="/api/plex/image?path=${encodeURIComponent(thumb)}" alt=""
+            onerror="this.replaceWith('▦')">` : "▦"}</div>
+          <span class="grow">${esc(e.title || e.id)}</span>
+          <button type="button" class="small" data-allow="${esc(e.id)}" data-title="${esc(e.title || e.id)}">Add back</button></div>`;
+      }).join("")}</div>
+    </details>` : "";
   // Posters are shown as they were before Curatarr's overlay; a corner mark says the overlay is on in Plex.
   const tile = (i) => `
     <div class="item" data-rk="${esc(i.ratingKey)}" data-search="${esc(`${i.title} ${i.year || ""}`.toLowerCase())}">
@@ -571,19 +584,7 @@ async function collectionItems({ id = null, ratingKey = null, playlist = false, 
       ${(row?.last_message || "").split(" | ").filter((m) => m.startsWith("Kept out") || m.startsWith("Not requested")).map((m) => `<div class="muted" style="margin-top:6px">${esc(m)}</div>`).join("")}
     </div>` : ""}
     ${overlayLine}
-    ${row?.config.exclude?.length ? `<details class="card" id="excludedCard">
-      <summary><strong>${row.config.exclude.length}</strong> excluded title${row.config.exclude.length === 1 ? "" : "s"}
-        <span class="muted small">(kept out even when a list has them)</span></summary>
-      <div class="excluded-list">${row.config.exclude.map((e) => {
-        const rk = e.id.startsWith("plex:") ? e.id.slice(5) : "";
-        const thumb = e.thumb || (rk ? `/library/metadata/${rk}/thumb` : "");
-        return `<div class="excluded-item">
-          <div class="item-poster">${thumb ? `<img loading="lazy" src="/api/plex/image?path=${encodeURIComponent(thumb)}" alt=""
-            onerror="this.replaceWith('▦')">` : "▦"}</div>
-          <span class="grow">${esc(e.title || e.id)}</span>
-          <button type="button" class="small" data-allow="${esc(e.id)}" data-title="${esc(e.title || e.id)}">Add back</button></div>`;
-      }).join("")}</div>
-    </details>` : ""}
+    <div id="excludedSlot">${excludedCard(row, false)}</div>
     <div id="missingOut"></div>
     ${inPlex ? `
       <div class="row" style="margin-bottom:16px">
@@ -661,12 +662,13 @@ async function collectionItems({ id = null, ratingKey = null, playlist = false, 
     b.closest(".item").remove();
     toast(`Excluded "${b.dataset.title}"`);
   }));
-  view.querySelectorAll("[data-allow]").forEach((b) => b.onclick = () => guard(async () => {
+  const bindAllow = () => view.querySelectorAll("[data-allow]").forEach((b) => b.onclick = () => guard(async () => {
     b.disabled = true;
     await api("DELETE", `/collections/${row.id}/exclude?item=${encodeURIComponent(b.dataset.allow)}`);
     toast(`"${b.dataset.title}" is allowed again; syncing now to add it back`);
     setTimeout(route, 2500);
   }));
+  bindAllow();
   // Titles from the lists that aren't in the Plex library (fetched on demand: lists can be slow).
   view.querySelector("#showMissing").onclick = (e) => guard(async () => {
     const out = view.querySelector("#missingOut");
@@ -677,6 +679,9 @@ async function collectionItems({ id = null, ratingKey = null, playlist = false, 
       const r = await api("POST", "/preview", { section_id: cfg.section_id, library: cfg.library, section_ids: cfg.section_ids || [], sources: cfg.sources, item_limit: cfg.item_limit, language_only: cfg.language_only, exclude: cfg.exclude || [] });
       const missing = r.items.filter((i) => !i.in_plex);
       const service = (i) => ((r.library.type || i.media_type) === "show" ? "Sonarr" : "Radarr");
+      let excludedHere = 0;
+      out.dataset.total = r.total;
+      let updateSearchAll = () => {};
       out.innerHTML = `
         <details class="card" open>
           <summary><strong>${missing.length}</strong> of ${r.total} list titles aren't in ${esc(r.library.title)}</summary>
@@ -702,7 +707,7 @@ async function collectionItems({ id = null, ratingKey = null, playlist = false, 
               <button type="button" class="small" data-arr-search="${n}" title="Ask ${service(missing[n])} to look for it now">Search</button>`;
           }))
           .then(() => {
-            const inArr = [...out.querySelectorAll("[data-arr-search]")].map((b) => missing[Number(b.dataset.arrSearch)]);
+            const inArrNow = () => [...out.querySelectorAll("[data-arr-search]")].map((b) => missing[Number(b.dataset.arrSearch)]);
             const typed = (i) => ({ ...i, media_type: r.library.type || i.media_type });
             const search = async (list, b) => {
               b.disabled = true;
@@ -716,22 +721,41 @@ async function collectionItems({ id = null, ratingKey = null, playlist = false, 
               }
             };
             out.querySelectorAll("[data-arr-search]").forEach((b) => b.onclick = () => guard(() => search([missing[Number(b.dataset.arrSearch)]], b)));
-            if (inArr.length) {
-              const all = out.querySelector("#searchAll");
-              all.textContent = `Search all ${inArr.length} in ${service(inArr[0])}`;
-              all.onclick = () => guard(() => search(inArr, all));
-              out.querySelector("#searchAllRow").hidden = false;
-            }
+            const all = out.querySelector("#searchAll");
+            all.onclick = () => guard(() => search(inArrNow(), all));
+            updateSearchAll = () => {
+              const inArr = inArrNow();
+              if (inArr.length && !all.disabled) all.textContent = `Search all ${inArr.length} in ${service(inArr[0])}`;
+              out.querySelector("#searchAllRow").hidden = !inArr.length;
+            };
+            updateSearchAll();
           })
           .catch(() => {});        // the buttons still work without the status
       }
+      // Excluding a title updates this list and the excluded titles box in place (no reload).
       out.querySelectorAll("[data-keepout]").forEach((b) => b.onclick = () => guard(async () => {
         const item = missing[Number(b.dataset.keepout)];
         const ids = [item.imdb, item.tmdb && `tmdb:${item.tmdb}`, item.tvdb && `tvdb:${item.tvdb}`].filter(Boolean);
         if (!ids.length) throw new Error("This title has no IMDb, TMDB or TVDB id to exclude it by");
-        await api("POST", `/collections/${row.id}/exclude`, { id: ids[0], ids, title: item.title || ids[0] });
+        b.disabled = true;
+        let saved;
+        try {
+          saved = await api("POST", `/collections/${row.id}/exclude`, { id: ids[0], ids, title: item.title || ids[0] });
+        } catch (err) {
+          b.disabled = false;
+          throw err;
+        }
+        row.config.exclude = saved.config.exclude;
+        b.closest("tr").remove();
+        const left = out.querySelectorAll("tbody tr").length;
+        const total = Number(out.dataset.total) - (++excludedHere);
+        out.querySelector("summary").innerHTML = `<strong>${left}</strong> of ${total} list titles aren't in ${esc(r.library.title)}`;
+        if (!left) out.querySelector(".table-wrap")?.remove();
+        updateSearchAll();
+        const wasOpen = view.querySelector("#excludedCard")?.open;
+        view.querySelector("#excludedSlot").innerHTML = excludedCard(row, wasOpen);
+        bindAllow();
         toast(`Excluded "${item.title || ids[0]}"`);
-        route();
       }));
       out.querySelectorAll("[data-request]").forEach((b) => b.onclick = () => guard(async () => {
         b.disabled = true;
