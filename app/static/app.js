@@ -1,7 +1,7 @@
 "use strict";
 
 const view = document.getElementById("view");
-const state = { catalog: [], libraries: null };
+const state = { catalog: [], libraries: null, rogueSort: localStorage.getItem("curatarr.rogueSort") || "az" };
 
 // ---------- helpers ----------
 
@@ -2616,9 +2616,17 @@ async function roguePage() {
     dailyEpisodeFormat: "Daily episode file", animeEpisodeFormat: "Anime episode file",
     seriesFolderFormat: "Series folder", seasonFolderFormat: "Season folder",
   };
+  const SORTS = { "az": "Title A–Z", "za": "Title Z–A", "most": "Most files", "fewest": "Fewest files" };
+  const sortBy = SORTS[state.rogueSort] ? state.rogueSort : "az";
+  const byTitle = (a, b) => a.title.localeCompare(b.title, undefined, { sensitivity: "base", ignorePunctuation: true, numeric: true });
+  const order = {
+    az: byTitle, za: (a, b) => byTitle(b, a),
+    most: (a, b) => b.files.length - a.files.length || byTitle(a, b),
+    fewest: (a, b) => a.files.length - b.files.length || byTitle(a, b),
+  }[sortBy];
   const block = (kind, s) => {
     const items = s.items.filter((i) => !filter || i.title.toLowerCase().includes(filter)
-      || i.files.some((f) => f.existing.toLowerCase().includes(filter)));
+      || i.files.some((f) => f.existing.toLowerCase().includes(filter))).sort(order);
     const files = s.items.reduce((n, i) => n + i.files.length, 0);
     const renameOn = s.formats.renameMovies ?? s.formats.renameEpisodes;
     return `<div class="card">
@@ -2659,7 +2667,10 @@ async function roguePage() {
       <div class="small muted">One request per ${p.service === "sonarr" ? "series" : "movie"}; big libraries take a few minutes.</div></div>` : ""}
     ${last.finished ? `<p class="small muted">Last scan: ${esc(new Date(last.finished).toLocaleString())}${last.stopped ? " (stopped part way)" : ""}</p>
       <div class="row" style="margin-bottom:12px;align-items:center">${tabs}
-        <input type="search" id="rogueFilter" placeholder="Filter by title or file name" value="${esc(state.rogueFilter || "")}" style="max-width:360px"></div>
+        <input type="search" id="rogueFilter" placeholder="Filter by title or file name" value="${esc(state.rogueFilter || "")}" style="max-width:360px">
+        <label class="small muted" for="rogueSort" style="margin:0">Sort</label>
+        <select id="rogueSort" style="width:auto">${Object.entries(SORTS).map(([k, v]) =>
+          `<option value="${k}" ${k === sortBy ? "selected" : ""}>${v}</option>`).join("")}</select></div>
       ${kinds.length ? block(tab, services[tab])
         : `<div class="card"><p class="muted">Radarr and Sonarr aren't set up in Settings, so there was nothing to scan.</p></div>`}`
       : p.running ? "" : `<div class="card"><p class="muted">No scan yet. <strong>Scan</strong> checks every movie in Radarr and every series in Sonarr.</p></div>`}`;
@@ -2671,6 +2682,12 @@ async function roguePage() {
     await api("POST", "/naming/stop");
     route();
   }));
+  const sortBox = view.querySelector("#rogueSort");
+  if (sortBox) sortBox.onchange = () => {
+    state.rogueSort = sortBox.value;
+    localStorage.setItem("curatarr.rogueSort", sortBox.value);
+    roguePage();
+  };
   view.querySelectorAll("[data-rogue-tab]").forEach((b) => b.onclick = () => {
     state.rogueTab = b.dataset.rogueTab;
     roguePage();

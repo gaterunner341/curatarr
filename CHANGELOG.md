@@ -3,6 +3,10 @@
 The version shown in the web UI's sidebar matches these entries. Each
 release is also published as `ghcr.io/gaterunner341/curatarr:<version>`.
 
+## 0.36.2
+
+- **Rogue Filenames: sort the list.** A **Sort** menu next to the filter offers **Title A–Z**, **Title Z–A**, **Most files** and **Fewest files**. Title sorting ignores leading punctuation (so "¡Three Amigos!" is under T), and titles with the same number of files are listed A–Z. Your choice is remembered.
+
 ## 0.36.1
 
 - **Rogue Filenames: Radarr and Sonarr tabs.** The page used to list Radarr and then Sonarr one after the other, so reaching Sonarr meant scrolling past every Radarr movie. Now **Radarr** and **Sonarr** tabs at the top, each with its file count, show one service at a time. The page remembers the tab you picked, and the filter works within the tab.
