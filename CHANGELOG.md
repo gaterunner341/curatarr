@@ -3,6 +3,15 @@
 The version shown in the web UI's sidebar matches these entries. Each
 release is also published as `ghcr.io/gaterunner341/curatarr:<version>`.
 
+## 0.37.1
+
+- **Fresh posters for specific titles is now a poster grid, on the Poster overlays page** (Settings → Poster overlays). It used to be a search box on the Napalm page.
+  - Pick a library (your primary TV library first) and its posters show as tiles. A filter box narrows them by title, and **Show more** loads more of a big library.
+  - Click a poster to pick it, and click again to unpick it. Picked posters get an outline and a check mark.
+  - A bar with **Preview**, **Refresh N posters** and **Clear** appears once something is picked. Picks are kept while you filter.
+  - Posters in the grid load as small thumbnails, so big libraries stay quick.
+- The Napalm page is back to refreshing whole libraries only.
+
 ## 0.37.0
 
 - **Fresh posters for specific titles:** a new card at the top of the **Napalm** page (Settings → Napalm). Refreshing whole libraries is still there, below it.

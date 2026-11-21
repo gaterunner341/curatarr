@@ -211,25 +211,18 @@ def run(section_ids: list[str]) -> dict:
 # A fresh poster for only the titles the user picks. Unlike a whole-library run, no collection's
 # overlays are turned off: a title with a Curatarr overlay gets it drawn again on its fresh poster.
 
-def search(query: str, section_ids: list[str], limit: int = 30) -> list[dict]:
-    """Movies and shows in these libraries whose title contains ``query``."""
+def titles(section_id: str) -> list[dict]:
+    """Every movie or show in one library, A-Z, with its poster: to pick titles from."""
     from .sync import library_index
-    want = plexmod.normalize_title(query)
-    if not want:
-        return []
-    out = []
+    overlaid = set(db.overlay_rows())
     with plexmod.from_settings(db.get_settings()) as plex:
-        for section in _sections(plex, section_ids):
-            index = library_index(plex, section)
-            for rk, title in index.titles.items():
-                if want in plexmod.normalize_title(title or ""):
-                    info = index.details.get(rk, {})
-                    out.append({"ratingKey": rk, "title": title, "year": info.get("year"), "type": section["type"],
-                                "library": section["title"], "section_id": section["id"],
-                                "thumb": _image_url(info["thumb"]) if info.get("thumb") else ""})
-    starts = lambda t: not plexmod.normalize_title(t["title"]).startswith(want)  # noqa: E731
-    out.sort(key=lambda t: (starts(t), t["title"].lower(), t["year"] or 0))
-    return out[:limit]
+        section = _sections(plex, [section_id])[0]
+        index = library_index(plex, section, refresh=True)
+        out = [{"ratingKey": rk, "title": title, "year": index.details.get(rk, {}).get("year"),
+                "thumb": index.details.get(rk, {}).get("thumb") or "", "overlay": rk in overlaid}
+               for rk, title in index.titles.items()]
+    out.sort(key=lambda t: (plexmod.normalize_title(t["title"] or ""), t["year"] or 0))
+    return out
 
 
 def _compare(plex: Plex, rk: str, overlaid: set) -> dict:

@@ -296,6 +296,8 @@ class Plex:
 
     def small_image(self, path: str, width: int = 160, height: int = 240) -> bytes:
         """A small copy of a poster (Plex scales it down), for comparing posters cheaply."""
+        if not path.startswith(("/library/", "/playlists/")):
+            raise PlexError("Only library artwork can be fetched")
         try:
             resp = self.http.get(self.url + "/photo/:/transcode", params={"width": width, "height": height,
                                                                           "url": path},

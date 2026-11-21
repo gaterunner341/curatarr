@@ -2328,9 +2328,10 @@ def test_fresh_posters_for_picked_titles(monkeypatch):
     cid = db.create_collection({"name": "Top", "library": "Movies", "section_id": "1",
                                 "sources": [{"type": "static", "value": "x"}], "ribbon": {"enabled": True, "text": "TOP"}})
 
-    found = napalm.search("t1", ["1"])
-    assert [(t["ratingKey"], t["title"], t["library"]) for t in found] == [("1", "T1", "Movies")]
-    assert TestClient(app).get("/api/posters/search", params={"q": "t", "section": "1"}).json()[0]["title"] == "T1"
+    listed = TestClient(app).get("/api/posters/titles", params={"section": "1"}).json()
+    assert [(t["ratingKey"], t["title"], t["thumb"]) for t in listed] == [
+        ("1", "T1", "/library/metadata/1/thumb/1"), ("2", "T2", "/library/metadata/2/thumb/1"),
+        ("3", "T3", "/library/metadata/3/thumb/1")]
     previews = {p["ratingKey"]: p["status"] for p in napalm.preview_titles(["1", "2", "3"])}
     assert previews["1"] == "changes" and "Keep Poster" in previews["2"] and "no poster" in previews["3"]
 

@@ -324,7 +324,7 @@ def tmdb_posters(query: str = "", collection: list[str] = Query(default=[])):
 
 
 @router.get("/plex/image")
-def plex_image(path: str, original: str = ""):
+def plex_image(path: str, original: str = "", small: bool = False):
     """Plex artwork; with ``original`` (a title's rating key), the poster as it was before
     Curatarr drew an overlay on it, when Curatarr saved one."""
     from . import overlays
@@ -334,7 +334,10 @@ def plex_image(path: str, original: str = ""):
             return Response(saved.read_bytes(), media_type="image/jpeg", headers={"Cache-Control": "max-age=300"})
     with _plex() as plex:
         try:
-            data, content_type = plex.image(path)
+            if small:              # a thumbnail, for poster grids with many titles
+                data, content_type = plex.small_image(path, 240, 360), "image/jpeg"
+            else:
+                data, content_type = plex.image(path)
         except PlexError as exc:
             raise HTTPException(404, str(exc))
     return Response(data, media_type=content_type, headers={"Cache-Control": "max-age=3600"})
@@ -1068,12 +1071,12 @@ def napalm_run(body: dict = Body(...)):
     return {"queued": True}
 
 
-@router.get("/posters/search")
-def poster_search(q: str = "", section: list[str] = Query(default=[])):
-    """Movies and shows in these libraries whose title contains ``q``, to pick for fresh posters."""
+@router.get("/posters/titles")
+def poster_titles(section: str = Query(...)):
+    """Every title in a library with its poster, to pick some for fresh posters."""
     from . import napalm
     try:
-        return napalm.search(q, section) if q.strip() and section else []
+        return napalm.titles(section)
     except PlexError as exc:
         raise HTTPException(400, str(exc))
 

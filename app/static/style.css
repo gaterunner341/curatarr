@@ -317,3 +317,15 @@ pre { background: var(--bg); border: 1px solid var(--border); border-radius: 6px
 }
 .overlay-preview.loading img { opacity: .55; transition: opacity .15s; }
 .nowrap { white-space: nowrap; }
+
+/* Fresh posters for specific titles: a poster grid to pick from */
+.fresh-item { cursor: pointer; }
+.fresh-item .item-poster { outline: 3px solid transparent; outline-offset: 2px; transition: outline-color .1s; }
+.fresh-item:hover .item-poster { outline-color: var(--border); }
+.fresh-item.picked .item-poster { outline-color: var(--accent); }
+.fresh-check { position: absolute; top: 6px; right: 6px; width: 24px; height: 24px; border-radius: 50%; display: none;
+  align-items: center; justify-content: center; background: var(--accent); color: #111; font-weight: 700; font-size: .85rem; }
+.fresh-item.picked .fresh-check { display: flex; }
+.fresh-bar { position: sticky; top: 0; z-index: 5; display: flex; align-items: center; gap: 8px; padding: 10px 12px;
+  margin-bottom: 12px; background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px; }
+.fresh-bar #freshCount { margin-right: auto; }
