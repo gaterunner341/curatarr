@@ -1544,7 +1544,11 @@ async function editor(id, params = new URLSearchParams()) {
       <h2>Appearance in Plex</h2>
       <div class="grid">
         <div class="full"><label for="f-summary">Summary</label><textarea id="f-summary">${esc(cfg.summary)}</textarea></div>
-        <div ${isPlaylist ? "hidden" : ""}><label for="f-sort">Sort title</label><input type="text" id="f-sort" value="${esc(cfg.sort_title)}" placeholder="!01 Top 250"></div>
+        <div ${isPlaylist ? "hidden" : ""}><label for="f-sort">Sort title</label><input type="text" id="f-sort" value="${esc(cfg.sort_title)}" placeholder="!01 Top 250">
+          <label class="check" style="margin-top:6px"><input type="checkbox" id="f-top" ${(cfg.sort_title || "").startsWith(TOP_SORT) ? "checked" : ""}>
+            Show at the top of the collection list</label>
+          <div class="hint">Sets the sort title to "${TOP_SORT}" and the name, so Plex lists it first (after the Hall of Fame and
+            holidays in season).</div></div>
         <div ${isPlaylist ? "hidden" : ""}><label for="f-labels">Labels (comma separated)</label><input type="text" id="f-labels" value="${esc(cfg.labels.join(", "))}"></div>
         <div ${isPlaylist ? "hidden" : ""}><label for="f-cmode">Collection visibility in library</label>
           <select id="f-cmode">
@@ -1836,6 +1840,11 @@ async function editor(id, params = new URLSearchParams()) {
       if (!open.has(el.id) && !lists.contains(el)) el.disabled = true;
     });
   }
+  // "Show at the top": writes the sort title; unchecking puts the plain name back; renaming keeps it in step.
+  const topBox = view.querySelector("#f-top"), sortBox = view.querySelector("#f-sort"), nameBox = view.querySelector("#f-name");
+  topBox.onchange = () => { sortBox.value = topBox.checked ? TOP_SORT + nameBox.value.trim() : nameBox.value.trim(); };
+  sortBox.addEventListener("input", () => { topBox.checked = sortBox.value.startsWith(TOP_SORT); });
+  nameBox.addEventListener("input", () => { if (topBox.checked) sortBox.value = TOP_SORT + nameBox.value.trim(); });
   const collect = () => {
     const picked = pickedLibs();
     return {
@@ -2445,6 +2454,7 @@ const SETTING_GROUPS = [
     ["language", "Your language (for collections set to only titles in your language)", "select", null],
   ], hint: "The primary libraries are listed first everywhere and are the ones pages and new collections start on." },
 ];
+const TOP_SORT = "!02_";     // sort titles starting with this come first in Plex (Hall of Fame !00_, holidays !01_)
 const LANGUAGES = { en: "English", es: "Spanish", fr: "French", de: "German", it: "Italian", pt: "Portuguese",
   ja: "Japanese", ko: "Korean", zh: "Chinese", hi: "Hindi" };
 SETTING_GROUPS.find((g) => g.title === "General").fields.find((f) => f[0] === "language")[3] = LANGUAGES;

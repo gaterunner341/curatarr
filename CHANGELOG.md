@@ -3,6 +3,13 @@
 The version shown in the web UI's sidebar matches these entries. Each
 release is also published as `ghcr.io/gaterunner341/curatarr:<version>`.
 
+## 0.36.0
+
+- **Show a collection at the top of Plex's collection list:** a new **Show at the top of the collection list** checkbox under **Sort title** (in the collection's editor, under Appearance in Plex).
+  - Checking it sets the sort title to "!02_" followed by the collection's name. Plex then lists the collection first, after the Hall of Fame and any holiday collections in season.
+  - Renaming the collection keeps the sort title in step. Unchecking it sets the sort title back to the plain name, so Plex sorts the collection normally again.
+  - The change reaches Plex at the next sync.
+
 ## 0.35.5
 
 - **Exclude in "Show missing titles" updates the list in place.** The page no longer reloads, so the list stays open. The excluded title disappears from it, the counts and **Search all** update, and the **excluded titles** box shows it right away.
