@@ -3,6 +3,10 @@
 The version shown in the web UI's sidebar matches these entries. Each
 release is also published as `ghcr.io/gaterunner341/curatarr:<version>`.
 
+## 0.38.1
+
+- **The badge options in Fresh posters for specific titles are always shown** now, right under the library and filter boxes. Before, they only appeared after you picked a poster. Until something is picked, the preview uses a title from the library and **Apply badges** stays greyed out.
+
 ## 0.38.0
 
 - **Badges on the titles you pick** (Settings → Poster overlays → Fresh posters for specific titles). Once you pick posters, the same choices as a whole library show up: content rating, rating icon (white or color), audience or critic rating, quality (movie libraries) and badge size, with a preview on the first picked title's poster.

@@ -3052,15 +3052,9 @@ async function freshTitlesCard(card) {
         ${esc(l.title)} (${l.type === "show" ? "TV" : "Movies"})</option>`).join("")}</select>
       <div class="grow"><input type="search" id="freshFilter" placeholder="Filter by title" style="width:100%;max-width:420px"></div>
     </div>
-    <div class="fresh-bar" id="freshBar" hidden>
-      <span id="freshCount"></span>
-      <button type="button" id="freshPreview">Preview</button>
-      <button type="button" class="primary" id="freshRun">Refresh posters</button>
-      <button type="button" id="freshClear">Clear</button>
-    </div>
-    <div class="library-badge fresh-badges" id="freshBadges" hidden>
+    <div class="library-badge fresh-badges" id="freshBadges">
       <div class="lib-controls">
-        <div class="lib-name"><strong>Badges for the picked titles</strong></div>
+        <div class="lib-name"><strong>Badges</strong></div>
         <label class="check"><input type="checkbox" data-k="content_rating"> Content rating</label>
         <label class="check" data-quality><input type="checkbox" data-k="quality"> Quality</label>
         <label class="check"><input type="checkbox" data-k="tv_icon"> Rating icon</label>
@@ -3072,12 +3066,18 @@ async function freshTitlesCard(card) {
           <option value="critic">Critic rating</option></select>
         <select data-k="size" title="Badge size">${[["small", "Small"], ["medium", "Medium"], ["large", "Large"],
           ["xlarge", "Extra large"]].map(([v, lbl]) => `<option value="${v}" ${v === "medium" ? "selected" : ""}>${lbl}</option>`).join("")}</select>
-        <p class="hint" style="flex-basis:100%;margin:0">Kept on these titles from now on. Titles also in a collection or library
-          with badges get them combined, not twice.</p>
-        <button type="button" class="primary" id="freshBadgeSave">Apply badges</button>
-        <button type="button" id="freshBadgeRemove">Remove their badges</button>
+        <p class="hint" style="flex-basis:100%;margin:0">Pick posters below, choose the badges, then <strong>Apply badges</strong>.
+          They stay on those titles from now on. Titles also in a collection or library with badges get them combined, not twice.</p>
+        <button type="button" class="primary" id="freshBadgeSave" disabled>Apply badges</button>
+        <button type="button" id="freshBadgeRemove" disabled>Remove their badges</button>
       </div>
       <div class="overlay-preview image-box" id="freshBadgePreview">▦</div>
+    </div>
+    <div class="fresh-bar" id="freshBar" hidden>
+      <span id="freshCount"></span>
+      <button type="button" id="freshPreview">Preview</button>
+      <button type="button" class="primary" id="freshRun">Refresh posters</button>
+      <button type="button" id="freshClear">Clear</button>
     </div>
     <div id="freshOut"></div>
     <div class="items fresh-grid" id="freshGrid"><p class="muted">Loading posters…</p></div>
@@ -3111,12 +3111,11 @@ async function freshTitlesCard(card) {
   };
   let previewSeq = 0, previewTimer = null, previewFor = "";
   const drawPreview = async () => {
-    const rk = [...picked.keys()][0];
-    if (!rk) return;
+    const rk = [...picked.keys()][0];      // the first pick's own poster, or a title from the library
     const mine = ++previewSeq;
     badgeOut.classList.add("loading");
     try {
-      const resp = await api("POST", "/overlays/preview", { badges: readBadges(), rating_key: rk }, true);
+      const resp = await api("POST", "/overlays/preview", rk ? { badges: readBadges(), rating_key: rk } : { badges: readBadges(), section_id: libBox.value }, true);
       if (mine !== previewSeq) return;
       if (!resp.ok) { badgeOut.textContent = "Preview failed"; return; }
       badgeOut.innerHTML = `<img src="${URL.createObjectURL(await resp.blob())}" alt="Badge preview">`;
@@ -3130,17 +3129,16 @@ async function freshTitlesCard(card) {
   badgeBox.querySelectorAll("input, select").forEach((c) => c.addEventListener("change", queuePreview));
   const showBar = () => {
     card.querySelector("#freshBar").hidden = !picked.size;
-    badgeBox.hidden = !picked.size;
+    card.querySelector("#freshBadgeSave").disabled = card.querySelector("#freshBadgeRemove").disabled = !picked.size;
     card.querySelector("#freshCount").innerHTML = `<strong>${picked.size}</strong> picked`;
     card.querySelector("#freshRun").textContent = `Refresh ${picked.size} poster${picked.size === 1 ? "" : "s"}`;
-    card.querySelector("#freshBadgeSave").textContent = `Apply badges to ${picked.size} title${picked.size === 1 ? "" : "s"}`;
+    card.querySelector("#freshBadgeSave").textContent = picked.size
+      ? `Apply badges to ${picked.size} title${picked.size === 1 ? "" : "s"}` : "Apply badges";
     const first = [...picked.keys()][0] || "";
     if (first !== previewFor) {           // a new first pick: start from its own badges, preview on its poster
       previewFor = first;
-      if (first) {
-        setBadges(all.find((x) => x.ratingKey === first)?.badges);
-        queuePreview();
-      }
+      if (first) setBadges(all.find((x) => x.ratingKey === first)?.badges);
+      queuePreview();
     }
   };
   const draw = () => {
@@ -3169,6 +3167,7 @@ async function freshTitlesCard(card) {
   };
   const load = () => guard(async () => {
     badgeBox.querySelector("[data-quality]").hidden = libs.find((l) => l.id === libBox.value)?.type !== "movie";
+    if (!picked.size) queuePreview();
     grid.innerHTML = `<p class="muted">Loading posters…</p>`;
     card.querySelector("#freshMore").innerHTML = "";
     all = await api("GET", `/posters/titles?section=${encodeURIComponent(libBox.value)}`);
