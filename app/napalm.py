@@ -214,12 +214,14 @@ def run(section_ids: list[str]) -> dict:
 def titles(section_id: str) -> list[dict]:
     """Every movie or show in one library, A-Z, with its poster: to pick titles from."""
     from .sync import library_index
+    from .overlays import title_settings
     overlaid = set(db.overlay_rows())
+    badged = title_settings()
     with plexmod.from_settings(db.get_settings()) as plex:
         section = _sections(plex, [section_id])[0]
         index = library_index(plex, section, refresh=True)
         out = [{"ratingKey": rk, "title": title, "year": index.details.get(rk, {}).get("year"),
-                "thumb": index.details.get(rk, {}).get("thumb") or "", "overlay": rk in overlaid}
+                "thumb": index.details.get(rk, {}).get("thumb") or "", "overlay": rk in overlaid, "badges": badged.get(rk)}
                for rk, title in index.titles.items()]
     out.sort(key=lambda t: (plexmod.normalize_title(t["title"] or ""), t["year"] or 0))
     return out

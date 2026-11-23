@@ -391,9 +391,46 @@ def save_library_settings(settings: dict[str, dict]) -> dict[str, dict]:
     return library_settings()
 
 
+# --- badges on single titles -----------------------------------------------------------
+# Stored in the "title_overlays" setting: {rating key: Badges settings}.
+
+def title_settings() -> dict[str, dict]:
+    """Badge settings for single movies or shows, keeping only titles with something turned on."""
+    from .models import Badges
+    try:
+        saved = json.loads(db.get_settings().get("title_overlays") or "{}")
+    except ValueError:
+        return {}
+    out = {}
+    for rk, raw in (saved.items() if isinstance(saved, dict) else []):
+        try:
+            badges = Badges(**raw).model_dump()
+        except (TypeError, ValueError):
+            continue
+        if badges["quality"] or badges["rating"] or badges["content_rating"] or badges["tv_icon"]:
+            out[str(rk)] = badges
+    return out
+
+
+def save_title_settings(rating_keys: list[str], badges: dict | None) -> dict[str, dict]:
+    """Give these titles the same badge settings, or take theirs away (None or nothing turned on)."""
+    from .models import Badges
+    clean = Badges(**badges).model_dump() if badges else None
+    if clean and not (clean["quality"] or clean["rating"] or clean["content_rating"] or clean["tv_icon"]):
+        clean = None
+    saved = title_settings()
+    for rk in rating_keys:
+        if clean:
+            saved[str(rk)] = clean
+        else:
+            saved.pop(str(rk), None)
+    db.save_settings({"title_overlays": json.dumps(saved)})
+    return title_settings()
+
+
 def needed() -> bool:
     """Whether an overlay pass has anything to do (overlays wanted, or ones to remove)."""
-    if db.overlay_rows() or library_settings():
+    if db.overlay_rows() or library_settings() or title_settings():
         return True
     return any(uses_overlays(CollectionConfig(**r["config"])) for r in db.list_collections())
 
@@ -507,6 +544,20 @@ def _wanted(plex: Plex) -> dict[str, dict]:
                     "ribbons": [], "badges": None, "fresh": False, "item": item, "section_id": section["id"],
                     "type": item.get("type") or section["type"], "thumb": item.get("thumb") or ""})
                 _merge_badges(entry, badges)
+    # Single titles picked on the Poster overlays page.
+    titles = title_settings()
+    if titles:
+        missing = [rk for rk in titles if rk not in wanted]
+        found = {str(m["ratingKey"]): m for m in (plex.items_meta(missing) if missing else [])}
+        for rk, badges in titles.items():
+            if rk not in wanted:
+                item = found.get(rk)
+                if not item:                    # no longer in Plex
+                    continue
+                wanted[rk] = {"ribbons": [], "badges": None, "fresh": False, "item": item,
+                              "section_id": str(item.get("librarySectionID") or ""),
+                              "type": item.get("type") or "movie", "thumb": item.get("thumb") or ""}
+            _merge_badges(wanted[rk], badges)
     return wanted
 
 

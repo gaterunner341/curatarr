@@ -336,3 +336,6 @@ pre { background: var(--bg); border: 1px solid var(--border); border-radius: 6px
 .fresh-bar { position: sticky; top: 0; z-index: 5; display: flex; align-items: center; gap: 8px; padding: 10px 12px;
   margin-bottom: 12px; background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px; }
 .fresh-bar #freshCount { margin-right: auto; }
+
+/* Badges for picked titles, under the fresh-poster bar */
+.fresh-badges { margin-bottom: 12px; }

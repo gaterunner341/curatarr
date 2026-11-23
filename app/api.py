@@ -1121,6 +1121,7 @@ def overlay_apply(remove_all: bool = False):
     if remove_all:
         # Turn ribbons and badges off too, or the next sync would draw them again.
         overlays.save_library_settings({})
+        overlays.save_title_settings(list(overlays.title_settings()), None)
         for row in db.list_collections():
             cfg = CollectionConfig(**row["config"])
             if cfg.ribbon.enabled or cfg.badges.quality or cfg.badges.rating or cfg.badges.content_rating \
@@ -1158,6 +1159,28 @@ def overlay_libraries_save(body: dict = Body(...)):
     return saved
 
 
+@router.get("/overlays/titles")
+def overlay_titles():
+    """Badge settings for single titles: {rating key: {quality, content_rating, tv_icon, rating, size, ...}}."""
+    from . import overlays
+    return overlays.title_settings()
+
+
+@router.put("/overlays/titles")
+def overlay_titles_save(body: dict = Body(...)):
+    """Give the picked titles these badges (``badges``), or take them away (``badges`` null)."""
+    from . import overlays
+    keys = [str(k) for k in body.get("rating_keys") or []]
+    if not keys:
+        raise HTTPException(422, "Pick at least one title")
+    try:
+        saved = overlays.save_title_settings(keys, body.get("badges"))
+    except (ValidationError, TypeError, ValueError) as exc:
+        raise HTTPException(422, str(exc))
+    scheduler.run_task(partial(sync.run_overlays, "title badges"), "Poster overlays")
+    return saved
+
+
 @router.post("/overlays/preview")
 def overlay_preview(body: dict = Body(...)):
     """A poster with the ribbon and badges drawn on it.
@@ -1183,11 +1206,14 @@ def overlay_preview(body: dict = Body(...)):
     fresh = bool(body.get("fresh_poster"))
     row = db.get_collection(int(body["collection_id"])) if body.get("collection_id") else None
     section = str(body.get("section_id") or "")
+    title = str(body.get("rating_key") or "")
     try:
-        if (row and row.get("plex_rating_key")) or section:
+        if (row and row.get("plex_rating_key")) or section or title:
             with _plex() as plex:
                 try:
-                    if row and row.get("plex_rating_key"):
+                    if title:                # one title, drawn on its own poster
+                        items = [i for i in [plex.item(title)] if i]
+                    elif row and row.get("plex_rating_key"):
                         items = plex.collection_raw(row["plex_rating_key"])
                     else:                    # a library: its first title with a poster
                         stype = next((s["type"] for s in plex.sections() if s["id"] == section), "movie")

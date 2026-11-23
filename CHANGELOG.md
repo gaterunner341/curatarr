@@ -3,6 +3,14 @@
 The version shown in the web UI's sidebar matches these entries. Each
 release is also published as `ghcr.io/gaterunner341/curatarr:<version>`.
 
+## 0.38.0
+
+- **Badges on the titles you pick** (Settings → Poster overlays → Fresh posters for specific titles). Once you pick posters, the same choices as a whole library show up: content rating, rating icon (white or color), audience or critic rating, quality (movie libraries) and badge size, with a preview on the first picked title's poster.
+  - **Apply badges** saves them for the picked titles and draws them in the background. They stay on those titles from now on and are combined with any collection or library badges, not drawn twice.
+  - **Remove their badges** takes them off again and puts the poster back (badges from collections or libraries stay).
+  - Picking a title that already has its own badges loads its settings, and titles with their own badges say so under the poster.
+  - **Remove all overlays** clears these too.
+
 ## 0.37.2
 
 - **Rogue Filenames: collapse a series (or movie).** Click a title to hide its files; it then shows just "N files hidden". Click again to show them. **Collapse all** and **Expand all** above the table do every title at once. What you collapse stays collapsed while you filter, sort or switch tabs.

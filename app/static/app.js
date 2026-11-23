@@ -3058,6 +3058,27 @@ async function freshTitlesCard(card) {
       <button type="button" class="primary" id="freshRun">Refresh posters</button>
       <button type="button" id="freshClear">Clear</button>
     </div>
+    <div class="library-badge fresh-badges" id="freshBadges" hidden>
+      <div class="lib-controls">
+        <div class="lib-name"><strong>Badges for the picked titles</strong></div>
+        <label class="check"><input type="checkbox" data-k="content_rating"> Content rating</label>
+        <label class="check" data-quality><input type="checkbox" data-k="quality"> Quality</label>
+        <label class="check"><input type="checkbox" data-k="tv_icon"> Rating icon</label>
+        <select data-k="icon_style" title="Rating icon style"><option value="white">White icons</option>
+          <option value="color">Color icons</option></select>
+        <select data-k="rating" title="Rating badge">
+          <option value="">No rating badge</option>
+          <option value="audience">Audience rating</option>
+          <option value="critic">Critic rating</option></select>
+        <select data-k="size" title="Badge size">${[["small", "Small"], ["medium", "Medium"], ["large", "Large"],
+          ["xlarge", "Extra large"]].map(([v, lbl]) => `<option value="${v}" ${v === "medium" ? "selected" : ""}>${lbl}</option>`).join("")}</select>
+        <p class="hint" style="flex-basis:100%;margin:0">Kept on these titles from now on. Titles also in a collection or library
+          with badges get them combined, not twice.</p>
+        <button type="button" class="primary" id="freshBadgeSave">Apply badges</button>
+        <button type="button" id="freshBadgeRemove">Remove their badges</button>
+      </div>
+      <div class="overlay-preview image-box" id="freshBadgePreview">▦</div>
+    </div>
     <div id="freshOut"></div>
     <div class="items fresh-grid" id="freshGrid"><p class="muted">Loading posters…</p></div>
     <div id="freshMore" style="margin-top:12px"></div>`;
@@ -3068,10 +3089,59 @@ async function freshTitlesCard(card) {
     const f = filterBox.value.trim().toLowerCase();
     return f ? all.filter((t) => t.title.toLowerCase().includes(f)) : all;
   };
+  // Badges for the picked titles: the same choices as a whole library's, with a preview on the first pick.
+  const badgeBox = card.querySelector("#freshBadges");
+  const badgeOut = card.querySelector("#freshBadgePreview");
+  const readBadges = () => ({
+    content_rating: badgeBox.querySelector('[data-k="content_rating"]').checked,
+    quality: !badgeBox.querySelector("[data-quality]").hidden && badgeBox.querySelector('[data-k="quality"]').checked,
+    tv_icon: badgeBox.querySelector('[data-k="tv_icon"]').checked,
+    icon_style: badgeBox.querySelector('[data-k="icon_style"]').value,
+    rating: badgeBox.querySelector('[data-k="rating"]').value, rating_min: 0,
+    size: badgeBox.querySelector('[data-k="size"]').value,
+  });
+  const setBadges = (b) => {
+    b = b || {};
+    badgeBox.querySelector('[data-k="content_rating"]').checked = Boolean(b.content_rating);
+    badgeBox.querySelector('[data-k="quality"]').checked = Boolean(b.quality);
+    badgeBox.querySelector('[data-k="tv_icon"]').checked = Boolean(b.tv_icon);
+    badgeBox.querySelector('[data-k="icon_style"]').value = b.icon_style || "white";
+    badgeBox.querySelector('[data-k="rating"]').value = b.rating || "";
+    badgeBox.querySelector('[data-k="size"]').value = b.size || "medium";
+  };
+  let previewSeq = 0, previewTimer = null, previewFor = "";
+  const drawPreview = async () => {
+    const rk = [...picked.keys()][0];
+    if (!rk) return;
+    const mine = ++previewSeq;
+    badgeOut.classList.add("loading");
+    try {
+      const resp = await api("POST", "/overlays/preview", { badges: readBadges(), rating_key: rk }, true);
+      if (mine !== previewSeq) return;
+      if (!resp.ok) { badgeOut.textContent = "Preview failed"; return; }
+      badgeOut.innerHTML = `<img src="${URL.createObjectURL(await resp.blob())}" alt="Badge preview">`;
+    } catch {
+      if (mine === previewSeq) badgeOut.textContent = "Preview failed";
+    } finally {
+      if (mine === previewSeq) badgeOut.classList.remove("loading");
+    }
+  };
+  const queuePreview = () => { clearTimeout(previewTimer); previewTimer = setTimeout(drawPreview, 350); };
+  badgeBox.querySelectorAll("input, select").forEach((c) => c.addEventListener("change", queuePreview));
   const showBar = () => {
     card.querySelector("#freshBar").hidden = !picked.size;
+    badgeBox.hidden = !picked.size;
     card.querySelector("#freshCount").innerHTML = `<strong>${picked.size}</strong> picked`;
     card.querySelector("#freshRun").textContent = `Refresh ${picked.size} poster${picked.size === 1 ? "" : "s"}`;
+    card.querySelector("#freshBadgeSave").textContent = `Apply badges to ${picked.size} title${picked.size === 1 ? "" : "s"}`;
+    const first = [...picked.keys()][0] || "";
+    if (first !== previewFor) {           // a new first pick: start from its own badges, preview on its poster
+      previewFor = first;
+      if (first) {
+        setBadges(all.find((x) => x.ratingKey === first)?.badges);
+        queuePreview();
+      }
+    }
   };
   const draw = () => {
     const list = matches();
@@ -3081,7 +3151,7 @@ async function freshTitlesCard(card) {
         <div class="item-poster">${t.thumb ? `<img loading="lazy" src="/api/plex/image?small=1&path=${encodeURIComponent(t.thumb)}" alt="">` : "▦"}
           <span class="fresh-check">✓</span></div>
         <div class="item-text"><div class="item-title">${esc(t.title)}</div>
-          <div class="small muted">${esc(t.year || "")}${t.overlay ? " · has an overlay" : ""}</div></div>
+          <div class="small muted">${esc(t.year || "")}${t.overlay ? " · has an overlay" : ""}${t.badges ? " · own badges" : ""}</div></div>
       </div>`).join("") : `<p class="muted">${all.length ? "No titles match the filter." : "This library is empty."}</p>`;
     const more = card.querySelector("#freshMore");
     more.innerHTML = list.length > shown ? `<button type="button" id="freshShowMore">Show more (${(list.length - shown).toLocaleString()} left)</button>` : "";
@@ -3098,6 +3168,7 @@ async function freshTitlesCard(card) {
     });
   };
   const load = () => guard(async () => {
+    badgeBox.querySelector("[data-quality]").hidden = libs.find((l) => l.id === libBox.value)?.type !== "movie";
     grid.innerHTML = `<p class="muted">Loading posters…</p>`;
     card.querySelector("#freshMore").innerHTML = "";
     all = await api("GET", `/posters/titles?section=${encodeURIComponent(libBox.value)}`);
@@ -3111,6 +3182,22 @@ async function freshTitlesCard(card) {
     card.querySelector("#freshOut").innerHTML = "";
     showBar();
     draw();
+  };
+  const saveBadges = (badges) => guard(async () => {
+    const keys = [...picked.keys()];
+    await api("PUT", "/overlays/titles", { rating_keys: keys, badges });
+    const on = badges && (badges.content_rating || badges.quality || badges.tv_icon || badges.rating);
+    all.filter((t) => picked.has(t.ratingKey)).forEach((t) => { t.badges = on ? { ...badges } : null; });
+    toast(on ? `Badges saved for ${keys.length} title${keys.length === 1 ? "" : "s"}. Posters update in the background; progress is in the top bar.`
+      : `Badges removed from ${keys.length} title${keys.length === 1 ? "" : "s"}. Their posters update in the background.`);
+    draw();
+  });
+  card.querySelector("#freshBadgeSave").onclick = () => saveBadges(readBadges());
+  card.querySelector("#freshBadgeRemove").onclick = () => {
+    if (!confirm(`Remove the badges set here from ${picked.size} title${picked.size === 1 ? "" : "s"}?\n\n`
+      + "Badges from collections or whole libraries stay.")) return;
+    setBadges(null);
+    saveBadges(null);
   };
   card.querySelector("#freshPreview").onclick = (e) => guard(async () => {
     const out = card.querySelector("#freshOut");

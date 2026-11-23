@@ -1501,6 +1501,42 @@ def test_library_wide_badges(monkeypatch):
     assert fake.posters["1"] == fake.original["1"] and db.overlay_rows() == {}
 
 
+class FakeTitleOverlayPlex(FakeOverlayPlex):
+    """FakeOverlayPlex whose titles say which library they're in and carry a content rating."""
+
+    def handle_request(self, request):
+        resp = super().handle_request(request)
+        parts = request.url.path.strip("/").split("/")
+        if len(parts) == 3 and parts[1] == "metadata" and request.method == "GET":
+            body = resp.json()
+            for m in body["MediaContainer"]["Metadata"]:
+                m.update({"librarySectionID": 1, "type": "movie", "title": f"T{m['ratingKey']}", "contentRating": "R"})
+            return httpx.Response(200, json=body)
+        return resp
+
+
+def test_badges_on_picked_titles(monkeypatch):
+    from app import overlays, plex as plexmod
+    for row in db.list_collections():
+        db.delete_collection(row["id"])
+    overlays.save_library_settings({})
+    fake = FakeTitleOverlayPlex()
+    monkeypatch.setattr(plexmod, "from_settings", lambda *a, **k: Plex("http://plex", "t", client=httpx.Client(transport=fake)))
+    assert not overlays.needed()
+    overlays.save_title_settings(["2"], {"content_rating": True, "tv_icon": True, "size": "large"})
+    overlays.save_title_settings(["1"], {"size": "small"})             # nothing turned on: not kept
+    assert list(overlays.title_settings()) == ["2"] and overlays.title_settings()["2"]["size"] == "large"
+    assert overlays.apply_all()["drawn"] == 1
+    assert fake.posters["2"] != fake.original["2"] and fake.posters["1"] == fake.original["1"]
+    assert list(db.overlay_rows()) == ["2"]
+
+    # Taking them away puts the original poster back.
+    overlays.save_title_settings(["2"], None)
+    assert overlays.title_settings() == {}
+    assert overlays.apply_all()["restored"] == 1
+    assert fake.posters["2"] == fake.original["2"] and db.overlay_rows() == {}
+
+
 def test_unmatched_titles_and_keep_label(monkeypatch):
     from app import napalm, plex as plexmod, sync as sync_mod, unmatched
 
