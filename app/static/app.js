@@ -109,16 +109,24 @@ async function pollActivity() {
       + (n.overlays_off?.length ? `. Poster overlays turned off on: ${n.overlays_off.map((c) => c.name).join(", ")}` : ""),
       Boolean(n.errors));
     napalmLastRun(document.getElementById("napalmLast"));
+    window.dispatchEvent(new Event("curatarr:posters-changed"));
   }
   activity.napalm = Boolean(napalm);
   if (activity.overlays && !overlaysRunning && p) {
     toast(p.errors ? `Poster overlays finished with ${p.errors} problem(s); see Logs` : "Poster overlays are up to date",
       Boolean(p.errors));
     if (/^#\/(collections\/\d+\/items|dashboard)/.test(location.hash)) route();
+    window.dispatchEvent(new Event("curatarr:posters-changed"));
   }
+  // A poster change we asked for, done so quickly it was never seen running: still tell the page.
+  if (activity.postersPending && !running && Date.now() - activity.postersPending > 4000) {
+    activity.postersPending = 0;
+    window.dispatchEvent(new Event("curatarr:posters-changed"));
+  }
+  if (running) activity.postersPending = 0;
   activity.running = running;
   activity.overlays = overlaysRunning;
-  activity.timer = setTimeout(pollActivity, running ? 2000 : 15000);
+  activity.timer = setTimeout(pollActivity, running || activity.postersPending ? 2000 : 15000);
 }
 
 function watchActivity() {
@@ -3180,6 +3188,15 @@ async function freshTitlesCard(card) {
     draw();
   });
   libBox.onchange = load;
+  const reload = async () => {
+    if (!card.isConnected) { window.removeEventListener("curatarr:posters-changed", reload); return; }
+    const fresh = await api("GET", `/posters/titles?section=${encodeURIComponent(libBox.value)}`).catch(() => null);
+    if (!fresh || !card.isConnected) return;
+    all = fresh;
+    draw();
+    queuePreview();
+  };
+  window.addEventListener("curatarr:posters-changed", reload);
   filterBox.oninput = () => { shown = PAGE; draw(); };
   card.querySelector("#freshClear").onclick = () => {
     picked.clear();
@@ -3190,10 +3207,13 @@ async function freshTitlesCard(card) {
   const saveBadges = (badges) => guard(async () => {
     const keys = [...picked.keys()];
     await api("PUT", "/overlays/titles", { rating_keys: keys, badges });
+    activity.postersPending = Date.now();
     const on = badges && (badges.content_rating || badges.quality || badges.tv_icon || badges.rating);
     all.filter((t) => picked.has(t.ratingKey)).forEach((t) => { t.badges = on ? { ...badges } : null; });
     toast(on ? `Badges saved for ${keys.length} title${keys.length === 1 ? "" : "s"}. Posters update in the background; progress is in the top bar.`
       : `Badges removed from ${keys.length} title${keys.length === 1 ? "" : "s"}. Their posters update in the background.`);
+    picked.clear();                       // done with these: unpick them
+    showBar();
     draw();
   });
   card.querySelector("#freshBadgeSave").onclick = () => saveBadges(readBadges());
@@ -3232,6 +3252,7 @@ async function freshTitlesCard(card) {
       + "Posters picked by hand on these titles are replaced. The old posters stay in each title's poster list in Plex.")) return;
     activity.napalmStarted = Date.now();
     await api("POST", "/posters/refresh", { rating_keys: [...picked.keys()] });
+    activity.postersPending = Date.now();
     toast("Refreshing posters in the background. Progress is in the top bar.");
     picked.clear();
     card.querySelector("#freshOut").innerHTML = "";

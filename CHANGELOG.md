@@ -3,6 +3,11 @@
 The version shown in the web UI's sidebar matches these entries. Each
 release is also published as `ghcr.io/gaterunner341/curatarr:<version>`.
 
+## 0.38.3
+
+- **Fresh posters for specific titles: the poster grid updates by itself** when the work is done. After **Apply badges**, **Remove their badges** or **Refresh**, the posters reload once the background work finishes, so you see the new ones without reloading the page. Your filter and how far you've scrolled stay put.
+- **Apply badges** and **Remove their badges** now unpick the titles when they're done, like **Refresh** already did.
+
 ## 0.38.2
 
 - **Content rating and Rating icon are either-or** in Fresh posters for specific titles. Ticking one unticks the other, since both show the rating.
