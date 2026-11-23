@@ -3,6 +3,10 @@
 The version shown in the web UI's sidebar matches these entries. Each
 release is also published as `ghcr.io/gaterunner341/curatarr:<version>`.
 
+## 0.38.2
+
+- **Content rating and Rating icon are either-or** in Fresh posters for specific titles. Ticking one unticks the other, since both show the rating.
+
 ## 0.38.1
 
 - **The badge options in Fresh posters for specific titles are always shown** now, right under the library and filter boxes. Before, they only appeared after you picked a poster. Until something is picked, the preview uses a title from the library and **Apply badges** stays greyed out.

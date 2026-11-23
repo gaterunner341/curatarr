@@ -3102,7 +3102,7 @@ async function freshTitlesCard(card) {
   });
   const setBadges = (b) => {
     b = b || {};
-    badgeBox.querySelector('[data-k="content_rating"]').checked = Boolean(b.content_rating);
+    badgeBox.querySelector('[data-k="content_rating"]').checked = Boolean(b.content_rating) && !b.tv_icon;
     badgeBox.querySelector('[data-k="quality"]').checked = Boolean(b.quality);
     badgeBox.querySelector('[data-k="tv_icon"]').checked = Boolean(b.tv_icon);
     badgeBox.querySelector('[data-k="icon_style"]').value = b.icon_style || "white";
@@ -3126,6 +3126,11 @@ async function freshTitlesCard(card) {
     }
   };
   const queuePreview = () => { clearTimeout(previewTimer); previewTimer = setTimeout(drawPreview, 350); };
+  // Content rating and Rating icon both show the rating, so only one can be on.
+  const crBox = badgeBox.querySelector('[data-k="content_rating"]');
+  const iconBox = badgeBox.querySelector('[data-k="tv_icon"]');
+  crBox.addEventListener("change", () => { if (crBox.checked) iconBox.checked = false; });
+  iconBox.addEventListener("change", () => { if (iconBox.checked) crBox.checked = false; });
   badgeBox.querySelectorAll("input, select").forEach((c) => c.addEventListener("change", queuePreview));
   const showBar = () => {
     card.querySelector("#freshBar").hidden = !picked.size;
